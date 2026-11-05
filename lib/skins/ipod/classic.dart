@@ -1,0 +1,566 @@
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+
+import '../../core/player.dart';
+import 'look.dart';
+import 'model.dart';
+import 'nav.dart';
+import 'wheel.dart';
+
+/// Le Classic blanc : façade laquée, liseré chromé, écran couleur 320×240.
+class ClassicModel extends IpodModel {
+  const ClassicModel();
+
+  @override
+  String get name => 'Baladeur Classic';
+
+  @override
+  Size get size => G.size;
+
+  @override
+  Rect get screen => G.screen;
+
+  @override
+  Offset get wheelCenter => G.wheelCenter;
+
+  @override
+  WheelStyle get wheel => const WheelStyle(radius: G.wheelRadius, buttonRadius: G.buttonRadius);
+
+  @override
+  ScreenLook get look => const ClassicLook();
+
+  @override
+  CustomPainter get body => const BodyPainter();
+
+  @override
+  CustomPainter? get glass => const GlassPainter();
+}
+
+/// Dimensions du Classic, en unités de dessin (≈ 6,67 unités par mm,
+/// d'après un Classic de 61,8 × 103,5 mm).
+class G {
+  static const Size size = Size(412, 690);
+  static const double radius = 36;
+
+  /// Liseré chromé visible tout autour de la façade.
+  static const double rim = 3;
+
+  /// Cadre sombre autour de l'écran, puis l'écran lui-même (4:3).
+  static const Rect screenFrame = Rect.fromLTWH(32, 34, 348, 261);
+  static const Rect screen = Rect.fromLTWH(38, 40, 336, 252);
+
+  static const Offset wheelCenter = Offset(206, 498);
+  static const double wheelRadius = 132;
+  static const double buttonRadius = 50;
+}
+
+/// Boîtier : ombre portée (il flotte), liseré chromé, façade blanche laquée
+/// et cadre sombre de l'écran.
+class BodyPainter extends CustomPainter {
+  const BodyPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final outer = RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(G.radius));
+
+    // Ombres : une large et diffuse, une plus serrée sous l'appareil.
+    canvas.drawRRect(
+      outer.shift(const Offset(0, 26)).deflate(10),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.32)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 30),
+    );
+    canvas.drawRRect(
+      outer.shift(const Offset(0, 6)),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.25)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+    );
+
+    // Liseré chromé : reflets verticaux comme un métal poli.
+    canvas.drawRRect(
+      outer,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset.zero,
+          Offset(size.width, 0),
+          const [Color(0xFF8C9095), Color(0xFFF7F8F9), Color(0xFFB4B8BC), Color(0xFFE8EAEC), Color(0xFF85898E)],
+          const [0, 0.18, 0.5, 0.82, 1],
+        ),
+    );
+
+    // Façade blanche.
+    final front = outer.deflate(G.rim);
+    canvas.drawRRect(
+      front,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset.zero,
+          Offset(0, size.height),
+          const [Color(0xFFFFFFFF), Color(0xFFF6F6F4), Color(0xFFECECEA)],
+          const [0, 0.55, 1],
+        ),
+    );
+    // Arrondi de la façade : léger assombrissement au ras du chrome.
+    canvas.drawRRect(
+      front.deflate(1),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = Colors.black.withValues(alpha: 0.07),
+    );
+
+    // Cadre de l'écran.
+    final frame = RRect.fromRectAndRadius(G.screenFrame, const Radius.circular(6));
+    canvas.drawRRect(frame.inflate(1), Paint()..color = const Color(0xFFD5D6D8));
+    canvas.drawRRect(frame, Paint()..color = const Color(0xFF1E1F21));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => false;
+}
+
+/// Reflet de la plaque d'acrylique qui couvre toute la façade.
+class GlassPainter extends CustomPainter {
+  const GlassPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final front = RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(G.radius)).deflate(G.rim);
+    canvas.save();
+    canvas.clipRRect(front);
+    // Bande de lumière en diagonale sur le haut.
+    final band = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width * 0.78, 0)
+      ..lineTo(0, size.height * 0.36)
+      ..close();
+    canvas.drawPath(
+      band,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          Offset.zero,
+          Offset(size.width * 0.4, size.height * 0.24),
+          [Colors.white.withValues(alpha: 0.22), Colors.white.withValues(alpha: 0.06), Colors.white.withValues(alpha: 0)],
+          const [0, 0.7, 1],
+        ),
+    );
+    // L'écran sous l'acrylique : très léger voile.
+    canvas.drawRect(
+      G.screen,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          G.screen.topLeft,
+          G.screen.bottomLeft,
+          [Colors.white.withValues(alpha: 0.10), Colors.white.withValues(alpha: 0.0)],
+          const [0, 0.5],
+        ),
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => false;
+}
+
+// --- Écran -------------------------------------------------------------------
+
+const double _barH = 22;
+const _ink = Color(0xFF111111);
+const _font = 'Noto Sans';
+
+class ClassicLook extends ScreenLook {
+  const ClassicLook();
+
+  @override
+  Size get size => const Size(320, 240);
+
+  @override
+  double get rowHeight => 24;
+
+  @override
+  int get visibleRows => 9;
+
+  @override
+  double get scrollbarWidth => 9;
+
+  @override
+  TextStyle get textStyle =>
+      const TextStyle(fontFamily: _font, color: _ink, fontSize: 14, fontWeight: FontWeight.w600, height: 1);
+
+  @override
+  Color get background => Colors.white;
+
+  @override
+  Widget statusBar({required String title, required bool playing, required bool hasTrack}) =>
+      _StatusBar(title: title, playing: playing, hasTrack: hasTrack);
+
+  @override
+  Widget highlight() => const DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF7DBBF5), Color(0xFF3A8BE6), Color(0xFF1F6BD3)],
+            stops: [0, 0.5, 1],
+          ),
+          border: Border(top: BorderSide(color: Color(0xFF5FA2EC)), bottom: BorderSide(color: Color(0xFF1857B3))),
+        ),
+      );
+
+  @override
+  Widget row(MenuEntry entry, {required bool selected}) => _Row(entry: entry, selected: selected);
+
+  @override
+  CustomPainter scrollbar(double start, double extent) => _ScrollbarPainter(start, extent);
+
+  @override
+  Widget empty() => const Center(
+        child: Text('Aucun élément', style: TextStyle(color: Color(0xFF8A8F95))),
+      );
+
+  @override
+  Widget nowPlaying(PlayerController player, NowPlayingMode mode) => _NowPlaying(player: player, mode: mode);
+}
+
+// --- Barre de titre ----------------------------------------------------------
+
+class _StatusBar extends StatelessWidget {
+  const _StatusBar({required this.title, required this.playing, required this.hasTrack});
+
+  final String title;
+  final bool playing;
+  final bool hasTrack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: _barH,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFFDFDFD), Color(0xFFE4E7EA), Color(0xFFCDD1D6)],
+        ),
+        border: Border(bottom: BorderSide(color: Color(0xFF8F949A))),
+      ),
+      child: Stack(
+        children: [
+          // Entre l'icône de lecture et la batterie ; coupé par « … » si trop long.
+          Positioned.fill(
+            left: 26,
+            right: 38,
+            child: Center(
+              child: Text(
+                title,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ),
+          if (hasTrack)
+            Positioned(
+              left: 6,
+              top: 0,
+              bottom: 0,
+              child: Icon(playing ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 15, color: const Color(0xFF2E6FCB)),
+            ),
+          const Positioned(right: 7, top: 6, child: CustomPaint(size: Size(24, 10), painter: _BatteryPainter())),
+        ],
+      ),
+    );
+  }
+}
+
+class _BatteryPainter extends CustomPainter {
+  const _BatteryPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final body = RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, size.width - 2, size.height), const Radius.circular(2));
+    canvas.drawRRect(body, Paint()..color = const Color(0xFF6B7076));
+    final inner = body.deflate(1.2);
+    canvas.drawRRect(
+      inner,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFB8F08A), Color(0xFF4FB320), Color(0xFF2F8A12)],
+        ).createShader(inner.outerRect),
+    );
+    canvas.drawRect(Rect.fromLTWH(size.width - 2, 3, 2, size.height - 6), Paint()..color = const Color(0xFF6B7076));
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => false;
+}
+
+class _Row extends StatelessWidget {
+  const _Row({required this.entry, required this.selected});
+
+  final MenuEntry entry;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? Colors.white : _ink;
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, right: 4),
+      child: Row(
+        children: [
+          Expanded(child: Marquee(entry.label, active: selected, style: TextStyle(color: color))),
+          if (entry.open != null) Icon(Icons.chevron_right_rounded, size: 18, color: color),
+        ],
+      ),
+    );
+  }
+}
+
+class _ScrollbarPainter extends CustomPainter {
+  const _ScrollbarPainter(this.start, this.extent);
+
+  final double start;
+  final double extent;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final track = Offset.zero & size;
+    canvas.drawRect(
+      track,
+      Paint()
+        ..shader = const LinearGradient(colors: [Color(0xFFC9CDD2), Color(0xFFEFF1F3)]).createShader(track),
+    );
+    canvas.drawLine(Offset.zero, Offset(0, size.height), Paint()..color = const Color(0xFF9DA2A8));
+    final h = (size.height * extent).clamp(12.0, size.height);
+    final y = (size.height - h) * (start / (1 - extent)).clamp(0.0, 1.0);
+    final thumb = RRect.fromRectAndRadius(Rect.fromLTWH(1.5, y + 1, size.width - 3, h - 2), const Radius.circular(3));
+    canvas.drawRRect(
+      thumb,
+      Paint()
+        ..shader = const LinearGradient(colors: [Color(0xFF3F8EE8), Color(0xFF7DBBF5), Color(0xFF2E78D8)])
+            .createShader(thumb.outerRect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScrollbarPainter old) => old.start != start || old.extent != extent;
+}
+
+// --- En lecture --------------------------------------------------------------
+
+String _time(Duration d) {
+  final s = d.inSeconds;
+  return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
+}
+
+class _NowPlaying extends StatelessWidget {
+  const _NowPlaying({required this.player, required this.mode});
+
+  final PlayerController player;
+  final NowPlayingMode mode;
+
+  @override
+  Widget build(BuildContext context) {
+    final track = player.current;
+    if (track == null) {
+      return const Center(child: Text('Aucun morceau'));
+    }
+    final albumIndex = player.currentAlbum;
+    final album = albumIndex >= 0 ? player.albums[albumIndex] : null;
+    final position = album == null
+        ? '${player.index + 1} sur ${player.queue.length}'
+        : '${player.index - album.firstIndex + 1} sur ${album.trackCount}';
+
+    const art = 116.0;
+    return Stack(
+      children: [
+        Positioned(
+          left: 8,
+          top: 5,
+          child: Text(position, style: const TextStyle(fontSize: 11, color: Color(0xFF4A4F55))),
+        ),
+        Positioned(left: 10, top: 24, child: _Artwork(bytes: player.cover, size: art)),
+        Positioned(
+          left: 10 + art + 12,
+          right: 8,
+          top: 40,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Marquee(track.title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 10),
+              Marquee(track.artist, style: const TextStyle(fontSize: 13)),
+              const SizedBox(height: 8),
+              Marquee(track.album, style: const TextStyle(fontSize: 13, color: Color(0xFF5A5F66))),
+            ],
+          ),
+        ),
+        Positioned(
+          left: 12,
+          right: 12,
+          bottom: 10,
+          height: 36,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            child: mode == NowPlayingMode.volume
+                ? _VolumeBar(key: const ValueKey('vol'), volume: player.volume / 100)
+                : _Progress(key: const ValueKey('prog'), player: player, scrub: mode == NowPlayingMode.scrub),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _Artwork extends StatelessWidget {
+  const _Artwork({required this.bytes, required this.size});
+
+  final dynamic bytes;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget image = bytes == null
+        ? const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFE9ECEF), Color(0xFFB9BFC6)],
+              ),
+            ),
+            child: Center(child: Icon(Icons.music_note_rounded, size: 48, color: Colors.white)),
+          )
+        : Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true, filterQuality: FilterQuality.medium);
+    return SizedBox(
+      width: size,
+      height: size,
+      child: DecoratedBox(
+        position: DecorationPosition.foreground,
+        decoration: BoxDecoration(border: Border.all(color: const Color(0x33000000))),
+        child: image,
+      ),
+    );
+  }
+}
+
+class _Progress extends StatelessWidget {
+  const _Progress({super.key, required this.player, required this.scrub});
+
+  final PlayerController player;
+  final bool scrub;
+
+  @override
+  Widget build(BuildContext context) {
+    final pos = player.smoothPosition;
+    final remaining = player.duration - pos;
+    return Column(
+      children: [
+        SizedBox(height: 12, child: CustomPaint(size: Size.infinite, painter: _BarPainter(player.progress, scrub))),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(_time(pos), style: const TextStyle(fontSize: 11)),
+            Text('-${_time(remaining.isNegative ? Duration.zero : remaining)}', style: const TextStyle(fontSize: 11)),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _VolumeBar extends StatelessWidget {
+  const _VolumeBar({super.key, required this.volume});
+
+  final double volume;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.volume_mute_rounded, size: 14, color: Color(0xFF4A4F55)),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: SizedBox(height: 12, child: CustomPaint(size: Size.infinite, painter: _BarPainter(volume, false))),
+          ),
+        ),
+        const SizedBox(width: 4),
+        const Icon(Icons.volume_up_rounded, size: 14, color: Color(0xFF4A4F55)),
+      ],
+    );
+  }
+}
+
+/// Barre bombée façon verre : creux gris, remplissage bleu brillant.
+class _BarPainter extends CustomPainter {
+  const _BarPainter(this.value, this.diamond);
+
+  final double value;
+  final bool diamond;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final r = const Radius.circular(2);
+    final track = RRect.fromRectAndRadius(Offset.zero & size, r);
+    canvas.drawRRect(
+      track,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFBFC4CA), Color(0xFFF4F5F7)],
+        ).createShader(track.outerRect),
+    );
+    final fillW = size.width * value.clamp(0.0, 1.0);
+    if (fillW > 0) {
+      final fill = RRect.fromRectAndRadius(Rect.fromLTWH(0, 0, fillW, size.height), r);
+      canvas.drawRRect(
+        fill,
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF9CCCF8), Color(0xFF3A8BE6), Color(0xFF2167CC)],
+            stops: [0, 0.5, 1],
+          ).createShader(fill.outerRect),
+      );
+    }
+    canvas.drawRRect(
+      track,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = const Color(0xFF7D838A),
+    );
+    if (diamond) {
+      final c = Offset(fillW, size.height / 2);
+      final h = size.height / 2 + 3;
+      final path = Path()
+        ..moveTo(c.dx, c.dy - h)
+        ..lineTo(c.dx + h * 0.75, c.dy)
+        ..lineTo(c.dx, c.dy + h)
+        ..lineTo(c.dx - h * 0.75, c.dy)
+        ..close();
+      canvas.drawPath(path, Paint()..color = Colors.white);
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.2
+          ..color = const Color(0xFF33383E),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BarPainter old) => old.value != value || old.diamond != diamond;
+}
+

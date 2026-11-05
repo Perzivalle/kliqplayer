@@ -1,40 +1,46 @@
 import 'dart:async';
-import 'dart:math' as math;
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/player.dart';
 import '../skin.dart';
+import 'classic.dart';
 import 'click.dart';
+import 'model.dart';
 import 'nav.dart';
-import 'painters.dart';
 import 'screen.dart';
+import 'wheel.dart';
 
+export 'wheel.dart' show IpodWheel, WheelStyle, WheelZone;
+
+/// Un baladeur à molette ; [model] en fixe l'apparence.
 class IpodSkin extends Skin {
-  const IpodSkin();
+  const IpodSkin([this.model = const ClassicModel()]);
+
+  final IpodModel model;
 
   @override
-  String get name => 'Baladeur';
+  String get name => model.name;
 
   @override
-  Size get windowSize => const Size(440, 740);
+  Size get windowSize => model.windowSize;
 
   /// L'appareil seul, qui flotte au milieu d'une fenêtre transparente.
   @override
   Widget build(PlayerController player) => Center(
         child: Padding(
           // Marge pour l'ombre portée.
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 40),
-          child: FittedBox(child: IpodDevice(player: player)),
+          padding: model.margin,
+          child: FittedBox(child: IpodDevice(key: ValueKey(model), model: model, player: player)),
         ),
       );
 }
 
 class IpodDevice extends StatefulWidget {
-  const IpodDevice({super.key, required this.player});
+  const IpodDevice({super.key, required this.model, required this.player});
 
+  final IpodModel model;
   final PlayerController player;
 
   @override
@@ -42,7 +48,7 @@ class IpodDevice extends StatefulWidget {
 }
 
 class _IpodDeviceState extends State<IpodDevice> {
-  late final IpodNav _nav = IpodNav(widget.player);
+  late final IpodNav _nav = IpodNav(widget.player, visibleRows: widget.model.look.visibleRows);
   final _focus = FocusNode(debugLabel: 'baladeur');
 
   @override
@@ -178,149 +184,37 @@ class _IpodDeviceState extends State<IpodDevice> {
 
   @override
   Widget build(BuildContext context) {
-    final wheelRect = Rect.fromLTWH(
-      G.wheelCenter.dx - G.wheelRadius,
-      G.wheelCenter.dy - G.wheelRadius,
-      G.wheelRadius * 2,
-      G.wheelRadius * 2,
-    );
+    final m = widget.model;
+    final wheelRect = Rect.fromCircle(center: m.wheelCenter, radius: m.wheel.radius);
+    final glass = m.glass;
     return Focus(
       focusNode: _focus,
       onKeyEvent: _onKey,
       child: SizedBox.fromSize(
-        size: G.size,
+        size: m.size,
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            const Positioned.fill(child: CustomPaint(painter: BodyPainter())),
+            Positioned.fill(child: CustomPaint(painter: m.body)),
             Positioned.fromRect(
-              rect: G.screen,
+              rect: m.screen,
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: BorderRadius.circular(m.screenCornerRadius),
                 child: FittedBox(
                   child: SizedBox.fromSize(
-                    size: G.screenUi,
-                    child: IpodScreen(nav: _nav, player: widget.player),
+                    size: m.look.size,
+                    child: IpodScreen(nav: _nav, player: widget.player, look: m.look),
                   ),
                 ),
               ),
             ),
-            const Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: GlassPainter()))),
-            Positioned.fromRect(rect: wheelRect, child: IpodWheel(onScroll: _scroll, onDown: _down, onUp: _up, onCancel: _cancelPress)),
+            if (glass != null) Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: glass))),
+            Positioned.fromRect(
+              rect: wheelRect,
+              child: IpodWheel(style: m.wheel, onScroll: _scroll, onDown: _down, onUp: _up, onCancel: _cancelPress),
+            ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Molette tactile : on la fait tourner en glissant en cercle (ou à la
-/// molette de la souris), on clique sur ses quatre côtés ou au centre.
-class IpodWheel extends StatefulWidget {
-  const IpodWheel({super.key, required this.onScroll, required this.onDown, required this.onUp, required this.onCancel});
-
-  final ValueChanged<int> onScroll;
-  final ValueChanged<WheelZone> onDown;
-  final ValueChanged<WheelZone> onUp;
-  final VoidCallback onCancel;
-
-  @override
-  State<IpodWheel> createState() => _IpodWheelState();
-}
-
-class _IpodWheelState extends State<IpodWheel> {
-  /// Un cran tous les 18° : un tour complet fait défiler 20 lignes.
-  static const _step = 2 * math.pi / 20;
-
-  WheelZone _pressed = WheelZone.none;
-  Offset _downAt = Offset.zero;
-  double? _lastAngle;
-
-  /// Au-delà de ce déplacement, un appui devient une rotation et s'annule.
-  /// (Un clic au pavé tactile bouge souvent de quelques pixels.)
-  static const _clickTolerance = 8.0;
-
-  void _cancelPress() {
-    if (_pressed == WheelZone.none) return;
-    setState(() => _pressed = WheelZone.none);
-    widget.onCancel();
-  }
-  double _accum = 0;
-
-  static const _c = Offset(G.wheelRadius, G.wheelRadius);
-
-  WheelZone _zoneAt(Offset p) {
-    final v = p - _c;
-    final d = v.distance;
-    if (d > G.wheelRadius) return WheelZone.none;
-    if (d <= G.buttonRadius) return WheelZone.center;
-    final a = math.atan2(v.dy, v.dx);
-    if (a.abs() <= math.pi / 4) return WheelZone.next;
-    if (a.abs() >= 3 * math.pi / 4) return WheelZone.previous;
-    return a < 0 ? WheelZone.menu : WheelZone.playPause;
-  }
-
-  void _panStart(DragStartDetails d) {
-    final v = d.localPosition - _c;
-    _lastAngle = v.distance > G.buttonRadius * 0.6 ? math.atan2(v.dy, v.dx) : null;
-    _accum = 0;
-  }
-
-  void _panUpdate(DragUpdateDetails d) {
-    final v = d.localPosition - _c;
-    if (v.distance < G.buttonRadius * 0.6) return; // trop près du centre : angle instable
-    final a = math.atan2(v.dy, v.dx);
-    final last = _lastAngle;
-    _lastAngle = a;
-    if (last == null) return;
-    var delta = a - last;
-    if (delta > math.pi) delta -= 2 * math.pi;
-    if (delta < -math.pi) delta += 2 * math.pi;
-    _accum += delta;
-    while (_accum >= _step) {
-      _accum -= _step;
-      widget.onScroll(1);
-    }
-    while (_accum <= -_step) {
-      _accum += _step;
-      widget.onScroll(-1);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Les appuis passent par les événements bruts du pointeur (réaction
-    // immédiate, appui long possible) ; la rotation, par le glissement.
-    return Listener(
-      onPointerSignal: (e) {
-        if (e is PointerScrollEvent && e.scrollDelta.dy != 0) {
-          widget.onScroll(e.scrollDelta.dy > 0 ? 1 : -1);
-        }
-      },
-      onPointerDown: (e) {
-        if (e.buttons != kPrimaryButton) return;
-        final zone = _zoneAt(e.localPosition);
-        if (zone == WheelZone.none) return;
-        _downAt = e.localPosition;
-        setState(() => _pressed = zone);
-        widget.onDown(zone);
-      },
-      onPointerMove: (e) {
-        if ((e.localPosition - _downAt).distance > _clickTolerance) _cancelPress();
-      },
-      onPointerUp: (_) {
-        final zone = _pressed;
-        if (zone == WheelZone.none) return;
-        setState(() => _pressed = WheelZone.none);
-        widget.onUp(zone);
-      },
-      onPointerCancel: (_) => _cancelPress(),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onPanStart: _panStart,
-        onPanUpdate: _panUpdate,
-        onPanEnd: (_) => _lastAngle = null,
-        child: CustomPaint(painter: WheelPainter(_pressed)),
       ),
     );
   }

@@ -6,9 +6,6 @@ import '../../core/library.dart';
 import '../../core/player.dart';
 import '../../physics.dart';
 
-/// Nombre de lignes visibles dans un menu.
-const int visibleRows = 9;
-
 sealed class IpodPage {
   String get title;
 }
@@ -56,11 +53,14 @@ class NowPlayingPage extends IpodPage {
 /// Navigation dans les menus, pilotée par la molette et le clavier.
 /// L'écran ne fait que dessiner cet état en l'animant.
 class IpodNav extends ChangeNotifier {
-  IpodNav(this.player) {
+  IpodNav(this.player, {required this.visibleRows}) {
     stack = [_root()];
   }
 
   final PlayerController player;
+
+  /// Nombre de lignes visibles dans un menu (dépend de l'écran du modèle).
+  final int visibleRows;
   late final List<IpodPage> stack;
 
   IpodPage get page => stack.last;

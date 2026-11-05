@@ -2,7 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/skins/ipod/ipod_skin.dart';
-import 'package:lecteur/skins/ipod/painters.dart';
+import 'package:lecteur/skins/ipod/classic.dart';
 
 /// La molette seule, et le journal de ce qu'elle a déclenché.
 Future<List<String>> _pumpWheel(WidgetTester tester) async {
@@ -15,6 +15,7 @@ Future<List<String>> _pumpWheel(WidgetTester tester) async {
           width: G.wheelRadius * 2,
           height: G.wheelRadius * 2,
           child: IpodWheel(
+            style: const ClassicModel().wheel,
             onScroll: (d) => log.add('scroll $d'),
             onDown: (z) => log.add('down ${z.name}'),
             onUp: (z) => log.add('up ${z.name}'),
