@@ -6,10 +6,11 @@ import 'package:window_manager/legacy.dart';
 
 import 'core/player.dart';
 import 'skins/skin.dart';
+import 'skins/ipod/ipod_skin.dart';
 import 'skins/turntable/turntable_skin.dart';
 
 /// Les skins disponibles, dans l'ordre de Tab.
-const List<Skin> skins = [TurntableSkin()];
+const List<Skin> skins = [IpodSkin(), TurntableSkin()];
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -55,12 +56,17 @@ class _LecteurAppState extends State<LecteurApp> {
 
   Future<void> _nextSkin() async {
     setState(() => _skin = (_skin + 1) % skins.length);
+    // La skin quittée avait peut-être le focus : on le reprend (la nouvelle
+    // peut le redemander juste après).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _keys.requestFocus());
   }
 
   KeyEventResult _onKey(FocusNode _, KeyEvent e) {
     if (e is! KeyDownEvent) return KeyEventResult.ignored;
-    // Pendant qu'on écrit (recherche), les touches vont au texte.
-    if (FocusManager.instance.primaryFocus != _keys) return KeyEventResult.ignored;
+    // Pendant qu'on écrit (recherche), les touches vont au texte. Les autres
+    // touches non utilisées par la skin remontent jusqu'ici.
+    final focused = FocusManager.instance.primaryFocus?.context;
+    if (focused?.findAncestorWidgetOfExactType<EditableText>() != null) return KeyEventResult.ignored;
     final p = widget.player;
     switch (e.logicalKey) {
       case LogicalKeyboardKey.space:
