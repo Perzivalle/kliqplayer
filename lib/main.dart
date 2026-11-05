@@ -7,10 +7,11 @@ import 'package:window_manager/legacy.dart';
 import 'core/player.dart';
 import 'skins/skin.dart';
 import 'skins/ipod/ipod_skin.dart';
+import 'skins/ipod/mini.dart';
 import 'skins/turntable/turntable_skin.dart';
 
 /// Les skins disponibles, dans l'ordre de Tab.
-const List<Skin> skins = [IpodSkin(), TurntableSkin()];
+const List<Skin> skins = [IpodSkin(), IpodSkin(MiniModel()), TurntableSkin()];
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

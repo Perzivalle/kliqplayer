@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/core/library.dart';
 import 'package:lecteur/core/player.dart';
 import 'package:lecteur/skins/ipod/ipod_skin.dart';
+import 'package:lecteur/skins/ipod/mini.dart';
 
 Future<void> _loadFont(String family, List<String> files) async {
   final loader = FontLoader(family);
@@ -123,6 +124,35 @@ void main() {
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_pressed.png'));
       await g.cancel();
       await _frames(tester);
+    });
+  });
+
+  group('Mini', () {
+    for (final color in MiniColor.values) {
+      testWidgets('menu principal (${color.name})', (tester) async {
+        await _show(tester, IpodSkin(MiniModel(color)).build(_player(index: 0)));
+        await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/mini_${color.name}_menu.png'));
+      });
+    }
+
+    const skin = IpodSkin(MiniModel());
+
+    testWidgets('liste longue, titre défilant', (tester) async {
+      await _show(tester, skin.build(_player(index: 0)));
+      await _key(tester, LogicalKeyboardKey.enter); // Musique
+      await _key(tester, LogicalKeyboardKey.arrowDown, 2);
+      await _key(tester, LogicalKeyboardKey.enter); // Morceaux
+      await _key(tester, LogicalKeyboardKey.arrowDown, 9);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/mini_songs.png'));
+    });
+
+    testWidgets('en lecture', (tester) async {
+      await _show(tester, skin.build(_player(index: 5, position: const Duration(minutes: 1, seconds: 23))));
+      await _key(tester, LogicalKeyboardKey.arrowDown, 2);
+      await _key(tester, LogicalKeyboardKey.enter); // En lecture
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/mini_now_playing.png'));
+      await _key(tester, LogicalKeyboardKey.arrowDown); // volume
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/mini_volume.png'));
     });
   });
 }
