@@ -19,7 +19,7 @@ import 'wheel.dart';
 
 export 'wheel.dart' show IpodWheel, WheelStyle, WheelZone;
 
-/// Tous les modèles, dans l'ordre du tiroir.
+/// Tous les modèles et leurs teintes, dans l'ordre du tiroir.
 const List<IpodModel> ipodModels = [
   ClassicModel(),
   MiniModel(MiniColor.argent),
@@ -76,6 +76,18 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   bool _wantOpen = false;
   bool _nearEdge = false;
 
+  /// Un emplacement par famille, dans l'ordre de [ipodModels].
+  static final List<List<IpodModel>> _families = [
+    for (final f in {for (final m in ipodModels) m.family})
+      [for (final m in ipodModels) if (m.family == f) m],
+  ];
+
+  /// Teinte montrée dans l'emplacement de chaque famille.
+  late final Map<String, IpodModel> _shown = {
+    for (final f in _families) f.first.family: f.first,
+    _model.family: _model,
+  };
+
   static IpodModel _saved() {
     final id = Settings.getString(_settingsKey);
     return ipodModels.firstWhere((m) => m.id == id, orElse: () => ipodModels.first);
@@ -118,10 +130,29 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _kick();
   }
 
-  void _pick(IpodModel m) {
-    setState(() => _model = m);
+  void _choose(IpodModel m) {
+    setState(() {
+      _model = m;
+      _shown[m.family] = m;
+    });
     if (_remember) Settings.setString(_settingsKey, m.id);
+  }
+
+  /// Clic sur un appareil du tiroir : il passe en main, le tiroir se ferme.
+  void _pick(IpodModel m) {
+    _choose(m);
     _setOpen(false);
+  }
+
+  /// Clic sur une pastille : recolore la miniature, ou directement
+  /// l'appareil en main si c'est sa famille (le tiroir reste ouvert).
+  void _swatch(IpodModel m) {
+    WheelClick.instance.play();
+    if (m.family == _model.family) {
+      _choose(m);
+    } else {
+      setState(() => _shown[m.family] = m);
+    }
   }
 
   KeyEventResult _onKey(FocusNode _, KeyEvent e) {
@@ -145,7 +176,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       onKeyEvent: _onKey,
       child: LayoutBuilder(builder: (context, box) {
         final w = box.maxWidth;
-        final drawerW = (w * 0.5).clamp(240.0, 440.0);
+        final drawerW = (w * 0.36).clamp(190.0, 300.0);
         final open = _open.value;
         final openC = open.clamp(0.0, 1.0);
         final visible = open * drawerW + (1 - openC) * _peek.value * drawerFront;
@@ -210,10 +241,12 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                   onEnter: (_) => _setNearEdge(true),
                   onExit: (_) => _setNearEdge(false),
                   child: IpodDrawer(
-                    models: ipodModels,
+                    families: _families,
                     current: _model,
+                    shown: _shown,
                     contentWidth: drawerW,
                     onPick: _pick,
+                    onSwatch: _swatch,
                     onFront: () => _setOpen(!_wantOpen),
                   ),
                 ),

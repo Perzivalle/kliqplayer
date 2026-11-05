@@ -11,9 +11,16 @@ abstract class IpodModel {
   /// Nom de la skin.
   String get name;
 
-  /// Identifiant stable (préférences) et nom court (plaque du tiroir).
+  /// Identifiant stable (préférences).
   String get id;
+
+  /// Famille (un emplacement par famille dans le tiroir) et son nom.
+  String get family;
   String get label;
+
+  /// Teinte de cette variante : nom et couleur de la pastille.
+  String get variantName;
+  Color get swatch;
 
   /// Taille du boîtier, en unités de dessin.
   Size get size;

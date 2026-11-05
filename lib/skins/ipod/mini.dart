@@ -81,7 +81,16 @@ class MiniModel extends IpodModel {
   String get id => 'mini-${color.name}';
 
   @override
-  String get label => 'Mini ${color.displayName.toLowerCase()}';
+  String get family => 'mini';
+
+  @override
+  String get label => 'Mini';
+
+  @override
+  String get variantName => color.displayName;
+
+  @override
+  Color get swatch => color.base;
 
   @override
   Size get size => _size;

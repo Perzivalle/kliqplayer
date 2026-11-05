@@ -19,7 +19,16 @@ class ClassicModel extends IpodModel {
   String get id => 'classic';
 
   @override
+  String get family => 'classic';
+
+  @override
   String get label => 'Classic';
+
+  @override
+  String get variantName => 'Blanc';
+
+  @override
+  Color get swatch => const Color(0xFFF7F7F5);
 
   @override
   Size get size => G.size;

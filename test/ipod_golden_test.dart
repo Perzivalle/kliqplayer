@@ -55,7 +55,11 @@ Future<void> _show(WidgetTester tester, Widget skin) async {
     MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(brightness: Brightness.dark),
-      home: ColoredBox(color: const Color(0xFF203040), child: skin),
+      home: ColoredBox(
+        color: const Color(0xFF203040),
+        // Comme dans l'appli (main.dart) : fond Material transparent.
+        child: Material(type: MaterialType.transparency, child: skin),
+      ),
     ),
   );
   await _frames(tester);
@@ -162,6 +166,13 @@ void main() {
       await _show(tester, const IpodSkin(MiniModel(MiniColor.rose)).build(_player(index: 0)));
       await _key(tester, LogicalKeyboardKey.keyT);
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_open.png'));
+      await _key(tester, LogicalKeyboardKey.escape);
+    });
+
+    testWidgets('ouvert, Classic en main : le Mini et ses teintes', (tester) async {
+      await _show(tester, const IpodSkin(ClassicModel()).build(_player(index: 0)));
+      await _key(tester, LogicalKeyboardKey.keyT);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_open_classic.png'));
       await _key(tester, LogicalKeyboardKey.escape);
     });
   });
