@@ -78,7 +78,16 @@ class MiniModel extends IpodModel {
   String get name => 'Baladeur Mini (${color.displayName})';
 
   @override
+  String get id => 'mini-${color.name}';
+
+  @override
+  String get label => 'Mini ${color.displayName.toLowerCase()}';
+
+  @override
   Size get size => _size;
+
+  @override
+  double get cornerRadius => _radius;
 
   @override
   Rect get screen => _screen;

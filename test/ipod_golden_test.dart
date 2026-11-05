@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/core/library.dart';
 import 'package:lecteur/core/player.dart';
+import 'package:lecteur/skins/ipod/classic.dart';
 import 'package:lecteur/skins/ipod/ipod_skin.dart';
 import 'package:lecteur/skins/ipod/mini.dart';
 
@@ -88,7 +89,7 @@ void main() {
   });
 
   group('Classic', () {
-    const skin = IpodSkin();
+    const skin = IpodSkin(ClassicModel());
 
     testWidgets('menu principal', (tester) async {
       await _show(tester, skin.build(_player(index: 0)));
@@ -153,6 +154,15 @@ void main() {
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/mini_now_playing.png'));
       await _key(tester, LogicalKeyboardKey.arrowDown); // volume
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/mini_volume.png'));
+    });
+  });
+
+  group('Tiroir', () {
+    testWidgets('ouvert (touche T), Mini rose en main', (tester) async {
+      await _show(tester, const IpodSkin(MiniModel(MiniColor.rose)).build(_player(index: 0)));
+      await _key(tester, LogicalKeyboardKey.keyT);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_open.png'));
+      await _key(tester, LogicalKeyboardKey.escape);
     });
   });
 }

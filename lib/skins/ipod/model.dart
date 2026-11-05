@@ -11,8 +11,15 @@ abstract class IpodModel {
   /// Nom de la skin.
   String get name;
 
+  /// Identifiant stable (préférences) et nom court (plaque du tiroir).
+  String get id;
+  String get label;
+
   /// Taille du boîtier, en unités de dessin.
   Size get size;
+
+  /// Arrondi des coins du boîtier.
+  double get cornerRadius;
 
   /// Emplacement de l'écran sur la façade.
   Rect get screen;

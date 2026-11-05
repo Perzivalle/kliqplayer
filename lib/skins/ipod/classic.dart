@@ -16,7 +16,16 @@ class ClassicModel extends IpodModel {
   String get name => 'Baladeur Classic';
 
   @override
+  String get id => 'classic';
+
+  @override
+  String get label => 'Classic';
+
+  @override
   Size get size => G.size;
+
+  @override
+  double get cornerRadius => G.radius;
 
   @override
   Rect get screen => G.screen;

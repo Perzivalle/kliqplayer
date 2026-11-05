@@ -1,0 +1,42 @@
+import 'dart:convert';
+import 'dart:io';
+
+/// Préférences conservées d'un lancement à l'autre, dans
+/// ~/.config/lecteur/settings.json (ou $XDG_CONFIG_HOME/lecteur).
+class Settings {
+  Settings._();
+
+  static File get _file {
+    final env = Platform.environment;
+    final base = env['XDG_CONFIG_HOME'] ?? '${env['HOME'] ?? '.'}/.config';
+    return File('$base/lecteur/settings.json');
+  }
+
+  static Map<String, Object?>? _cache;
+
+  static Map<String, Object?> get _values {
+    if (_cache != null) return _cache!;
+    try {
+      final decoded = jsonDecode(_file.readAsStringSync());
+      _cache = decoded is Map<String, Object?> ? decoded : {};
+    } catch (_) {
+      _cache = {}; // fichier absent ou illisible : valeurs par défaut
+    }
+    return _cache!;
+  }
+
+  static String? getString(String key) {
+    final v = _values[key];
+    return v is String ? v : null;
+  }
+
+  static void setString(String key, String value) {
+    _values[key] = value;
+    try {
+      _file.parent.createSync(recursive: true);
+      _file.writeAsStringSync(const JsonEncoder.withIndent('  ').convert(_values));
+    } catch (_) {
+      // Pas grave : le choix ne sera simplement pas retenu.
+    }
+  }
+}
