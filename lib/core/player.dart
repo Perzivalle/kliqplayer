@@ -44,6 +44,13 @@ class PlayerController extends ChangeNotifier {
   final List<StreamSubscription<Object?>> _subs = [];
 
   List<Track> queue = const [];
+  List<Album> albums = const [];
+
+  /// Pochettes des albums (index dans [albums]), chargées en arrière-plan.
+  final Map<int, Uint8List> albumCovers = {};
+
+  /// Incrémenté à chaque pochette d'album chargée.
+  final ValueNotifier<int> albumCoversLoaded = ValueNotifier(0);
   int index = -1;
   bool playing = false;
   Duration duration = Duration.zero;
@@ -84,8 +91,10 @@ class PlayerController extends ChangeNotifier {
   Future<void> loadLibrary() async {
     loading = true;
     notifyListeners();
-    final tracks = await scanLibrary(defaultMusicDirectory());
+    final library = await scanLibrary(defaultMusicDirectory());
+    final tracks = library.tracks;
     queue = tracks;
+    albums = library.albums;
     loading = false;
     if (tracks.isNotEmpty) {
       await _player.open(
@@ -94,7 +103,19 @@ class PlayerController extends ChangeNotifier {
       );
     }
     notifyListeners();
+    _loadAlbumCovers();
   }
+
+  Future<void> _loadAlbumCovers() async {
+    for (var i = 0; i < albums.length; i++) {
+      final bytes = await loadCover(queue[albums[i].firstIndex]);
+      if (bytes != null) albumCovers[i] = bytes;
+      albumCoversLoaded.value++;
+    }
+  }
+
+  /// Album du morceau en cours (index dans [albums]), ou -1.
+  int get currentAlbum => albums.lastIndexWhere((a) => a.firstIndex <= index);
 
   int _coverRequest = 0;
 
@@ -117,6 +138,11 @@ class PlayerController extends ChangeNotifier {
   Future<void> previous() => _player.previous();
   Future<void> jumpTo(int i) => _player.jump(i);
 
+  Future<void> playAlbum(int album) async {
+    await _player.jump(albums[album].firstIndex);
+    await _player.play();
+  }
+
   Future<void> seekProgress(double p) async {
     final target = duration * p.clamp(0.0, 1.0);
     _anchorPosition(target);
@@ -132,6 +158,7 @@ class PlayerController extends ChangeNotifier {
       s.cancel();
     }
     _player.dispose();
+    albumCoversLoaded.dispose();
     super.dispose();
   }
 }

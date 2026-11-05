@@ -26,6 +26,26 @@ class Track {
   String toString() => '$artist — $title';
 }
 
+/// Un album : une suite de morceaux consécutifs de la file de lecture.
+class Album {
+  const Album({required this.title, required this.artist, required this.firstIndex, required this.trackCount});
+
+  final String title;
+  final String artist;
+
+  /// Position du premier morceau dans [Library.tracks].
+  final int firstIndex;
+  final int trackCount;
+}
+
+/// Résultat du parcours : les morceaux, rangés album par album.
+class Library {
+  const Library(this.tracks, this.albums);
+
+  final List<Track> tracks;
+  final List<Album> albums;
+}
+
 const _audioExtensions = {'.mp3', '.flac', '.ogg', '.opus', '.m4a', '.aac', '.wav'};
 
 /// Dossier de musique par défaut : celui de MPD.
@@ -38,15 +58,15 @@ Directory defaultMusicDirectory() {
 
 /// Parcourt le dossier et lit les tags, dans un isolate séparé pour ne pas
 /// bloquer l'interface.
-Future<List<Track>> scanLibrary(Directory root) {
+Future<Library> scanLibrary(Directory root) {
   final rootPath = root.path;
   return Isolate.run(() => _scan(rootPath));
 }
 
-List<Track> _scan(String rootPath) {
+Library _scan(String rootPath) {
   final tracks = <Track>[];
   final root = Directory(rootPath);
-  if (!root.existsSync()) return tracks;
+  if (!root.existsSync()) return const Library([], []);
 
   for (final entity in root.listSync(recursive: true, followLinks: false)) {
     if (entity is! File) continue;
@@ -75,15 +95,48 @@ List<Track> _scan(String rootPath) {
     }
   }
 
-  // Ordre « bibliothèque » : artiste, album, numéro de piste.
-  tracks.sort((a, b) {
-    final byArtist = a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
-    if (byArtist != 0) return byArtist;
-    final byAlbum = a.album.toLowerCase().compareTo(b.album.toLowerCase());
-    if (byAlbum != 0) return byAlbum;
-    return (a.trackNumber ?? 0).compareTo(b.trackNumber ?? 0);
-  });
-  return tracks;
+  // Regroupement par album (tag), puis ordre « bibliothèque » :
+  // artiste de l'album, titre de l'album, numéro de piste.
+  final groups = <String, List<Track>>{};
+  for (final t in tracks) {
+    groups.putIfAbsent(t.album.toLowerCase(), () => []).add(t);
+  }
+  final sorted = [
+    for (final group in groups.values)
+      (
+        artist: _mostCommon(group.map((t) => t.artist)),
+        tracks: group
+          ..sort((a, b) {
+            final byNumber = (a.trackNumber ?? 0).compareTo(b.trackNumber ?? 0);
+            return byNumber != 0 ? byNumber : a.path.compareTo(b.path);
+          }),
+      ),
+  ]..sort((a, b) {
+      final byArtist = a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
+      if (byArtist != 0) return byArtist;
+      return a.tracks.first.album.toLowerCase().compareTo(b.tracks.first.album.toLowerCase());
+    });
+
+  final ordered = <Track>[];
+  final albums = <Album>[];
+  for (final g in sorted) {
+    albums.add(Album(
+      title: g.tracks.first.album,
+      artist: g.artist,
+      firstIndex: ordered.length,
+      trackCount: g.tracks.length,
+    ));
+    ordered.addAll(g.tracks);
+  }
+  return Library(ordered, albums);
+}
+
+String _mostCommon(Iterable<String> values) {
+  final counts = <String, int>{};
+  for (final v in values) {
+    counts[v] = (counts[v] ?? 0) + 1;
+  }
+  return counts.entries.reduce((a, b) => b.value > a.value ? b : a).key;
 }
 
 /// Pochette du morceau : image intégrée au fichier, sinon cover.jpg /

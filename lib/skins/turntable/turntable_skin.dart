@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -8,7 +9,9 @@ import 'package:flutter/scheduler.dart';
 import '../../core/player.dart';
 import '../../physics.dart';
 import '../skin.dart';
+import 'crate.dart';
 import 'painters.dart';
+import 'table.dart';
 
 class TurntableSkin extends Skin {
   const TurntableSkin();
@@ -16,19 +19,232 @@ class TurntableSkin extends Skin {
   @override
   String get name => 'Platine';
 
-  @override
-  Size get windowSize => const Size(792, 600);
+  /// Le bac à gauche, la platine à droite (elle chevauche un peu sa marge).
+  static const double turntableLeft = CrateGeometry.width - 20;
+  static const Size scene = Size(turntableLeft + G.width, G.height);
 
   @override
-  Widget build(PlayerController player, VoidCallback onWindowDrag) =>
-      Turntable(player: player, onWindowDrag: onWindowDrag);
+  Size get windowSize => Size(scene.width * 0.6, scene.height * 0.6);
+
+  /// La scène, posée au milieu d'une table en bois qui remplit la fenêtre.
+  @override
+  Widget build(PlayerController player) => LayoutBuilder(
+        builder: (context, box) {
+          final scale = math.min(box.maxWidth / scene.width, box.maxHeight / scene.height) * 0.94;
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              RepaintBoundary(child: CustomPaint(painter: TablePainter(scale))),
+              Center(
+                child: SizedBox(
+                  width: scene.width * scale,
+                  height: scene.height * scale,
+                  child: FittedBox(child: TurntableStage(player: player)),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+}
+
+/// Le bac et la platine côte à côte ; le disque choisi vole de l'un à l'autre.
+class TurntableStage extends StatefulWidget {
+  const TurntableStage({super.key, required this.player});
+
+  final PlayerController player;
+
+  @override
+  State<TurntableStage> createState() => _TurntableStageState();
+}
+
+class _Flight {
+  _Flight(this.album, this.from, this.cover);
+
+  final int album;
+  final Rect from;
+  final Uint8List? cover;
+  final progress = Spring(0, stiffness: 46, damping: 1);
+  final fade = Spring(1, stiffness: 120, damping: 1);
+  bool landed = false;
+}
+
+class _TurntableStageState extends State<TurntableStage> with SingleTickerProviderStateMixin {
+  late final Ticker _ticker = createTicker(_tick);
+  final _frame = ValueNotifier<int>(0);
+  Duration _last = Duration.zero;
+  _Flight? _flight;
+
+  static final _platter = const Offset(TurntableSkin.turntableLeft, 0) + G.center;
+
+  @override
+  void dispose() {
+    _ticker.dispose();
+    _frame.dispose();
+    super.dispose();
+  }
+
+  void _pick(int album, Rect sleeve) {
+    final player = widget.player;
+    if (_flight != null) return;
+    // On soulève le bras le temps de changer de disque.
+    if (player.playing) player.pause();
+    _flight = _Flight(album, sleeve, player.albumCovers[album]);
+    _last = Duration.zero;
+    if (!_ticker.isActive) _ticker.start();
+    setState(() {});
+  }
+
+  void _tick(Duration now) {
+    final dt = _last == Duration.zero ? 1 / 60 : (now - _last).inMicroseconds / 1e6;
+    _last = now;
+    final step = dt.clamp(0.0, 0.05);
+    final f = _flight;
+    if (f == null) {
+      _ticker.stop();
+      return;
+    }
+    f.progress.step(1, step);
+    if (!f.landed && f.progress.value > 0.985) {
+      f.landed = true;
+      widget.player.playAlbum(f.album);
+    }
+    if (f.landed) f.fade.step(0, step);
+    if (f.landed && f.fade.value < 0.01) {
+      _flight = null;
+      _ticker.stop();
+      setState(() {});
+    }
+    _frame.value++;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: TurntableSkin.scene.width,
+      height: TurntableSkin.scene.height,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 0,
+            top: 0,
+            width: CrateGeometry.width,
+            height: CrateGeometry.height,
+            child: Crate(player: widget.player, onPick: _pick),
+          ),
+          Positioned(
+            left: TurntableSkin.turntableLeft,
+            top: 0,
+            width: G.width,
+            height: G.height,
+            child: Turntable(player: widget.player),
+          ),
+          if (_flight != null)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ValueListenableBuilder(
+                  valueListenable: _frame,
+                  builder: (_, _, _) => _flyingDisc(_flight!),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _flyingDisc(_Flight f) {
+    final p = f.progress.value.clamp(0.0, 1.0);
+    final start = f.from.center;
+    // Courbe de Bézier : le disque sort par le haut puis plane vers le plateau.
+    final control = Offset((start.dx + _platter.dx) / 2, math.min(start.dy, _platter.dy) - 320);
+    final q = 1 - p;
+    final center = start * (q * q) + control * (2 * q * p) + _platter * (p * p);
+    final radius = ui.lerpDouble(f.from.width * 0.46, G.recordR, p)!;
+    final opacity = (math.min(1.0, p / 0.08) * f.fade.value).clamp(0.0, 1.0);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned.fromRect(
+          rect: Rect.fromCircle(center: center, radius: radius),
+          child: Opacity(
+            opacity: opacity,
+            child: Transform.rotate(
+              angle: p * 2.4,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  const RepaintBoundary(child: CustomPaint(painter: _FlyingRecordPainter())),
+                  FractionallySizedBox(
+                    widthFactor: G.labelR / G.recordR,
+                    heightFactor: G.labelR / G.recordR,
+                    child: ClipOval(
+                      child: f.cover != null
+                          ? Image.memory(f.cover!, fit: BoxFit.cover, cacheWidth: 300, gaplessPlayback: true)
+                          : const ColoredBox(color: Color(0xFFB8322D)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Le vinyle seul, pendant qu'il passe du bac au plateau.
+class _FlyingRecordPainter extends CustomPainter {
+  const _FlyingRecordPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final r = size.width / 2;
+    canvas.drawCircle(
+      c + Offset(0, r * 0.06),
+      r,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.5)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.06),
+    );
+    canvas.drawCircle(c, r, Paint()..color = const Color(0xFF0D0D0F));
+    final groove = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = Colors.white.withValues(alpha: 0.05);
+    for (var k = 0.36; k < 0.97; k += 0.018) {
+      canvas.drawCircle(c, r * k, groove);
+    }
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..shader = ui.Gradient.sweep(
+          c,
+          [
+            Colors.white.withValues(alpha: 0),
+            Colors.white.withValues(alpha: 0.12),
+            Colors.white.withValues(alpha: 0),
+            Colors.white.withValues(alpha: 0),
+            Colors.white.withValues(alpha: 0.1),
+            Colors.white.withValues(alpha: 0),
+          ],
+          const [0, 0.12, 0.25, 0.5, 0.62, 0.75],
+        ),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class Turntable extends StatefulWidget {
-  const Turntable({super.key, required this.player, required this.onWindowDrag});
+  const Turntable({super.key, required this.player});
 
   final PlayerController player;
-  final VoidCallback onWindowDrag;
 
   @override
   State<Turntable> createState() => _TurntableState();
@@ -160,9 +376,6 @@ class _TurntableState extends State<Turntable> with SingleTickerProviderStateMix
 
   // --- Gestes ---------------------------------------------------------------
 
-  bool _inPlinth(Offset p) =>
-      RRect.fromRectAndRadius(G.plinth, const Radius.circular(G.plinthRadius)).contains(p);
-
   bool _onKnob(Offset p) => (p - G.knob).distance < G.knobR * 1.5;
 
   bool _onPitch(Offset p) =>
@@ -226,9 +439,6 @@ class _TurntableState extends State<Turntable> with SingleTickerProviderStateMix
     } else if (_onPitch(p)) {
       _drag = _Drag.pitch;
       _setPitchFrom(p);
-    } else if (_inPlinth(p)) {
-      _drag = _Drag.none;
-      widget.onWindowDrag();
     }
     _wake();
   }

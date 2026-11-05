@@ -10,10 +10,9 @@ abstract class Skin {
   /// Nom affiché (menu de choix des skins).
   String get name;
 
-  /// Taille de la fenêtre pour cette skin, en pixels logiques.
+  /// Taille initiale de la fenêtre (quand elle n'est pas en mosaïque).
   Size get windowSize;
 
-  /// [onWindowDrag] : à appeler quand l'utilisateur attrape une zone « vide »
-  /// de la skin, pour déplacer la fenêtre.
-  Widget build(PlayerController player, VoidCallback onWindowDrag);
+  /// Remplit toute la fenêtre, quelle que soit sa taille.
+  Widget build(PlayerController player);
 }

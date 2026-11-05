@@ -43,16 +43,24 @@ class LecteurApp extends StatefulWidget {
 
 class _LecteurAppState extends State<LecteurApp> {
   int _skin = 0;
+  final _keys = FocusNode(debugLabel: 'raccourcis');
+
+  @override
+  void dispose() {
+    _keys.dispose();
+    super.dispose();
+  }
 
   Skin get skin => skins[_skin];
 
   Future<void> _nextSkin() async {
     setState(() => _skin = (_skin + 1) % skins.length);
-    await windowManager.setSize(skin.windowSize, animate: true);
   }
 
   KeyEventResult _onKey(FocusNode _, KeyEvent e) {
     if (e is! KeyDownEvent) return KeyEventResult.ignored;
+    // Pendant qu'on écrit (recherche), les touches vont au texte.
+    if (FocusManager.instance.primaryFocus != _keys) return KeyEventResult.ignored;
     final p = widget.player;
     switch (e.logicalKey) {
       case LogicalKeyboardKey.space:
@@ -89,12 +97,10 @@ class _LecteurAppState extends State<LecteurApp> {
       home: Material(
         type: MaterialType.transparency,
         child: Focus(
+          focusNode: _keys,
           autofocus: true,
           onKeyEvent: _onKey,
-          // La scène de chaque skin a sa propre taille ; on l'adapte à la fenêtre.
-          child: FittedBox(
-            child: skin.build(widget.player, windowManager.startDragging),
-          ),
+          child: skin.build(widget.player),
         ),
       ),
     );
