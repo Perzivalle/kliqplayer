@@ -11,7 +11,7 @@ import 'library.dart';
 /// commandes. [smoothPosition] donne une position interpolée à chaque image,
 /// pour des animations parfaitement continues.
 class PlayerController extends ChangeNotifier {
-  PlayerController() {
+  PlayerController() : _engine = Player(configuration: const PlayerConfiguration(title: 'Lecteur')) {
     _subs.addAll([
       _player.stream.playing.listen((playing) {
         _anchorPosition(_player.state.position);
@@ -40,7 +40,32 @@ class PlayerController extends ChangeNotifier {
     ]);
   }
 
-  final Player _player = Player(configuration: const PlayerConfiguration(title: 'Lecteur'));
+  /// Sans moteur audio : état figé fourni à la main, commandes sans effet.
+  /// Sert aux tests (captures de référence des skins).
+  @visibleForTesting
+  PlayerController.preview({
+    this.queue = const [],
+    this.albums = const [],
+    this.index = -1,
+    this.playing = false,
+    this.duration = Duration.zero,
+    this.volume = 100,
+    Duration position = Duration.zero,
+  }) : _engine = null {
+    loading = false;
+    _anchor = position;
+  }
+
+  final Player? _engine;
+
+  /// Le moteur ; n'est jamais appelé en mode aperçu (voir [_run]).
+  Player get _player => _engine!;
+
+  /// Lance une commande du moteur, ou rien en mode aperçu.
+  Future<void> _run(Future<void> Function(Player p) command) async {
+    final e = _engine;
+    if (e != null) await command(e);
+  }
   final List<StreamSubscription<Object?>> _subs = [];
 
   List<Track> queue = const [];
@@ -131,33 +156,35 @@ class PlayerController extends ChangeNotifier {
 
   // --- Commandes -----------------------------------------------------------
 
-  Future<void> playPause() => _player.playOrPause();
-  Future<void> play() => _player.play();
-  Future<void> pause() => _player.pause();
-  Future<void> next() => _player.next();
-  Future<void> previous() => _player.previous();
-  Future<void> jumpTo(int i) => _player.jump(i);
+  Future<void> playPause() => _run((p) => p.playOrPause());
+  Future<void> play() => _run((p) => p.play());
+  Future<void> pause() => _run((p) => p.pause());
+  Future<void> next() => _run((p) => p.next());
+  Future<void> previous() => _run((p) => p.previous());
+  Future<void> jumpTo(int i) => _run((p) => p.jump(i));
 
   Future<void> playAlbum(int album) async {
-    await _player.jump(albums[album].firstIndex);
-    await _player.play();
+    await _run((p) async {
+      await p.jump(albums[album].firstIndex);
+      await p.play();
+    });
   }
 
   Future<void> seekProgress(double p) async {
     final target = duration * p.clamp(0.0, 1.0);
     _anchorPosition(target);
-    await _player.seek(target);
+    await _run((p) => p.seek(target));
   }
 
-  Future<void> setVolume(double v) => _player.setVolume(v.clamp(0, 100));
-  Future<void> setRate(double r) => _player.setRate(r.clamp(0.25, 4));
+  Future<void> setVolume(double v) => _run((p) => p.setVolume(v.clamp(0, 100)));
+  Future<void> setRate(double r) => _run((p) => p.setRate(r.clamp(0.25, 4)));
 
   @override
   void dispose() {
     for (final s in _subs) {
       s.cancel();
     }
-    _player.dispose();
+    _engine?.dispose();
     albumCoversLoaded.dispose();
     super.dispose();
   }
