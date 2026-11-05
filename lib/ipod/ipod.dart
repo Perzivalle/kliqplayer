@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -64,10 +65,23 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   bool _wantOpen = false;
   bool _nearEdge = false;
 
+  /// Décalage vertical du tiroir quand on le tire de travers : un ressort
+  /// le ramène toujours dans l'axe.
+  final _lift = Spring(0, stiffness: 320, damping: 0.55);
+
+  // Tiroir tenu à la main.
+  bool _dragging = false;
+  double _dragStart = 0;
+  Offset _drag = Offset.zero;
+  double _drawerW = 300;
+
   /// Un emplacement par famille, dans l'ordre de [ipodModels].
   static final List<List<IpodModel>> _families = [
     for (final f in {for (final m in ipodModels) m.family})
-      [for (final m in ipodModels) if (m.family == f) m],
+      [
+        for (final m in ipodModels)
+          if (m.family == f) m,
+      ],
   ];
 
   /// Teinte montrée dans l'emplacement de chaque famille.
@@ -97,12 +111,64 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   void _tick(Duration elapsed) {
     final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 1 / 30);
     _last = elapsed;
-    _open.step(_wantOpen ? 1 : 0, dt);
-    _peek.step(_nearEdge && !_wantOpen ? 1 : 0, dt);
-    if (_open.isSettled) _open.value = _wantOpen ? 1 : 0;
-    if (_peek.isSettled) _peek.value = _nearEdge && !_wantOpen ? 1 : 0;
+    if (!_dragging) {
+      _open.step(_wantOpen ? 1 : 0, dt);
+      _lift.step(0, dt);
+      if (_open.isSettled) _open.value = _wantOpen ? 1 : 0;
+      if (_lift.isSettled) _lift.value = 0;
+    }
+    _peek.step(_nearEdge && !_wantOpen && !_dragging ? 1 : 0, dt);
+    if (_peek.isSettled) _peek.value = _nearEdge && !_wantOpen && !_dragging ? 1 : 0;
     setState(() {});
-    if (_open.isSettled && _peek.isSettled) _ticker.stop();
+    if (!_dragging && _open.isSettled && _peek.isSettled && _lift.isSettled) _ticker.stop();
+  }
+
+  // --- Tirer le tiroir à la main ---------------------------------------------
+
+  /// Élastique façon iOS : plus on tire au-delà de la butée, plus ça résiste,
+  /// sans jamais dépasser [limit].
+  static double _rubber(double over, double limit) {
+    final x = over.abs();
+    return over.sign * (1 - 1 / (x * 0.55 / limit + 1)) * limit;
+  }
+
+  void _dragBegin(DragStartDetails _) {
+    // Reprend le tiroir là où il est (y compris la façade qui dépasse).
+    final visible = _open.value * _drawerW + (1 - _open.value.clamp(0.0, 1.0)) * _peek.value * drawerFront;
+    _open
+      ..value = visible / _drawerW
+      ..velocity = 0;
+    _peek
+      ..value = 0
+      ..velocity = 0;
+    _dragStart = _open.value;
+    _drag = Offset(0, _lift.value);
+    _dragging = true;
+    _kick();
+  }
+
+  void _dragUpdate(DragUpdateDetails d) {
+    _drag += d.delta;
+    final raw = _dragStart - _drag.dx / _drawerW;
+    _open.value = raw <= 1 ? raw.clamp(0.0, 1.0) : 1 + _rubber(raw - 1, 0.35);
+    _lift.value = _rubber(_drag.dy, 36);
+    setState(() {});
+  }
+
+  void _dragEnd(DragEndDetails d) {
+    _dragging = false;
+    final v = d.velocity.pixelsPerSecond;
+    // Vitesse en « tiroirs par seconde » ; on projette où l'élan l'emmène.
+    final vel = (-v.dx / _drawerW).clamp(-14.0, 14.0);
+    final open = _open.value + vel * 0.18 > 0.5;
+    if (open != _wantOpen) {
+      _wantOpen = open;
+      WheelClick.instance.play();
+    }
+    // Le ressort repart avec la vitesse de la main : pas d'à-coup au lâcher.
+    _open.velocity = vel;
+    _lift.velocity = v.dy.clamp(-1500.0, 1500.0) * 0.4;
+    _kick();
   }
 
   void _setOpen(bool open) {
@@ -162,86 +228,104 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       canRequestFocus: false,
       skipTraversal: true,
       onKeyEvent: _onKey,
-      child: LayoutBuilder(builder: (context, box) {
-        final w = box.maxWidth;
-        final drawerW = (w * 0.36).clamp(190.0, 300.0);
-        final open = _open.value;
-        final openC = open.clamp(0.0, 1.0);
-        final visible = open * drawerW + (1 - openC) * _peek.value * drawerFront;
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final w = box.maxWidth;
+          final drawerW = _drawerW = (w * 0.36).clamp(190.0, 300.0);
+          final open = _open.value;
+          final openC = open.clamp(0.0, 1.0);
+          final visible = open * drawerW + (1 - openC) * _peek.value * drawerFront;
 
-        Widget device = AnimatedSwitcher(
-          duration: const Duration(milliseconds: 480),
-          switchInCurve: Curves.easeOutBack,
-          switchOutCurve: Curves.easeIn,
-          transitionBuilder: (child, anim) => FadeTransition(
-            opacity: anim,
-            child: ScaleTransition(scale: Tween(begin: 0.82, end: 1.0).animate(anim), child: child),
-          ),
-          child: Center(
-            key: ValueKey(_model.id),
-            child: Padding(
-              // Marge pour l'ombre portée.
-              padding: _model.margin,
-              child: FittedBox(child: IpodDevice(model: _model, player: widget.player)),
+          Widget device = AnimatedSwitcher(
+            duration: const Duration(milliseconds: 480),
+            switchInCurve: Curves.easeOutBack,
+            switchOutCurve: Curves.easeIn,
+            transitionBuilder: (child, anim) => FadeTransition(
+              opacity: anim,
+              child: ScaleTransition(scale: Tween(begin: 0.82, end: 1.0).animate(anim), child: child),
             ),
-          ),
-        );
-        if (open != 0) {
-          // L'appareil s'écarte et rétrécit pour laisser la place au tiroir.
-          final room = ((w - drawerW) / w).clamp(0.55, 1.0);
-          device = Transform.translate(
-            offset: Offset(-open * drawerW / 2, 0),
-            child: Transform.scale(scale: 1 + (room - 1) * openC, child: device),
-          );
-        }
-
-        return Stack(
-          children: [
-            Positioned.fill(child: device),
-            // Un clic à côté du tiroir le referme.
-            if (_wantOpen)
-              Positioned.fill(
-                child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => _setOpen(false)),
-              ),
-            // Bande sensible le long du bord droit : fait dépasser la façade.
-            Positioned(
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: 36,
-              child: MouseRegion(
-                onEnter: (_) => _setNearEdge(true),
-                onExit: (_) => _setNearEdge(false),
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onTap: () => _setOpen(true),
+            child: Center(
+              key: ValueKey(_model.id),
+              child: Padding(
+                // Marge pour l'ombre portée.
+                padding: _model.margin,
+                child: FittedBox(
+                  child: IpodDevice(model: _model, player: widget.player),
                 ),
               ),
             ),
-            if (visible > 0.5)
+          );
+          if (open != 0) {
+            // L'appareil s'écarte et rétrécit pour laisser la place au tiroir.
+            final room = ((w - drawerW) / w).clamp(0.55, 1.0);
+            device = Transform.translate(
+              offset: Offset(-open * drawerW / 2, 0),
+              child: Transform.scale(scale: 1 + (room - 1) * openC, child: device),
+            );
+          }
+
+          return Stack(
+            children: [
+              Positioned.fill(child: device),
+              // Un clic à côté du tiroir le referme.
+              if (_wantOpen)
+                Positioned.fill(
+                  child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => _setOpen(false)),
+                ),
+              // Bande sensible le long du bord droit : fait dépasser la façade.
               Positioned(
-                left: w - visible,
+                right: 0,
                 top: 0,
                 bottom: 0,
-                // Plus large que nécessaire : le rebond ne laisse pas de vide.
-                width: drawerW + 80,
+                width: 36,
                 child: MouseRegion(
                   onEnter: (_) => _setNearEdge(true),
                   onExit: (_) => _setNearEdge(false),
-                  child: IpodDrawer(
-                    families: _families,
-                    current: _model,
-                    shown: _shown,
-                    contentWidth: drawerW,
-                    onPick: _pick,
-                    onSwatch: _swatch,
-                    onFront: () => _setOpen(!_wantOpen),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: () => _setOpen(true),
+                    // Compte depuis le point d'appui : le tiroir colle au pointeur.
+                    dragStartBehavior: DragStartBehavior.down,
+                    onPanStart: _dragBegin,
+                    onPanUpdate: _dragUpdate,
+                    onPanEnd: _dragEnd,
                   ),
                 ),
               ),
-          ],
-        );
-      }),
+              if (visible > 0.5)
+                Positioned(
+                  left: w - visible,
+                  top: _lift.value,
+                  bottom: -_lift.value,
+                  // Plus large que nécessaire : le rebond et l'élastique ne
+                  // laissent jamais de vide au bord de la fenêtre.
+                  width: drawerW * 1.4 + 40,
+                  child: MouseRegion(
+                    onEnter: (_) => _setNearEdge(true),
+                    onExit: (_) => _setNearEdge(false),
+                    // On l'attrape n'importe où : façade, coque ou feutrine.
+                    child: GestureDetector(
+                      // Compte depuis le point d'appui : le tiroir colle au pointeur.
+                      dragStartBehavior: DragStartBehavior.down,
+                      onPanStart: _dragBegin,
+                      onPanUpdate: _dragUpdate,
+                      onPanEnd: _dragEnd,
+                      child: IpodDrawer(
+                        families: _families,
+                        current: _model,
+                        shown: _shown,
+                        contentWidth: drawerW,
+                        onPick: _pick,
+                        onSwatch: _swatch,
+                        onFront: () => _setOpen(!_wantOpen),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -417,7 +501,10 @@ class _IpodDeviceState extends State<IpodDevice> {
                 ),
               ),
             ),
-            if (glass != null) Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: glass))),
+            if (glass != null)
+              Positioned.fill(
+                child: IgnorePointer(child: CustomPaint(painter: glass)),
+              ),
             Positioned.fromRect(
               rect: wheelRect,
               child: IpodWheel(style: m.wheel, onScroll: _scroll, onDown: _down, onUp: _up, onCancel: _cancelPress),
