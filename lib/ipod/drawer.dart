@@ -57,22 +57,26 @@ class IpodDrawer extends StatelessWidget {
     return LayoutBuilder(builder: (context, box) {
       final inner = Rect.fromLTRB(drawerFront, _wall, box.maxWidth, box.maxHeight - _wall);
       final slots = Rect.fromLTRB(inner.left, inner.top, contentWidth, inner.bottom);
-      final cellH = slots.height / families.length;
+      // Une colonne pour deux modèles, deux au-delà.
+      final columns = families.length > 2 ? 2 : 1;
+      final rows = (families.length / columns).ceil();
+      final cellW = slots.width / columns;
+      final cellH = slots.height / rows;
       const below = 58.0; // nom gravé + pastilles
       // Même échelle pour tous : les tailles relatives sont celles des vrais.
       final all = families.expand((f) => f);
       final maxW = all.map((m) => m.size.width).reduce(math.max);
       final maxH = all.map((m) => m.size.height).reduce(math.max);
-      final scale = math.min((slots.width - 40) / maxW, (cellH - below - 24) / maxH);
+      final scale = math.min((cellW - 28) / maxW, (cellH - below - 20) / maxH);
 
       return Stack(
         children: [
           Positioned.fill(child: CustomPaint(painter: _TrayPainter(inner: inner))),
           for (var i = 0; i < families.length; i++)
             Positioned(
-              left: slots.left,
-              top: slots.top + i * cellH,
-              width: slots.width,
+              left: slots.left + (i % columns) * cellW,
+              top: slots.top + (i ~/ columns) * cellH,
+              width: cellW,
               height: cellH,
               child: _Slot(
                 shapeKey: slotKeys[families[i].first.family],
@@ -193,22 +197,18 @@ class _SlotState extends State<_Slot> {
         const SizedBox(height: 14),
         _Engraved(m.label),
         const SizedBox(height: 10),
-        SizedBox(
-          height: 20,
+        // Pastilles : sur une ligne si elles tiennent, sinon sur deux.
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 18),
           child: widget.variants.length < 2
               ? null
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
+              : Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 6,
+                  runSpacing: 5,
                   children: [
                     for (final v in widget.variants)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: _Swatch(
-                          model: v,
-                          selected: v.id == selected.id,
-                          onTap: () => widget.onSwatch(v),
-                        ),
-                      ),
+                      _Swatch(model: v, selected: v.id == selected.id, onTap: () => widget.onSwatch(v)),
                   ],
                 ),
         ),
@@ -225,8 +225,18 @@ class _Engraved extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Toujours sur une ligne : rétrécit dans une colonne étroite.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: FittedBox(fit: BoxFit.scaleDown, child: _text()),
+    );
+  }
+
+  Widget _text() {
     return Text(
       text.toUpperCase(),
+      maxLines: 1,
+      softWrap: false,
       style: TextStyle(
         fontFamily: 'Noto Sans',
         fontSize: 10,
@@ -272,8 +282,8 @@ class _SwatchState extends State<_Swatch> {
             curve: Curves.easeOutBack,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
-              width: 16,
-              height: 16,
+              width: 14,
+              height: 14,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
@@ -351,6 +361,11 @@ class IpodPreview extends StatelessWidget {
             ),
           ),
           if (glass != null) Positioned.fill(child: CustomPaint(painter: glass)),
+          for (final b in m.buttons)
+            Positioned.fromRect(
+              rect: Rect.fromCircle(center: b.center, radius: b.radius),
+              child: CustomPaint(painter: m.buttonPainter(b, pressed: false)),
+            ),
           Positioned.fromRect(
             rect: Rect.fromCircle(center: m.wheelCenter, radius: m.wheel.radius),
             child: CustomPaint(painter: WheelPainter(m.wheel, WheelZone.none)),

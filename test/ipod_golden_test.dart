@@ -12,6 +12,9 @@ import 'package:lecteur/core/player.dart';
 import 'package:lecteur/ipod/classic.dart';
 import 'package:lecteur/ipod/ipod.dart';
 import 'package:lecteur/ipod/mini.dart';
+import 'package:lecteur/ipod/model.dart';
+import 'package:lecteur/ipod/nano.dart';
+import 'package:lecteur/ipod/vintage.dart';
 
 Future<void> _loadFont(String family, List<String> files) async {
   final loader = FontLoader(family);
@@ -175,5 +178,34 @@ void main() {
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_open_classic.png'));
       await _key(tester, LogicalKeyboardKey.escape);
     });
+  });
+
+  group('Autres modèles', () {
+    final models = <String, IpodModel>{
+      'classic_noir': const ClassicModel(ClassicColor.noir),
+      for (final c in NanoColor.values) 'nano_${c.name}': NanoModel(c),
+      'gen3': const ThirdGenModel(),
+      'gen1': const FirstGenModel(),
+    };
+    for (final MapEntry(key: name, value: model) in models.entries) {
+      testWidgets('menu ($name)', (tester) async {
+        await _show(tester, IpodStage(player: _player(index: 0), initial: model));
+        await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/${name}_menu.png'));
+      });
+    }
+    for (final MapEntry(key: name, value: model) in {
+      'nano': const NanoModel(),
+      'gen3': const ThirdGenModel(),
+    }.entries) {
+      testWidgets('en lecture ($name)', (tester) async {
+        await _show(
+          tester,
+          IpodStage(player: _player(index: 5, position: const Duration(minutes: 1, seconds: 23)), initial: model),
+        );
+        await _key(tester, LogicalKeyboardKey.arrowDown, 2);
+        await _key(tester, LogicalKeyboardKey.enter);
+        await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/${name}_now_playing.png'));
+      });
+    }
   });
 }

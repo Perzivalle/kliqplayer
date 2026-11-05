@@ -21,6 +21,11 @@ class WheelStyle {
     this.groove = const Color(0xFFC3C6CA),
     this.buttonUp = const [Color(0xFFFFFFFF), Color(0xFFEDEEF0)],
     this.buttonDown = const [Color(0xFFDDDFE2), Color(0xFFF0F1F2)],
+    this.labels = true,
+    this.sideClicks = true,
+    this.innerRadius,
+    this.labelInset,
+    this.inner = const [Color(0xFFF7F8F9), Color(0xFFE6E8EB), Color(0xFFD9DCE0)],
   });
 
   final double radius;
@@ -43,16 +48,34 @@ class WheelStyle {
   final Color groove;
   final List<Color> buttonUp;
   final List<Color> buttonDown;
+
+  /// MENU ⏮ ⏭ ⏯ inscrits sur la molette (sinon, boutons à part).
+  final bool labels;
+
+  /// Les côtés de la molette sont cliquables (sinon seul le centre l'est).
+  final bool sideClicks;
+
+  /// Molette mécanique (1re génération) : un anneau intérieur de ce rayon
+  /// tourne vraiment sous le doigt, entouré des quatre boutons fixes.
+  final double? innerRadius;
+  final List<Color> inner;
+
+  /// Distance des inscriptions au centre, en fraction du rayon (par défaut
+  /// celle du Classic ; plus loin sur une molette mécanique).
+  final double? labelInset;
 }
 
 enum WheelZone { none, menu, next, playPause, previous, center }
 
 /// La molette et son bouton central. [pressed] assombrit la zone appuyée.
 class WheelPainter extends CustomPainter {
-  const WheelPainter(this.style, this.pressed);
+  const WheelPainter(this.style, this.pressed, {this.rotation = 0});
 
   final WheelStyle style;
   final WheelZone pressed;
+
+  /// Angle de l'anneau mécanique (radians), s'il y en a un.
+  final double rotation;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -66,13 +89,7 @@ class WheelPainter extends CustomPainter {
     canvas.drawCircle(
       c,
       r,
-      Paint()
-        ..shader = ui.Gradient.radial(
-          c.translate(0, -r * 0.3),
-          r * 1.3,
-          s.ring,
-          const [0, 0.6, 1],
-        ),
+      Paint()..shader = ui.Gradient.radial(c.translate(0, -r * 0.3), r * 1.3, s.ring, const [0, 0.6, 1]),
     );
     // Arête intérieure de la molette (ombre en haut, lumière en bas).
     canvas.drawCircle(
@@ -81,11 +98,10 @@ class WheelPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2
-        ..shader = ui.Gradient.linear(
-          c.translate(0, -r),
-          c.translate(0, r),
-          [Colors.black.withValues(alpha: 0.10), Colors.white.withValues(alpha: s.edgeLight)],
-        ),
+        ..shader = ui.Gradient.linear(c.translate(0, -r), c.translate(0, r), [
+          Colors.black.withValues(alpha: 0.10),
+          Colors.white.withValues(alpha: s.edgeLight),
+        ]),
     );
 
     // Zone appuyée.
@@ -112,25 +128,9 @@ class WheelPainter extends CustomPainter {
       );
     }
 
-    // Inscriptions.
-    final tp = TextPainter(
-      text: TextSpan(
-        text: 'MENU',
-        style: TextStyle(
-          fontFamily: 'Noto Sans',
-          fontSize: s.labelSize,
-          fontWeight: FontWeight.w700,
-          color: s.label,
-          letterSpacing: s.labelSpacing,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, c.translate(-tp.width / 2, -r * 0.78 - tp.height / 2 + 4 * s.iconScale));
-    final ink = Paint()..color = s.label;
-    _skip(canvas, c.translate(r * 0.76, 0), 1, ink);
-    _skip(canvas, c.translate(-r * 0.76, 0), -1, ink);
-    _playPause(canvas, c.translate(0, r * 0.76), ink);
+    if (s.labels) _labels(canvas, c);
+    final inner = s.innerRadius;
+    if (inner != null) _mechanical(canvas, c, inner);
 
     // Bouton central, séparé de la molette par une fine rainure.
     canvas.drawCircle(c, b + 2.5 * s.iconScale, Paint()..color = s.groove);
@@ -145,12 +145,7 @@ class WheelPainter extends CustomPainter {
     canvas.drawCircle(
       c,
       b,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          c.translate(0, -b),
-          c.translate(0, b),
-          down ? s.buttonDown : s.buttonUp,
-        ),
+      Paint()..shader = ui.Gradient.linear(c.translate(0, -b), c.translate(0, b), down ? s.buttonDown : s.buttonUp),
     );
     canvas.drawCircle(
       c,
@@ -160,6 +155,74 @@ class WheelPainter extends CustomPainter {
         ..strokeWidth = 1.2
         ..color = Colors.white.withValues(alpha: down ? 0.3 : 0.9),
     );
+  }
+
+  /// Anneau qui tourne : séparé des boutons par une rainure, et strié de
+  /// fines marques pour qu'on le voie tourner.
+  void _mechanical(Canvas canvas, Offset c, double r) {
+    final s = style;
+    canvas.drawCircle(c, r + 3, Paint()..color = s.groove);
+    canvas.drawCircle(
+      c,
+      r + 3,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = Colors.black.withValues(alpha: 0.12),
+    );
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()..shader = ui.Gradient.radial(c.translate(0, -r * 0.35), r * 1.3, s.inner, const [0, 0.6, 1]),
+    );
+    final tick = Paint()
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 48; i++) {
+      final a = rotation + i * 2 * math.pi / 48;
+      final dir = Offset(math.cos(a), math.sin(a));
+      // Plus visibles là où la lumière rase (en haut à gauche).
+      final light = 0.5 + 0.5 * math.cos(a + 2.3);
+      tick.color = Colors.black.withValues(alpha: 0.04 + 0.07 * light);
+      canvas.drawLine(c + dir * (r - 10), c + dir * (r - 3), tick);
+    }
+    // Creux pour le doigt, qui tourne avec l'anneau.
+    final dimple = c + Offset(math.cos(rotation - math.pi / 2), math.sin(rotation - math.pi / 2)) * (r * 0.78);
+    canvas.drawCircle(
+      dimple,
+      r * 0.09,
+      Paint()
+        ..shader = ui.Gradient.radial(dimple.translate(-r * 0.02, -r * 0.03), r * 0.1, [
+          Colors.black.withValues(alpha: 0.16),
+          Colors.black.withValues(alpha: 0.02),
+        ]),
+    );
+  }
+
+  /// MENU, ⏮, ⏭, ⏯ inscrits sur la molette.
+  void _labels(Canvas canvas, Offset c) {
+    final s = style;
+    final r = s.radius;
+    final tp = TextPainter(
+      text: TextSpan(
+        text: 'MENU',
+        style: TextStyle(
+          fontFamily: 'Noto Sans',
+          fontSize: s.labelSize,
+          fontWeight: FontWeight.w700,
+          color: s.label,
+          letterSpacing: s.labelSpacing,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final menuAt = s.labelInset == null ? r * 0.78 : r * s.labelInset!;
+    final iconAt = s.labelInset == null ? r * 0.76 : r * s.labelInset!;
+    tp.paint(canvas, c.translate(-tp.width / 2, -menuAt - tp.height / 2 + 4 * s.iconScale));
+    final ink = Paint()..color = s.label;
+    _skip(canvas, c.translate(iconAt, 0), 1, ink);
+    _skip(canvas, c.translate(-iconAt, 0), -1, ink);
+    _playPause(canvas, c.translate(0, iconAt), ink);
   }
 
   /// ⏭ (dir = 1) ou ⏮ (dir = -1).
@@ -198,9 +261,9 @@ class WheelPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant WheelPainter old) => old.pressed != pressed || old.style != style;
+  bool shouldRepaint(covariant WheelPainter old) =>
+      old.pressed != pressed || old.style != style || old.rotation != rotation;
 }
-
 
 /// Molette tactile : on la fait tourner en glissant en cercle (ou à la
 /// molette de la souris), on clique sur ses quatre côtés ou au centre.
@@ -232,6 +295,9 @@ class _IpodWheelState extends State<IpodWheel> {
   Offset _downAt = Offset.zero;
   double? _lastAngle;
 
+  /// Angle de l'anneau mécanique : il suit le doigt (et la molette de la souris).
+  double _rotation = 0;
+
   /// Au-delà de ce déplacement, un appui devient une rotation et s'annule.
   /// (Un clic au pavé tactile bouge souvent de quelques pixels.)
   static const _clickTolerance = 8.0;
@@ -241,6 +307,7 @@ class _IpodWheelState extends State<IpodWheel> {
     setState(() => _pressed = WheelZone.none);
     widget.onCancel();
   }
+
   double _accum = 0;
 
   WheelStyle get _s => widget.style;
@@ -251,6 +318,10 @@ class _IpodWheelState extends State<IpodWheel> {
     final d = v.distance;
     if (d > _s.radius) return WheelZone.none;
     if (d <= _s.buttonRadius) return WheelZone.center;
+    if (!_s.sideClicks) return WheelZone.none;
+    // Molette mécanique : seuls les boutons fixes, autour de l'anneau, cliquent.
+    final inner = _s.innerRadius;
+    if (inner != null && d <= inner + 3) return WheelZone.none;
     final a = math.atan2(v.dy, v.dx);
     if (a.abs() <= math.pi / 4) return WheelZone.next;
     if (a.abs() >= 3 * math.pi / 4) return WheelZone.previous;
@@ -273,6 +344,7 @@ class _IpodWheelState extends State<IpodWheel> {
     var delta = a - last;
     if (delta > math.pi) delta -= 2 * math.pi;
     if (delta < -math.pi) delta += 2 * math.pi;
+    if (_s.innerRadius != null) setState(() => _rotation += delta);
     _accum += delta;
     while (_accum >= _step) {
       _accum -= _step;
@@ -291,7 +363,9 @@ class _IpodWheelState extends State<IpodWheel> {
     return Listener(
       onPointerSignal: (e) {
         if (e is PointerScrollEvent && e.scrollDelta.dy != 0) {
-          widget.onScroll(e.scrollDelta.dy > 0 ? 1 : -1);
+          final dir = e.scrollDelta.dy > 0 ? 1 : -1;
+          if (_s.innerRadius != null) setState(() => _rotation += dir * _step);
+          widget.onScroll(dir);
         }
       },
       onPointerDown: (e) {
@@ -317,9 +391,8 @@ class _IpodWheelState extends State<IpodWheel> {
         onPanStart: _panStart,
         onPanUpdate: _panUpdate,
         onPanEnd: (_) => _lastAngle = null,
-        child: CustomPaint(painter: WheelPainter(_s, _pressed)),
+        child: CustomPaint(painter: WheelPainter(_s, _pressed, rotation: _rotation)),
       ),
     );
   }
 }
-

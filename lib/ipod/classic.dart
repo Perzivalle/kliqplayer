@@ -8,12 +8,28 @@ import 'model.dart';
 import 'nav.dart';
 import 'wheel.dart';
 
-/// Le Classic blanc : façade laquée, liseré chromé, écran couleur 320×240.
-class ClassicModel extends IpodModel {
-  const ClassicModel();
+/// Teintes du Classic : façade et molette assorties.
+enum ClassicColor {
+  blanc('Blanc', front: [Color(0xFFFFFFFF), Color(0xFFF6F6F4), Color(0xFFECECEA)], swatch: Color(0xFFF7F7F5)),
+  noir('Noir', front: [Color(0xFF3A3B3E), Color(0xFF242528), Color(0xFF17181A)], swatch: Color(0xFF1E1F21));
 
+  const ClassicColor(this.displayName, {required this.front, required this.swatch});
+
+  final String displayName;
+  final List<Color> front;
+  final Color swatch;
+}
+
+/// Le Classic : façade laquée, liseré chromé, écran couleur 320×240.
+class ClassicModel extends IpodModel {
+  const ClassicModel([this.color = ClassicColor.blanc]);
+
+  final ClassicColor color;
+
+  // « classic » tout court pour le blanc : les préférences déjà enregistrées
+  // restent valables.
   @override
-  String get id => 'classic';
+  String get id => color == ClassicColor.blanc ? 'classic' : 'classic-${color.name}';
 
   @override
   String get family => 'classic';
@@ -22,10 +38,10 @@ class ClassicModel extends IpodModel {
   String get label => 'Classic';
 
   @override
-  String get variantName => 'Blanc';
+  String get variantName => color.displayName;
 
   @override
-  Color get swatch => const Color(0xFFF7F7F5);
+  Color get swatch => color.swatch;
 
   @override
   Size get size => G.size;
@@ -44,16 +60,36 @@ class ClassicModel extends IpodModel {
   Offset get wheelCenter => G.wheelCenter;
 
   @override
-  WheelStyle get wheel => const WheelStyle(radius: G.wheelRadius, buttonRadius: G.buttonRadius);
+  WheelStyle get wheel => switch (color) {
+        ClassicColor.blanc => const WheelStyle(radius: G.wheelRadius, buttonRadius: G.buttonRadius),
+        // Molette noire mate, inscriptions gris clair.
+        ClassicColor.noir => const WheelStyle(
+            radius: G.wheelRadius,
+            buttonRadius: G.buttonRadius,
+            label: Color(0xFF8E9195),
+            recess: Color(0xFF0E0F10),
+            ring: [Color(0xFF3C3D40), Color(0xFF2C2D30), Color(0xFF1E1F22)],
+            edgeLight: 0.12,
+            groove: Color(0xFF111214),
+            buttonUp: [Color(0xFF47484C), Color(0xFF2A2B2E)],
+            buttonDown: [Color(0xFF26272A), Color(0xFF34353A)],
+          ),
+      };
 
   @override
   ScreenLook get look => const ClassicLook();
 
   @override
-  CustomPainter get body => const BodyPainter();
+  CustomPainter get body => BodyPainter(color);
 
   @override
   CustomPainter? get glass => const GlassPainter();
+
+  @override
+  bool operator ==(Object other) => other is ClassicModel && other.color == color;
+
+  @override
+  int get hashCode => color.hashCode;
 }
 
 /// Dimensions du Classic, en unités de dessin (≈ 6,67 unités par mm,
@@ -77,7 +113,9 @@ class G {
 /// Boîtier : ombre portée (il flotte), liseré chromé, façade blanche laquée
 /// et cadre sombre de l'écran.
 class BodyPainter extends CustomPainter {
-  const BodyPainter();
+  const BodyPainter([this.color = ClassicColor.blanc]);
+
+  final ClassicColor color;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -117,7 +155,7 @@ class BodyPainter extends CustomPainter {
         ..shader = ui.Gradient.linear(
           Offset.zero,
           Offset(0, size.height),
-          const [Color(0xFFFFFFFF), Color(0xFFF6F6F4), Color(0xFFECECEA)],
+          color.front,
           const [0, 0.55, 1],
         ),
     );
@@ -132,12 +170,15 @@ class BodyPainter extends CustomPainter {
 
     // Cadre de l'écran.
     final frame = RRect.fromRectAndRadius(G.screenFrame, const Radius.circular(6));
-    canvas.drawRRect(frame.inflate(1), Paint()..color = const Color(0xFFD5D6D8));
+    canvas.drawRRect(
+      frame.inflate(1),
+      Paint()..color = color == ClassicColor.blanc ? const Color(0xFFD5D6D8) : const Color(0xFF0B0B0C),
+    );
     canvas.drawRRect(frame, Paint()..color = const Color(0xFF1E1F21));
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter old) => false;
+  bool shouldRepaint(covariant BodyPainter old) => old.color != color;
 }
 
 /// Reflet de la plaque d'acrylique qui couvre toute la façade.

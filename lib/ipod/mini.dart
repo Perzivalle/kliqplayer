@@ -302,17 +302,19 @@ const _lcd = Color(0xFFC6D4DA);
 const _font = 'Noto Sans';
 const double _barH = 18;
 
+/// Écran monochrome rétroéclairé, à deux tons. Par défaut celui du Mini
+/// (138 × 110, 5 lignes) ; les premières générations en ont un plus grand.
 class MiniLook extends ScreenLook {
-  const MiniLook();
+  const MiniLook({this.size = const Size(138, 110), this.visibleRows = 5});
 
   @override
-  Size get size => const Size(138, 110);
+  final Size size;
 
   @override
-  double get rowHeight => (110 - _barH) / 5;
+  final int visibleRows;
 
   @override
-  int get visibleRows => 5;
+  double get rowHeight => (size.height - _barH) / visibleRows;
 
   @override
   double get scrollbarWidth => 6;

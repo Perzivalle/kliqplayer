@@ -14,6 +14,8 @@ import 'click.dart';
 import 'drawer.dart';
 import 'jack.dart';
 import 'mini.dart';
+import 'nano.dart';
+import 'vintage.dart';
 import 'model.dart';
 import 'nav.dart';
 import 'screen.dart';
@@ -24,11 +26,19 @@ export 'wheel.dart' show IpodWheel, WheelStyle, WheelZone;
 /// Tous les modèles et leurs teintes, dans l'ordre du tiroir.
 const List<IpodModel> ipodModels = [
   ClassicModel(),
+  ClassicModel(ClassicColor.noir),
+  NanoModel(NanoColor.argent),
+  NanoModel(NanoColor.noir),
+  NanoModel(NanoColor.bleu),
+  NanoModel(NanoColor.vert),
+  NanoModel(NanoColor.rouge),
   MiniModel(MiniColor.argent),
   MiniModel(MiniColor.bleu),
   MiniModel(MiniColor.rose),
   MiniModel(MiniColor.vert),
   MiniModel(MiniColor.or),
+  ThirdGenModel(),
+  FirstGenModel(),
 ];
 
 /// Étapes d'un changement d'appareil.
@@ -357,7 +367,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       return const JackPainter(socket: null, scale: 1, lift: 0, anchorX: 0, sway: 0);
     }
     final m = box.getTransformTo(stage);
-    final socket = MatrixUtils.transformPoint(m, Offset(_model.jackX, 0));
+    final socket = MatrixUtils.transformPoint(m, Offset(_model.jackX, _model.jackOnTop ? 0 : box.size.height));
     final scale = MatrixUtils.transformRect(m, Offset.zero & box.size).width / box.size.width;
     return JackPainter(
       socket: socket,
@@ -366,6 +376,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       // Le câble pend depuis là où serait la prise, tiroir fermé.
       anchorX: socket.dx + _open.value.clamp(0.0, 1.0) * _drawerW * 0.35,
       sway: _sway.value,
+      fromBelow: !_model.jackOnTop,
     );
   }
 
@@ -481,7 +492,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       child: LayoutBuilder(
         builder: (context, box) {
           final w = box.maxWidth;
-          final drawerW = _drawerW = (w * 0.36).clamp(190.0, 300.0);
+          final drawerW = _drawerW = (w * 0.5).clamp(230.0, 460.0);
           final open = _open.value;
           final openC = open.clamp(0.0, 1.0);
           final visible = open * drawerW + (1 - openC) * _peek.value * drawerFront;
@@ -500,7 +511,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
               child: Padding(
                 // Marge pour l'ombre portée, et de la place en haut pour la
                 // prise et le câble.
-                padding: _model.margin.copyWith(top: math.max(_model.margin.top, box.maxHeight * 0.2)),
+                padding: _model.jackOnTop
+                    ? _model.margin.copyWith(top: math.max(_model.margin.top, box.maxHeight * 0.2))
+                    : _model.margin.copyWith(bottom: math.max(_model.margin.bottom, box.maxHeight * 0.2)),
                 child: FittedBox(
                   child: IpodDevice(key: _deviceKey(_model), model: _model, player: widget.player),
                 ),
@@ -774,6 +787,16 @@ class _IpodDeviceState extends State<IpodDevice> {
               Positioned.fill(
                 child: IgnorePointer(child: CustomPaint(painter: glass)),
               ),
+            for (final b in m.buttons)
+              Positioned.fromRect(
+                rect: Rect.fromCircle(center: b.center, radius: b.radius),
+                child: _HardButton(
+                  paint: (pressed) => m.buttonPainter(b, pressed: pressed)!,
+                  onDown: () => _down(b.zone),
+                  onUp: () => _up(b.zone),
+                  onCancel: _cancelPress,
+                ),
+              ),
             Positioned.fromRect(
               rect: wheelRect,
               child: IpodWheel(style: m.wheel, onScroll: _scroll, onDown: _down, onUp: _up, onCancel: _cancelPress),
@@ -781,6 +804,54 @@ class _IpodDeviceState extends State<IpodDevice> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Bouton rond à part (3e génération) : enfoncé dès qu'on appuie, action
+/// au relâchement (ou appui long), comme les côtés de la molette.
+class _HardButton extends StatefulWidget {
+  const _HardButton({required this.paint, required this.onDown, required this.onUp, required this.onCancel});
+
+  final CustomPainter Function(bool pressed) paint;
+  final VoidCallback onDown;
+  final VoidCallback onUp;
+  final VoidCallback onCancel;
+
+  @override
+  State<_HardButton> createState() => _HardButtonState();
+}
+
+class _HardButtonState extends State<_HardButton> {
+  bool _pressed = false;
+  Offset _downAt = Offset.zero;
+
+  void _cancel() {
+    if (!_pressed) return;
+    setState(() => _pressed = false);
+    widget.onCancel();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: (e) {
+        if (e.buttons != kPrimaryButton) return;
+        _downAt = e.localPosition;
+        setState(() => _pressed = true);
+        widget.onDown();
+      },
+      onPointerMove: (e) {
+        if ((e.localPosition - _downAt).distance > 8) _cancel();
+      },
+      onPointerUp: (_) {
+        if (!_pressed) return;
+        setState(() => _pressed = false);
+        widget.onUp();
+      },
+      onPointerCancel: (_) => _cancel(),
+      child: CustomPaint(painter: widget.paint(_pressed)),
     );
   }
 }

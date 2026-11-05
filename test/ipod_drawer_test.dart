@@ -9,8 +9,8 @@ import 'package:lecteur/ipod/mini.dart';
 
 const _window = Size(460, 760);
 
-/// Largeur du tiroir pour cette fenêtre (36 % bornés à 190–300).
-const double _drawerW = 190;
+/// Largeur du tiroir pour cette fenêtre (50 % bornés à 230–460).
+const double _drawerW = 230;
 
 Future<void> _show(WidgetTester tester) async {
   tester.view
