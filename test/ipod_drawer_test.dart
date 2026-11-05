@@ -132,4 +132,35 @@ void main() {
     expect(find.byWidgetPredicate((w) => w is IpodDevice && w.model is ClassicModel), findsNothing);
     expect(_drawerLeft(tester), isNull, reason: 'le tiroir se referme une fois branché');
   });
+
+  testWidgets('la musique se coupe quand on débranche, et reprend au branchement', (tester) async {
+    final player = PlayerController.preview(playing: true);
+    tester.view
+      ..physicalSize = _window
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          type: MaterialType.transparency,
+          child: IpodStage(player: player, initial: const ClassicModel()),
+        ),
+      ),
+    );
+    await _settle(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await _settle(tester);
+    await tester.tap(find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'mini'));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(player.playing, isFalse, reason: 'prise arrachée');
+    // Encore débranchée pendant que les appareils volent.
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(player.playing, isFalse);
+    for (var i = 0; i < 400; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(player.playing, isTrue, reason: 'rebranchée');
+  });
 }

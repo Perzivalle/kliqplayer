@@ -6,11 +6,11 @@ import 'package:flutter/material.dart';
 /// Dimensions de la prise d'écouteurs, en unités de dessin des appareils
 /// (≈ 6,67 unités par mm).
 class JackGeometry {
-  /// Corps en plastique blanc (≈ 6 × 15 mm) puis manchon qui s'affine.
-  static const double bodyWidth = 40;
-  static const double bodyLength = 100;
-  static const double reliefLength = 70;
-  static const double cableWidth = 13;
+  /// Corps en plastique blanc (≈ 4,5 × 10 mm) puis manchon qui s'affine.
+  static const double bodyWidth = 30;
+  static const double bodyLength = 64;
+  static const double reliefLength = 40;
+  static const double cableWidth = 11;
 
   /// Pointe métallique de 3,5 mm, cachée dans l'appareil quand c'est branché.
   static const double tipWidth = 23;

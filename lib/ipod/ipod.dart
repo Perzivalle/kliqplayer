@@ -120,6 +120,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   double _plugHold = 0;
   bool _plugClicked = false;
 
+  /// La musique jouait quand on a débranché : elle reprendra au branchement.
+  bool _resumeOnPlug = false;
+
   /// Hauteur du « pop » quand on arrache la prise, avant qu'elle s'en aille.
   static const double _popHeight = 46;
 
@@ -204,6 +207,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   }
 
   void _startSwap(IpodModel to) {
+    // Prise arrachée : plus de son, comme avec de vrais écouteurs.
+    _resumeOnPlug = widget.player.playing;
+    if (_resumeOnPlug) widget.player.pause();
     _incoming = to;
     _phase = _Swap.unplugging;
     _plugTarget = _popHeight;
@@ -234,6 +240,11 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       if (!_plugClicked) {
         _plugClicked = true;
         WheelClick.instance.play();
+        // Rebranchée : la musique reprend là où elle s'était arrêtée.
+        if (_resumeOnPlug) {
+          _resumeOnPlug = false;
+          widget.player.play();
+        }
       }
     }
 
@@ -448,6 +459,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   KeyEventResult _onKey(FocusNode _, KeyEvent e) {
     if (e is! KeyDownEvent) return KeyEventResult.ignored;
+    // Débranché : Espace ne relance pas la musique dans le vide.
+    if (_phase != _Swap.none && e.logicalKey == LogicalKeyboardKey.space) return KeyEventResult.handled;
     if (e.logicalKey == LogicalKeyboardKey.keyT) {
       _setOpen(!_wantOpen);
       return KeyEventResult.handled;

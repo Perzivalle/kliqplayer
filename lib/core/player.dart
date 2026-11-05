@@ -137,9 +137,15 @@ class PlayerController extends ChangeNotifier {
 
   // --- Commandes -----------------------------------------------------------
 
-  Future<void> playPause() => _run((p) => p.playOrPause());
-  Future<void> play() => _run((p) => p.play());
-  Future<void> pause() => _run((p) => p.pause());
+  Future<void> playPause() => _engine == null ? _preview(!playing) : _run((p) => p.playOrPause());
+  Future<void> play() => _engine == null ? _preview(true) : _run((p) => p.play());
+  Future<void> pause() => _engine == null ? _preview(false) : _run((p) => p.pause());
+
+  /// En mode aperçu, lecture et pause changent quand même l'état affiché.
+  Future<void> _preview(bool play) async {
+    playing = play;
+    notifyListeners();
+  }
   Future<void> next() => _run((p) => p.next());
   Future<void> previous() => _run((p) => p.previous());
   Future<void> jumpTo(int i) => _run((p) => p.jump(i));
