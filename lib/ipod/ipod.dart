@@ -271,7 +271,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
               ..stiffness = 40
               ..damping = 1;
           }
-        } else if (_plug.value > JackGeometry.away * 0.45) {
+        } else if (_plugOffscreen() || _plug.value > JackGeometry.away * 0.95) {
           _beginFlight(stowing: true);
         }
       case _Swap.stowing:
@@ -292,6 +292,19 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
           _wantOpen = false; // le tiroir se referme une fois branché
         }
     }
+  }
+
+  /// La prise (avec sa pointe) est entièrement sortie de la fenêtre.
+  bool _plugOffscreen() {
+    final box = _deviceKeys[_model.id]?.currentContext?.findRenderObject();
+    final stage = _stageKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || stage is! RenderBox || !box.hasSize) return true;
+    final m = box.getTransformTo(stage);
+    final scale = MatrixUtils.transformRect(m, Offset.zero & box.size).width / box.size.width;
+    final socket = MatrixUtils.transformPoint(m, Offset(_model.jackX, _model.jackOnTop ? 0 : box.size.height));
+    // Bout de la pointe : à la distance de sortie, moins sa longueur.
+    final tipEnd = (_plug.value - JackGeometry.tipLength) * scale;
+    return _model.jackOnTop ? socket.dy - tipEnd < -4 : socket.dy + tipEnd > stage.size.height + 4;
   }
 
   void _beginFlight({required bool stowing}) {
@@ -363,7 +376,11 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   JackPainter _jack() {
     final box = _deviceKeys[_model.id]?.currentContext?.findRenderObject();
     final stage = _stageKey.currentContext?.findRenderObject();
-    if (_hideDevice || box is! RenderBox || stage is! RenderBox || !box.hasSize) {
+    // Pendant le vol, la prise est partie hors de la fenêtre. On ne la dessine
+    // pas : sa distance suit l'échelle de l'appareil, qui rétrécit en volant
+    // vers le tiroir, et la ramènerait sinon au-dessus de lui.
+    final flying = _phase == _Swap.stowing || _phase == _Swap.unstowing;
+    if (flying || _hideDevice || box is! RenderBox || stage is! RenderBox || !box.hasSize) {
       return const JackPainter(socket: null, scale: 1, lift: 0, anchorX: 0, sway: 0);
     }
     final m = box.getTransformTo(stage);
