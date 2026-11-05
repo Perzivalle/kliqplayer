@@ -183,6 +183,7 @@ void main() {
     // Menu principal → « En lecture ».
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
     await tester.sendKeyEvent(LogicalKeyboardKey.enter);
     await _settle(tester);
     final classic = find.byWidgetPredicate((w) => w is IpodDevice && w.model is ClassicModel);

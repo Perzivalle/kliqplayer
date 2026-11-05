@@ -5,16 +5,26 @@ import 'package:flutter/foundation.dart';
 
 import '../core/library.dart';
 import '../core/player.dart';
+import '../core/settings.dart';
 import '../physics.dart';
+import 'click.dart';
+import 'look.dart';
 
 sealed class IpodPage {
   String get title;
 }
 
 class MenuEntry {
-  const MenuEntry(this.label, {this.open, this.action});
+  const MenuEntry(this.label, {this.open, this.action, this.value, this.checked});
 
   final String label;
+
+  /// Valeur affichée à droite (Réglages : « Non », « Tous »…), relue à
+  /// chaque affichage.
+  final String Function()? value;
+
+  /// Coche à droite (choix en cours dans une liste d'options).
+  final bool Function()? checked;
 
   /// Ouvre un sous-menu (affiche un chevron).
   final IpodPage Function()? open;
@@ -44,7 +54,27 @@ class MenuPage extends IpodPage {
   final topSpring = Spring(0, stiffness: 900, damping: 1);
 }
 
+/// Les pochettes des albums en enfilade : celle du milieu de face, les
+/// autres de biais de chaque côté (Classic, nano 3G et 4G).
+class CoverFlowPage extends IpodPage {
+  CoverFlowPage(this.selected) : pos = Spring(selected.toDouble(), stiffness: 210, damping: 0.92);
+
+  @override
+  String get title => 'Cover Flow';
+
+  /// Album au centre (index dans la liste des albums).
+  int selected;
+
+  /// Position animée, en albums.
+  final Spring pos;
+}
+
 enum NowPlayingMode { progress, volume, scrub }
+
+/// Durées possibles du rétroéclairage, en secondes (0 : toujours allumé).
+const backlightChoices = [0, 2, 5, 10, 15, 20, 30];
+
+String backlightLabel(int seconds) => seconds == 0 ? 'Toujours allumé' : '$seconds secondes';
 
 class NowPlayingPage extends IpodPage {
   @override
@@ -54,8 +84,12 @@ class NowPlayingPage extends IpodPage {
 /// Navigation dans les menus, pilotée par la molette et le clavier.
 /// L'écran ne fait que dessiner cet état en l'animant.
 class IpodNav extends ChangeNotifier {
-  IpodNav(this.player, {required this.visibleRows}) {
+  IpodNav(this.player, {required ScreenLook look})
+      : visibleRows = look.visibleRows,
+        coverFlow = look.coverFlow {
     stack = [_root()];
+    backlight = int.tryParse(Settings.getString('ipod.backlight') ?? '') ?? 10;
+    WheelClick.instance.enabled = Settings.getString('ipod.clicker') != 'off';
   }
 
   final PlayerController player;
@@ -63,9 +97,39 @@ class IpodNav extends ChangeNotifier {
   /// Nombre de lignes visibles dans un menu (dépend de l'écran du modèle).
   int visibleRows;
 
+  /// L'écran sait afficher Cover Flow (écran couleur).
+  bool coverFlow;
+
+  // --- Rétroéclairage ----------------------------------------------------------
+
+  /// Secondes avant que l'écran s'éteigne (0 : toujours allumé).
+  int backlight = 10;
+
+  DateTime lastInput = clock.now();
+
+  bool get lit => backlight == 0 || clock.now().difference(lastInput) < Duration(seconds: backlight);
+
+  /// Une main sur l'appareil : l'écran se rallume.
+  void touch() {
+    final wasLit = lit;
+    lastInput = clock.now();
+    if (!wasLit) notifyListeners();
+  }
+
   /// Un autre appareil prend la navigation : même écran, même sélection,
-  /// recadrée pour son nombre de lignes.
-  void fitRows(int rows) {
+  /// recadrée pour son nombre de lignes. Sans Cover Flow (écran
+  /// monochrome), on en ressort.
+  void fitLook(ScreenLook look) {
+    coverFlow = look.coverFlow;
+    if (!coverFlow) {
+      final at = stack.indexWhere((p) => p is CoverFlowPage);
+      if (at > 0) {
+        stack.removeRange(at, stack.length);
+        leaving = null;
+        notifyListeners();
+      }
+    }
+    final rows = look.visibleRows;
     if (rows == visibleRows) return;
     visibleRows = rows;
     for (final p in stack.whereType<MenuPage>()) {
@@ -117,6 +181,10 @@ class IpodNav extends ChangeNotifier {
   /// Renvoie false si rien n'a bougé (bout de liste) : pas de clic.
   bool scroll(int delta) {
     switch (page) {
+      case final CoverFlowPage p:
+        final sel = (p.selected + delta).clamp(0, math.max(0, player.albums.length - 1)).toInt();
+        if (sel == p.selected) return false;
+        p.selected = sel;
       case final MenuPage p:
         final count = p.entries.length;
         if (count == 0) return false;
@@ -151,7 +219,10 @@ class IpodNav extends ChangeNotifier {
           _push(e.open!());
         } else {
           e.action?.call();
+          notifyListeners(); // une valeur a pu changer (Réglages)
         }
+      case final CoverFlowPage p:
+        if (player.albums.isNotEmpty) _push(_album(p.selected));
       case NowPlayingPage():
         _setMode(
           mode == NowPlayingMode.scrub ? NowPlayingMode.progress : NowPlayingMode.scrub,
@@ -191,6 +262,7 @@ class IpodNav extends ChangeNotifier {
 
   MenuPage _root() => MenuPage('Lecteur', live: true, () => [
         MenuEntry('Musique', open: _music),
+        MenuEntry('Réglages', open: _settings),
         MenuEntry('Morceau au hasard', action: () {
           if (player.queue.isEmpty) return;
           _play(math.Random().nextInt(player.queue.length));
@@ -198,11 +270,80 @@ class IpodNav extends ChangeNotifier {
         if (player.current != null) MenuEntry('En lecture', open: NowPlayingPage.new),
       ]);
 
-  MenuPage _music() => MenuPage('Musique', () => [
+  MenuPage _music() => MenuPage('Musique', live: true, () => [
+        if (coverFlow && player.albums.isNotEmpty)
+          MenuEntry('Cover Flow', open: () => CoverFlowPage(math.max(0, player.currentAlbum))),
+        MenuEntry('Listes de lecture', open: _playlists),
         MenuEntry('Artistes', open: _artists),
         MenuEntry('Albums', open: () => _albumList('Albums', _sortedAlbums(null))),
         MenuEntry('Morceaux', open: _songs),
       ]);
+
+  MenuPage _playlists() => MenuPage('Listes de lecture', () => [
+        MenuEntry('Ajouts récents', open: () => _tracks('Ajouts récents', player.recentlyAdded(25))),
+        MenuEntry('Les plus écoutés', open: () => _tracks('Les plus écoutés', player.mostPlayed(25))),
+        for (final l in player.playlists) MenuEntry(l.name, open: () => _tracks(l.name, l.tracks)),
+      ]);
+
+  // --- Réglages ------------------------------------------------------------
+
+  MenuPage _settings() => MenuPage('Réglages', live: true, () => [
+        MenuEntry('À propos', open: _about),
+        MenuEntry(
+          'Lecture aléatoire',
+          value: () => player.shuffle ? 'Morceaux' : 'Non',
+          action: () => player.setShuffle(!player.shuffle),
+        ),
+        MenuEntry(
+          'Répéter',
+          value: () => switch (player.repeat) {
+            RepeatMode.off => 'Non',
+            RepeatMode.one => 'Un',
+            RepeatMode.all => 'Tous',
+          },
+          action: () => player.setRepeat(RepeatMode.values[(player.repeat.index + 1) % RepeatMode.values.length]),
+        ),
+        MenuEntry('Rétroéclairage', value: () => backlight == 0 ? 'Allumé' : '$backlight s', open: _backlightMenu),
+        MenuEntry(
+          'Clic',
+          value: () => WheelClick.instance.enabled ? 'Haut-parleur' : 'Non',
+          action: () {
+            final on = !WheelClick.instance.enabled;
+            WheelClick.instance.enabled = on;
+            Settings.setString('ipod.clicker', on ? 'on' : 'off');
+          },
+        ),
+      ]);
+
+  MenuPage _backlightMenu() {
+    final page = MenuPage('Rétroéclairage', live: true, () => [
+          for (final s in backlightChoices)
+            MenuEntry(backlightLabel(s), checked: () => s == backlight, action: () {
+              backlight = s;
+              Settings.setString('ipod.backlight', '$s');
+              menu(); // choisi : on revient aux Réglages
+            }),
+        ]);
+    // On arrive sur le choix en cours.
+    final at = math.max(0, backlightChoices.indexOf(backlight));
+    page
+      ..selected = at
+      ..top = math.max(0, at - visibleRows + 1);
+    page.selSpring.value = at.toDouble();
+    page.topSpring.value = page.top.toDouble();
+    return page;
+  }
+
+  MenuPage _about() => MenuPage('À propos', () {
+        final artists = {for (final a in player.albums) a.artist.toLowerCase()};
+        return [
+          MenuEntry('Morceaux', value: () => '${player.queue.length}'),
+          MenuEntry('Albums', value: () => '${player.albums.length}'),
+          MenuEntry('Artistes', value: () => '${artists.length}'),
+          MenuEntry('Listes', value: () => '${player.playlists.length}'),
+          MenuEntry('Version', value: () => '1.0'),
+        ];
+      });
 
   static int _cmp(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
 

@@ -331,6 +331,10 @@ class MiniLook extends ScreenLook {
   @override
   Color get background => _lcd;
 
+  /// Écran LCD sans rétroéclairage : gris terne, le texte reste lisible.
+  @override
+  Color get unlit => const Color(0x7A4E5A5E);
+
   @override
   Widget statusBar({required String title, required bool playing, required bool hasTrack, bool nowPlaying = false}) =>
       Container(
@@ -371,11 +375,18 @@ class MiniLook extends ScreenLook {
   @override
   Widget row(MenuEntry entry, {required bool selected}) {
     final color = selected ? _lcd : _ink;
+    final value = entry.value?.call();
     return Padding(
       padding: const EdgeInsets.only(left: 5, right: 2),
       child: Row(
         children: [
           Expanded(child: Marquee(entry.label, active: selected, style: TextStyle(color: color))),
+          if (value != null)
+            Padding(
+              padding: EdgeInsets.only(left: 5, right: entry.open == null ? 3 : 0),
+              child: Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w500)),
+            ),
+          if (entry.checked?.call() ?? false) Icon(Icons.check, size: 12, color: color),
           if (entry.open != null) Icon(Icons.chevron_right, size: 13, color: color),
         ],
       ),

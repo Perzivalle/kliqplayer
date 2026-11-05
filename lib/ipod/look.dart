@@ -21,6 +21,12 @@ abstract class ScreenLook {
 
   /// [nowPlaying] : on est sur l'écran « En lecture » (le nano 4G y passe
   /// sa barre en noir).
+  /// L'écran affiche Cover Flow (écrans couleur).
+  bool get coverFlow => false;
+
+  /// Voile posé sur l'écran quand le rétroéclairage s'éteint.
+  Color get unlit => const Color(0xC8000000);
+
   Widget statusBar({required String title, required bool playing, required bool hasTrack, bool nowPlaying = false});
 
   /// Bandeau de la ligne sélectionnée.

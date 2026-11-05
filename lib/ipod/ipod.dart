@@ -82,7 +82,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   /// Navigation dans les menus : elle appartient à la scène, pas à
   /// l'appareil, si bien qu'en changeant d'iPod on reste sur le même écran.
-  late final IpodNav _nav = IpodNav(widget.player, visibleRows: _model.look.visibleRows);
+  late final IpodNav _nav = IpodNav(widget.player, look: _model.look);
   bool get _remember => widget.initial == null;
 
   late final Ticker _ticker = createTicker(_tick);
@@ -272,7 +272,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       if (_plug.velocity < 0) _plug.velocity = -_plug.velocity * 0.22;
       if (!_plugClicked) {
         _plugClicked = true;
-        WheelClick.instance.play();
+        WheelClick.instance.play(force: true);
         // Rebranchée : la musique reprend là où elle s'était arrêtée.
         if (_resumeOnPlug) {
           _resumeOnPlug = false;
@@ -509,7 +509,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   }
 
   void _choose(IpodModel m) {
-    _nav.fitRows(m.look.visibleRows);
+    _nav.fitLook(m.look);
     setState(() {
       _model = m;
       _shown[m.family] = m;
@@ -769,6 +769,7 @@ class _IpodDeviceState extends State<IpodDevice> {
   }
 
   KeyEventResult _onKey(FocusNode _, KeyEvent e) {
+    if (e is KeyDownEvent) _nav.touch();
     // ← → se comportent comme les côtés de la molette : appui bref pour
     // changer de morceau, appui long pour avancer / reculer.
     final side = switch (e.logicalKey) {
@@ -801,6 +802,7 @@ class _IpodDeviceState extends State<IpodDevice> {
   }
 
   void _scroll(int delta) {
+    _nav.touch();
     if (_nav.scroll(delta)) WheelClick.instance.play();
   }
 
@@ -818,6 +820,7 @@ class _IpodDeviceState extends State<IpodDevice> {
   /// Bouton enfoncé : le clic sonne tout de suite, l'action attend le
   /// relâchement (ou la fin du délai pour une recherche).
   void _down(WheelZone zone) {
+    _nav.touch();
     if (zone == WheelZone.none || _held != null) return;
     WheelClick.instance.play();
     _held = zone;
@@ -895,15 +898,7 @@ class _IpodDeviceState extends State<IpodDevice> {
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            if (m.hold case final h?)
-              Positioned(
-                left: h.x - h.width / 2,
-                top: h.onTop ? -HoldPainter.depth : null,
-                bottom: h.onTop ? null : -HoldPainter.depth,
-                width: h.width,
-                height: HoldPainter.depth,
-                child: CustomPaint(painter: HoldPainter(h)),
-              ),
+            ?_hold(m),
             Positioned.fill(child: CustomPaint(painter: m.body)),
             Positioned.fromRect(
               rect: m.screen,
@@ -938,6 +933,20 @@ class _IpodDeviceState extends State<IpodDevice> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Le verrou, qui dépasse de la tranche.
+  Widget? _hold(IpodModel m) {
+    final h = m.hold;
+    if (h == null) return null;
+    return Positioned(
+      left: h.x - h.width / 2,
+      top: h.onTop ? -HoldPainter.depth : null,
+      bottom: h.onTop ? null : -HoldPainter.depth,
+      width: h.width,
+      height: HoldPainter.depth,
+      child: CustomPaint(painter: HoldPainter(h)),
     );
   }
 }

@@ -13,6 +13,7 @@ class Track {
     required this.album,
     this.trackNumber,
     this.duration,
+    this.added,
   });
 
   final String path;
@@ -21,6 +22,9 @@ class Track {
   final String album;
   final int? trackNumber;
   final Duration? duration;
+
+  /// Date d'arrivée du fichier dans la bibliothèque (liste « Ajouts récents »).
+  final DateTime? added;
 
   @override
   String toString() => '$artist — $title';
@@ -38,12 +42,22 @@ class Album {
   final int trackCount;
 }
 
-/// Résultat du parcours : les morceaux, rangés album par album.
+/// Liste de lecture : un nom et des morceaux (index dans la file).
+class SongList {
+  const SongList(this.name, this.tracks);
+
+  final String name;
+  final List<int> tracks;
+}
+
+/// Résultat du parcours : les morceaux, rangés album par album, et les
+/// listes .m3u trouvées dans le dossier.
 class Library {
-  const Library(this.tracks, this.albums);
+  const Library(this.tracks, this.albums, [this.playlists = const []]);
 
   final List<Track> tracks;
   final List<Album> albums;
+  final List<SongList> playlists;
 }
 
 const _audioExtensions = {'.mp3', '.flac', '.ogg', '.opus', '.m4a', '.aac', '.wav'};
@@ -65,6 +79,7 @@ Future<Library> scanLibrary(Directory root) {
 
 Library _scan(String rootPath) {
   final tracks = <Track>[];
+  final m3u = <File>[];
   final root = Directory(rootPath);
   if (!root.existsSync()) return const Library([], []);
 
@@ -72,9 +87,16 @@ Library _scan(String rootPath) {
     if (entity is! File) continue;
     final lower = entity.path.toLowerCase();
     final dot = lower.lastIndexOf('.');
-    if (dot < 0 || !_audioExtensions.contains(lower.substring(dot))) continue;
+    if (dot < 0) continue;
+    final ext = lower.substring(dot);
+    if (ext == '.m3u' || ext == '.m3u8') m3u.add(entity);
+    if (!_audioExtensions.contains(ext)) continue;
 
     final fallbackTitle = _basename(entity.path);
+    DateTime? added;
+    try {
+      added = entity.statSync().modified;
+    } catch (_) {}
     try {
       final meta = readMetadata(entity, getImage: false);
       tracks.add(Track(
@@ -84,6 +106,7 @@ Library _scan(String rootPath) {
         album: _orElse(meta.album, _basename(entity.parent.path)),
         trackNumber: meta.trackNumber,
         duration: meta.duration,
+        added: added,
       ));
     } catch (_) {
       tracks.add(Track(
@@ -91,6 +114,7 @@ Library _scan(String rootPath) {
         title: fallbackTitle,
         artist: 'Artiste inconnu',
         album: _basename(entity.parent.path),
+        added: added,
       ));
     }
   }
@@ -128,7 +152,30 @@ Library _scan(String rootPath) {
     ));
     ordered.addAll(g.tracks);
   }
-  return Library(ordered, albums);
+  return Library(ordered, albums, _readPlaylists(m3u, ordered));
+}
+
+/// Listes .m3u : une ligne par fichier, chemin absolu ou relatif à la liste.
+List<SongList> _readPlaylists(List<File> files, List<Track> tracks) {
+  final byPath = {for (var i = 0; i < tracks.length; i++) tracks[i].path: i};
+  final lists = <SongList>[];
+  for (final f in files) {
+    try {
+      final ids = <int>[];
+      for (var line in f.readAsLinesSync()) {
+        line = line.trim();
+        if (line.isEmpty || line.startsWith('#')) continue;
+        final path = line.startsWith('/') ? line : '${f.parent.path}/$line';
+        final i = byPath[File(path).absolute.path] ?? byPath[path];
+        if (i != null) ids.add(i);
+      }
+      if (ids.isNotEmpty) {
+        lists.add(SongList(_basename(f.path), ids));
+      }
+    } catch (_) {}
+  }
+  lists.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  return lists;
 }
 
 String _mostCommon(Iterable<String> values) {

@@ -1,8 +1,12 @@
+import 'dart:async';
+
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../core/player.dart';
 import '../physics.dart';
+import 'coverflow.dart';
 import 'look.dart';
 import 'nav.dart';
 
@@ -40,8 +44,27 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
     _wake();
   }
 
+  // --- Rétroéclairage ----------------------------------------------------------
+
+  Timer? _backlightTimer;
+  bool _lit = true;
+
+  /// Éteint l'écran à l'heure dite ; une action entre-temps repousse
+  /// l'échéance (on revérifie à chaque fois).
+  void _scheduleBacklight() {
+    _backlightTimer?.cancel();
+    _lit = nav.lit;
+    if (!_lit || nav.backlight == 0) return;
+    final due = nav.lastInput.add(Duration(seconds: nav.backlight)).difference(clock.now());
+    _backlightTimer = Timer(due + const Duration(milliseconds: 20), () {
+      if (!mounted) return;
+      setState(_scheduleBacklight);
+    });
+  }
+
   @override
   void dispose() {
+    _backlightTimer?.cancel();
     nav.removeListener(_wake);
     widget.player.removeListener(_wake);
     _ticker.dispose();
@@ -49,6 +72,7 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
   }
 
   void _wake() {
+    _scheduleBacklight();
     if (nav.transition != _transition) {
       _transition = nav.transition;
       _slide
@@ -81,6 +105,12 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
         busy |= !p.selSpring.isSettled || !p.topSpring.isSettled;
       }
     }
+    for (final p in [nav.page, ?nav.leaving]) {
+      if (p is CoverFlowPage) {
+        p.pos.step(p.selected.toDouble(), dt);
+        busy |= !p.pos.isSettled;
+      }
+    }
     if (nav.page is NowPlayingPage) {
       nav.expireMode();
       busy |= widget.player.playing || nav.mode != NowPlayingMode.progress;
@@ -96,7 +126,7 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
     final offset = _slide.value * w * nav.direction;
     return DefaultTextStyle(
       style: look.textStyle,
-      child: ColoredBox(
+      child: _Backlight(lit: _lit, tint: look.unlit, child: ColoredBox(
         color: look.background,
         child: Column(
           children: [
@@ -123,14 +153,45 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
             ),
           ],
         ),
-      ),
+      )),
     );
   }
 
   Widget _page(IpodPage p) => switch (p) {
         MenuPage() => _MenuView(page: p, look: widget.look),
         NowPlayingPage() => widget.look.nowPlaying(widget.player, nav.mode),
+        CoverFlowPage() => CoverFlowView(page: p, player: widget.player),
       };
+}
+
+/// Voile de l'écran éteint : il tombe doucement, et disparaît d'un coup dès
+/// qu'on touche l'appareil.
+class _Backlight extends StatelessWidget {
+  const _Backlight({required this.lit, required this.tint, required this.child});
+
+  final bool lit;
+  final Color tint;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        child,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: AnimatedOpacity(
+              opacity: lit ? 0 : 1,
+              duration: lit ? const Duration(milliseconds: 90) : const Duration(milliseconds: 900),
+              curve: Curves.easeOut,
+              child: ColoredBox(color: tint),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // --- Menus ---------------------------------------------------------------------

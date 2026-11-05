@@ -4,6 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
 
 import 'library.dart';
+import 'settings.dart';
+
+/// Répétition : rien, le morceau en cours, ou toute la file.
+enum RepeatMode { off, one, all }
 
 /// Moteur de lecture.
 ///
@@ -34,6 +38,9 @@ class PlayerController extends ChangeNotifier {
         }
       }),
     ]);
+    shuffle = Settings.getString('player.shuffle') == 'on';
+    repeat = RepeatMode.values.asNameMap()[Settings.getString('player.repeat')] ?? RepeatMode.off;
+    _plays = _loadPlays();
   }
 
   /// Sans moteur audio : état figé fourni à la main, commandes sans effet.
@@ -46,10 +53,13 @@ class PlayerController extends ChangeNotifier {
     this.playing = false,
     this.duration = Duration.zero,
     this.volume = 100,
+    this.playlists = const [],
     Duration position = Duration.zero,
+    Map<int, Uint8List?> albumCovers = const {},
   }) : _engine = null {
     loading = false;
     _anchor = position;
+    _albumCovers.addAll(albumCovers);
   }
 
   final Player? _engine;
@@ -66,6 +76,14 @@ class PlayerController extends ChangeNotifier {
 
   List<Track> queue = const [];
   List<Album> albums = const [];
+
+  /// Listes .m3u trouvées dans le dossier de musique.
+  List<SongList> playlists = const [];
+
+  /// Lecture aléatoire et répétition (Réglages), retenues d'un lancement à
+  /// l'autre.
+  bool shuffle = false;
+  RepeatMode repeat = RepeatMode.off;
 
   int index = -1;
   bool playing = false;
@@ -109,14 +127,92 @@ class PlayerController extends ChangeNotifier {
     final tracks = library.tracks;
     queue = tracks;
     albums = library.albums;
+    playlists = library.playlists;
     loading = false;
     if (tracks.isNotEmpty) {
       await _player.open(
         Playlist([for (final t in tracks) Media(t.path)], index: 0),
         play: false,
       );
+      await _player.setPlaylistMode(_modeFor(repeat));
+      if (shuffle) await _player.setShuffle(true);
     }
     notifyListeners();
+  }
+
+  static PlaylistMode _modeFor(RepeatMode r) => switch (r) {
+        RepeatMode.off => PlaylistMode.none,
+        RepeatMode.one => PlaylistMode.single,
+        RepeatMode.all => PlaylistMode.loop,
+      };
+
+  Future<void> setShuffle(bool on) async {
+    shuffle = on;
+    Settings.setString('player.shuffle', on ? 'on' : 'off');
+    notifyListeners();
+    await _run((p) => p.setShuffle(on));
+  }
+
+  Future<void> setRepeat(RepeatMode r) async {
+    repeat = r;
+    Settings.setString('player.repeat', r.name);
+    notifyListeners();
+    await _run((p) => p.setPlaylistMode(_modeFor(r)));
+  }
+
+  // --- Pochettes des albums (Cover Flow) -------------------------------------
+
+  final Map<int, Uint8List?> _albumCovers = {};
+  final Set<int> _coverLoads = {};
+
+  /// Pochette de l'album [i] si elle est déjà lue ; sinon null, et elle est
+  /// lue en arrière-plan (l'écran est prévenu quand elle arrive).
+  Uint8List? albumCover(int i) {
+    if (_albumCovers.containsKey(i)) return _albumCovers[i];
+    if (_engine != null && i >= 0 && i < albums.length && _coverLoads.add(i)) {
+      loadCover(queue[albums[i].firstIndex]).then((bytes) {
+        _albumCovers[i] = bytes;
+        _coverLoads.remove(i);
+        notifyListeners();
+      });
+    }
+    return null;
+  }
+
+  // --- Nombre d'écoutes (liste « Les plus écoutés ») -------------------------
+
+  Map<String, int> _plays = {};
+  Timer? _savePlays;
+
+  /// Index des morceaux les plus écoutés, du plus au moins écouté.
+  List<int> mostPlayed(int count) {
+    final ids = [
+      for (var i = 0; i < queue.length; i++)
+        if ((_plays[queue[i].path] ?? 0) > 0) i,
+    ]..sort((a, b) => (_plays[queue[b].path] ?? 0).compareTo(_plays[queue[a].path] ?? 0));
+    return ids.take(count).toList();
+  }
+
+  /// Index des derniers morceaux arrivés, du plus récent au plus ancien.
+  List<int> recentlyAdded(int count) {
+    final epoch = DateTime.fromMillisecondsSinceEpoch(0);
+    final ids = List.generate(queue.length, (i) => i)
+      ..sort((a, b) => (queue[b].added ?? epoch).compareTo(queue[a].added ?? epoch));
+    return ids.take(count).toList();
+  }
+
+  static Map<String, int> _loadPlays() {
+    final raw = Settings.getMap('plays');
+    return {
+      for (final e in raw.entries)
+        if (e.value is int) e.key: e.value as int,
+    };
+  }
+
+  void _countPlay(Track t) {
+    _plays[t.path] = (_plays[t.path] ?? 0) + 1;
+    _savePlays?.cancel();
+    _savePlays = Timer(const Duration(seconds: 5), () => Settings.setMap('plays', _plays));
   }
 
 
@@ -128,6 +224,7 @@ class PlayerController extends ChangeNotifier {
   Future<void> _onTrackChanged() async {
     notifyListeners();
     final track = current;
+    if (track != null && playing) _countPlay(track);
     final request = ++_coverRequest;
     final bytes = track == null ? null : await loadCover(track);
     if (request != _coverRequest) return; // un autre morceau entre-temps
@@ -138,7 +235,13 @@ class PlayerController extends ChangeNotifier {
   // --- Commandes -----------------------------------------------------------
 
   Future<void> playPause() => _engine == null ? _preview(!playing) : _run((p) => p.playOrPause());
-  Future<void> play() => _engine == null ? _preview(true) : _run((p) => p.play());
+  Future<void> play() async {
+    if (_engine == null) return _preview(true);
+    // Démarrer un morceau depuis l'arrêt compte aussi comme une écoute.
+    final t = current;
+    if (!playing && t != null && _player.state.position < const Duration(seconds: 1)) _countPlay(t);
+    await _run((p) => p.play());
+  }
   Future<void> pause() => _engine == null ? _preview(false) : _run((p) => p.pause());
 
   /// En mode aperçu, lecture et pause changent quand même l'état affiché.
@@ -161,6 +264,10 @@ class PlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
+    if (_savePlays?.isActive ?? false) {
+      _savePlays!.cancel();
+      Settings.setMap('plays', _plays);
+    }
     for (final s in _subs) {
       s.cancel();
     }

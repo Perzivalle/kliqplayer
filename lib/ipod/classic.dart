@@ -260,6 +260,9 @@ class ClassicLook extends ScreenLook {
   Color get background => Colors.white;
 
   @override
+  bool get coverFlow => true;
+
+  @override
   Widget statusBar({required String title, required bool playing, required bool hasTrack, bool nowPlaying = false}) =>
       portrait && nowPlaying
           ? _DarkStatusBar(title: title, playing: playing, hasTrack: hasTrack)
@@ -428,11 +431,22 @@ class _Row extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = selected ? Colors.white : _ink;
+    final value = entry.value?.call();
     return Padding(
       padding: const EdgeInsets.only(left: 8, right: 4),
       child: Row(
         children: [
           Expanded(child: Marquee(entry.label, active: selected, style: TextStyle(color: color))),
+          if (value != null)
+            Padding(
+              padding: EdgeInsets.only(left: 8, right: entry.open == null ? 4 : 0),
+              child: Text(
+                value,
+                style: TextStyle(color: selected ? Colors.white : const Color(0xFF6A6F75), fontWeight: FontWeight.w500),
+              ),
+            ),
+          if (entry.checked?.call() ?? false)
+            Padding(padding: const EdgeInsets.only(right: 4), child: Icon(Icons.check_rounded, size: 16, color: color)),
           if (entry.open != null) Icon(Icons.chevron_right_rounded, size: 18, color: color),
         ],
       ),

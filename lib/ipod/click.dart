@@ -18,6 +18,9 @@ class WheelClick {
   /// Volume du clic, de 0 à 1.
   double volume = 0.55;
 
+  /// Réglages › Clic : sans, la molette tourne en silence.
+  bool enabled = true;
+
   Future<void> _load() async {
     final soloud = SoLoud.instance;
     if (!soloud.isInitialized) {
@@ -28,7 +31,10 @@ class WheelClick {
   }
 
   /// Joue le clic ; sans effet (et sans erreur) si l'audio n'est pas prêt.
-  void play() {
+  /// [force] : un bruit mécanique (la prise qui s'enfiche), joué même quand
+  /// le clic de la molette est coupé.
+  void play({bool force = false}) {
+    if (!enabled && !force) return;
     final source = _source;
     if (source == null) {
       _loading ??= _load().catchError((Object e) {
