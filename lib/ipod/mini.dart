@@ -101,6 +101,10 @@ class MiniModel extends IpodModel {
   @override
   double get screenCornerRadius => 1;
 
+  /// À droite sur la tranche du haut (le verrou est à gauche).
+  @override
+  double get jackX => 252;
+
   @override
   Offset get wheelCenter => const Offset(170, 402);
 

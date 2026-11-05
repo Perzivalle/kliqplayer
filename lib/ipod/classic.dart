@@ -36,6 +36,10 @@ class ClassicModel extends IpodModel {
   @override
   Rect get screen => G.screen;
 
+  /// En haut à gauche, comme sur le vrai (le verrou est à droite).
+  @override
+  double get jackX => 74;
+
   @override
   Offset get wheelCenter => G.wheelCenter;
 

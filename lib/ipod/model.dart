@@ -29,6 +29,9 @@ abstract class IpodModel {
   Rect get screen;
   double get screenCornerRadius => 2;
 
+  /// Position de la prise casque sur la tranche du haut (abscisse).
+  double get jackX;
+
   Offset get wheelCenter;
   WheelStyle get wheel;
   ScreenLook get look;

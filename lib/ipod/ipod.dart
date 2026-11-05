@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import '../physics.dart';
 import 'classic.dart';
 import 'click.dart';
 import 'drawer.dart';
+import 'jack.dart';
 import 'mini.dart';
 import 'model.dart';
 import 'nav.dart';
@@ -28,6 +30,23 @@ const List<IpodModel> ipodModels = [
   MiniModel(MiniColor.vert),
   MiniModel(MiniColor.or),
 ];
+
+/// Étapes d'un changement d'appareil.
+enum _Swap {
+  none,
+
+  /// La prise sort d'un coup sec, puis remonte hors de la fenêtre.
+  unplugging,
+
+  /// L'appareil en main vole jusqu'à son emplacement du tiroir.
+  stowing,
+
+  /// Le nouveau sort de son emplacement et vient au centre.
+  unstowing,
+
+  /// La prise redescend et s'enfiche.
+  plugging,
+}
 
 /// L'appareil qui flotte au milieu de la fenêtre, et le tiroir des autres
 /// modèles qui sort du bord droit (poignée au survol du bord, ou touche T).
@@ -90,6 +109,47 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _model.family: _model,
   };
 
+  // --- Prise jack et changement d'appareil ------------------------------------
+
+  _Swap _phase = _Swap.none;
+  IpodModel? _incoming;
+
+  /// Hauteur dont la prise est sortie, en unités de l'appareil (0 = enfoncée).
+  final _plug = Spring(0, stiffness: 500, damping: 0.55);
+  double _plugTarget = 0;
+  double _plugHold = 0;
+  bool _plugClicked = false;
+
+  /// Hauteur du « pop » quand on arrache la prise, avant qu'elle s'en aille.
+  static const double _popHeight = 46;
+
+  /// Vol d'un appareil entre le centre et le tiroir (0 → 1).
+  final _fly = Spring(0, stiffness: 150, damping: 0.86);
+  Rect? _natural; // où l'appareil serait sans le vol
+  Rect? _flyFrom;
+  Rect? _flyTo;
+  bool _hideDevice = false;
+
+  /// Ballant du câble, relancé quand l'appareil bouge.
+  final _sway = Spring(0, stiffness: 55, damping: 0.28);
+  double? _lastSocketX;
+
+  final _stageKey = GlobalKey();
+  final Map<String, GlobalKey> _deviceKeys = {};
+  late final Map<String, GlobalKey> _slotKeys = {for (final f in _families) f.first.family: GlobalKey()};
+
+  GlobalKey _deviceKey(IpodModel m) => _deviceKeys.putIfAbsent(m.id, GlobalKey.new);
+
+  @override
+  void initState() {
+    super.initState();
+    if (_remember) {
+      // Au lancement, la prise vient se brancher.
+      _plug.value = JackGeometry.away;
+      _startPlugging();
+    }
+  }
+
   static IpodModel _saved() {
     final id = Settings.getString(_settingsKey);
     return ipodModels.firstWhere((m) => m.id == id, orElse: () => ipodModels.first);
@@ -119,8 +179,183 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     }
     _peek.step(_nearEdge && !_wantOpen && !_dragging ? 1 : 0, dt);
     if (_peek.isSettled) _peek.value = _nearEdge && !_wantOpen && !_dragging ? 1 : 0;
+    _stepSwap(dt);
+    _stepSway(dt);
     setState(() {});
-    if (!_dragging && _open.isSettled && _peek.isSettled && _lift.isSettled) _ticker.stop();
+    if (!_dragging &&
+        _phase == _Swap.none &&
+        _open.isSettled &&
+        _peek.isSettled &&
+        _lift.isSettled &&
+        _sway.isSettled &&
+        _plug.isSettled) {
+      _ticker.stop();
+    }
+  }
+
+  // --- Changement d'appareil : débrancher, ranger, sortir, brancher ----------
+
+  /// Rectangle d'un widget dans le repère de la scène (transformations comprises).
+  Rect? _rectOf(GlobalKey? key) {
+    final box = key?.currentContext?.findRenderObject();
+    final stage = _stageKey.currentContext?.findRenderObject();
+    if (box is! RenderBox || stage is! RenderBox || !box.attached || !box.hasSize) return null;
+    return MatrixUtils.transformRect(box.getTransformTo(stage), Offset.zero & box.size);
+  }
+
+  void _startSwap(IpodModel to) {
+    _incoming = to;
+    _phase = _Swap.unplugging;
+    _plugTarget = _popHeight;
+    _plug
+      ..stiffness = 520
+      ..damping = 0.5;
+    _plugHold = 0;
+    _kick();
+  }
+
+  void _startPlugging() {
+    _phase = _Swap.plugging;
+    _plugTarget = 0;
+    _plugClicked = false;
+    _plug
+      ..stiffness = 170
+      ..damping = 0.9
+      ..velocity = 0;
+    _kick();
+  }
+
+  void _stepSwap(double dt) {
+    _plug.step(_plugTarget, dt);
+    // La prise bute au fond de la prise femelle : petit rebond et clic.
+    if (_plug.value < 0) {
+      _plug.value = 0;
+      if (_plug.velocity < 0) _plug.velocity = -_plug.velocity * 0.22;
+      if (!_plugClicked) {
+        _plugClicked = true;
+        WheelClick.instance.play();
+      }
+    }
+
+    switch (_phase) {
+      case _Swap.none:
+        break;
+      case _Swap.unplugging:
+        if (_plugTarget == _popHeight) {
+          // Arrachée : elle marque un temps, puis s'en va vers le haut.
+          if (_plug.value > _popHeight * 0.8) _plugHold += dt;
+          if (_plugHold > 0.14) {
+            _plugTarget = JackGeometry.away;
+            _plug
+              ..stiffness = 40
+              ..damping = 1;
+          }
+        } else if (_plug.value > JackGeometry.away * 0.45) {
+          _beginFlight(stowing: true);
+        }
+      case _Swap.stowing:
+        _fly.step(1, dt);
+        if (_fly.value > 0.995 && _fly.velocity.abs() < 0.2) _landStowed();
+      case _Swap.unstowing:
+        if (_flyFrom == null) {
+          // L'appareil vient d'être construit (invisible) : on mesure.
+          _beginFlight(stowing: false);
+        } else {
+          _fly.step(1, dt);
+          if (_fly.value > 0.995 && _fly.velocity.abs() < 0.2) _landOut();
+        }
+      case _Swap.plugging:
+        if (_plugClicked && _plug.isSettled) {
+          _plug.value = 0;
+          _phase = _Swap.none;
+          _wantOpen = false; // le tiroir se referme une fois branché
+        }
+    }
+  }
+
+  void _beginFlight({required bool stowing}) {
+    final model = stowing ? _model : _incoming!;
+    final natural = _rectOf(_deviceKey(model));
+    final slot = _rectOf(_slotKeys[model.family]);
+    if (natural == null || slot == null) {
+      // Rien à mesurer (fenêtre minuscule…) : on échange sans voler.
+      _flyFrom = null;
+      if (stowing) {
+        _landStowed();
+      } else {
+        _landOut();
+      }
+      return;
+    }
+    _natural = natural;
+    _flyFrom = stowing ? natural : slot;
+    _flyTo = stowing ? slot : natural;
+    _fly
+      ..value = 0
+      ..velocity = 0;
+    _hideDevice = false;
+    _phase = stowing ? _Swap.stowing : _Swap.unstowing;
+  }
+
+  void _landStowed() {
+    _choose(_incoming!);
+    // Le nouveau est construit au centre mais caché, le temps de le mesurer.
+    _hideDevice = true;
+    _flyFrom = null;
+    _phase = _Swap.unstowing;
+  }
+
+  void _landOut() {
+    _flyFrom = _flyTo = _natural = null;
+    _hideDevice = false;
+    _incoming = null;
+    _startPlugging();
+  }
+
+  /// Transformation qui amène l'appareil de sa place naturelle à sa
+  /// position de vol (avec un petit arc vers le haut).
+  Matrix4? _flightTransform() {
+    final from = _flyFrom, to = _flyTo, natural = _natural;
+    if (from == null || to == null || natural == null) return null;
+    final t = _fly.value;
+    final r = Rect.lerp(from, to, t)!.shift(Offset(0, -math.sin(t.clamp(0.0, 1.0) * math.pi) * 36));
+    return Matrix4.identity()
+      ..translateByDouble(r.left, r.top, 0, 1)
+      ..scaleByDouble(r.width / natural.width, r.height / natural.height, 1, 1)
+      ..translateByDouble(-natural.left, -natural.top, 0, 1);
+  }
+
+  /// Le câble ondule quand l'appareil se déplace.
+  void _stepSway(double dt) {
+    final rect = _rectOf(_deviceKeys[_model.id]);
+    final x = rect?.left;
+    if (x != null && _lastSocketX != null && dt > 0) {
+      final v = (x - _lastSocketX!) / dt;
+      _sway.velocity -= v * 0.9 * dt * 60 / 60;
+    }
+    _lastSocketX = x;
+    _sway.step(0, dt);
+  }
+
+  /// Câble et prise, recalculés au moment de peindre (toujours collés à
+  /// l'appareil, même quand il bouge).
+  JackPainter _jack() {
+    final box = _deviceKeys[_model.id]?.currentContext?.findRenderObject();
+    final stage = _stageKey.currentContext?.findRenderObject();
+    if (_hideDevice || box is! RenderBox || stage is! RenderBox || !box.hasSize) {
+      return const JackPainter(socket: null, scale: 1, lift: 0, anchorX: 0, sway: 0);
+    }
+    final m = box.getTransformTo(stage);
+    final socket = MatrixUtils.transformPoint(m, Offset(_model.jackX, 0));
+    final scale = MatrixUtils.transformRect(m, Offset.zero & box.size).width / box.size.width;
+    return JackPainter(
+      socket: socket,
+      scale: scale,
+      lift: _plug.value,
+      // Le câble pend depuis là où serait la prise, tiroir fermé.
+      anchorX: socket.dx + _open.value.clamp(0.0, 1.0) * _drawerW * 0.35,
+      sway: _sway.value,
+    );
   }
 
   // --- Tirer le tiroir à la main ---------------------------------------------
@@ -192,10 +427,12 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     if (_remember) Settings.setString(_settingsKey, m.id);
   }
 
-  /// Clic sur un appareil du tiroir : il passe en main, le tiroir se ferme.
+  /// Clic sur un appareil du tiroir : on débranche celui en main, il se
+  /// range, l'autre sort et se branche, puis le tiroir se referme.
   void _pick(IpodModel m) {
-    _choose(m);
-    _setOpen(false);
+    if (_phase != _Swap.none || m.id == _model.id) return;
+    setState(() => _shown[m.family] = m);
+    _startSwap(m);
   }
 
   /// Clic sur une pastille : recolore la miniature, ou directement
@@ -237,7 +474,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
           final visible = open * drawerW + (1 - openC) * _peek.value * drawerFront;
 
           Widget device = AnimatedSwitcher(
-            duration: const Duration(milliseconds: 480),
+            // Pendant un échange, c'est le vol qui anime : pas de fondu.
+            duration: _phase == _Swap.none ? const Duration(milliseconds: 480) : Duration.zero,
             switchInCurve: Curves.easeOutBack,
             switchOutCurve: Curves.easeIn,
             transitionBuilder: (child, anim) => FadeTransition(
@@ -247,10 +485,11 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             child: Center(
               key: ValueKey(_model.id),
               child: Padding(
-                // Marge pour l'ombre portée.
-                padding: _model.margin,
+                // Marge pour l'ombre portée, et de la place en haut pour la
+                // prise et le câble.
+                padding: _model.margin.copyWith(top: math.max(_model.margin.top, box.maxHeight * 0.2)),
                 child: FittedBox(
-                  child: IpodDevice(model: _model, player: widget.player),
+                  child: IpodDevice(key: _deviceKey(_model), model: _model, player: widget.player),
                 ),
               ),
             ),
@@ -264,65 +503,82 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             );
           }
 
-          return Stack(
-            children: [
-              Positioned.fill(child: device),
-              // Un clic à côté du tiroir le referme.
-              if (_wantOpen)
-                Positioned.fill(
-                  child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => _setOpen(false)),
-                ),
-              // Bande sensible le long du bord droit : fait dépasser la façade.
-              Positioned(
-                right: 0,
-                top: 0,
-                bottom: 0,
-                width: 36,
-                child: MouseRegion(
-                  onEnter: (_) => _setNearEdge(true),
-                  onExit: (_) => _setNearEdge(false),
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: () => _setOpen(true),
-                    // Compte depuis le point d'appui : le tiroir colle au pointeur.
-                    dragStartBehavior: DragStartBehavior.down,
-                    onPanStart: _dragBegin,
-                    onPanUpdate: _dragUpdate,
-                    onPanEnd: _dragEnd,
+          if (_hideDevice) device = Opacity(opacity: 0, child: device);
+          final flight = _flightTransform();
+          if (flight != null) device = Transform(transform: flight, child: device);
+          // En vol, l'appareil passe au-dessus du tiroir.
+          final flying = _phase == _Swap.stowing || _phase == _Swap.unstowing;
+          final deviceLayer = Positioned.fill(key: const ValueKey('appareil'), child: device);
+
+          return IgnorePointer(
+            ignoring: _phase != _Swap.none,
+            child: Stack(
+              key: _stageKey,
+              children: [
+                if (!flying) deviceLayer,
+                // Un clic à côté du tiroir le referme.
+                if (_wantOpen)
+                  Positioned.fill(
+                    child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => _setOpen(false)),
                   ),
-                ),
-              ),
-              if (visible > 0.5)
+                // Bande sensible le long du bord droit : fait dépasser la façade.
                 Positioned(
-                  left: w - visible,
-                  top: _lift.value,
-                  bottom: -_lift.value,
-                  // Plus large que nécessaire : le rebond et l'élastique ne
-                  // laissent jamais de vide au bord de la fenêtre.
-                  width: drawerW * 1.4 + 40,
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 36,
                   child: MouseRegion(
                     onEnter: (_) => _setNearEdge(true),
                     onExit: (_) => _setNearEdge(false),
-                    // On l'attrape n'importe où : façade, coque ou feutrine.
                     child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: () => _setOpen(true),
                       // Compte depuis le point d'appui : le tiroir colle au pointeur.
                       dragStartBehavior: DragStartBehavior.down,
                       onPanStart: _dragBegin,
                       onPanUpdate: _dragUpdate,
                       onPanEnd: _dragEnd,
-                      child: IpodDrawer(
-                        families: _families,
-                        current: _model,
-                        shown: _shown,
-                        contentWidth: drawerW,
-                        onPick: _pick,
-                        onSwatch: _swatch,
-                        onFront: () => _setOpen(!_wantOpen),
-                      ),
                     ),
                   ),
                 ),
-            ],
+                if (visible > 0.5)
+                  Positioned(
+                    left: w - visible,
+                    top: _lift.value,
+                    bottom: -_lift.value,
+                    // Plus large que nécessaire : le rebond et l'élastique ne
+                    // laissent jamais de vide au bord de la fenêtre.
+                    width: drawerW * 1.4 + 40,
+                    child: MouseRegion(
+                      onEnter: (_) => _setNearEdge(true),
+                      onExit: (_) => _setNearEdge(false),
+                      // On l'attrape n'importe où : façade, coque ou feutrine.
+                      child: GestureDetector(
+                        // Compte depuis le point d'appui : le tiroir colle au pointeur.
+                        dragStartBehavior: DragStartBehavior.down,
+                        onPanStart: _dragBegin,
+                        onPanUpdate: _dragUpdate,
+                        onPanEnd: _dragEnd,
+                        child: IpodDrawer(
+                          families: _families,
+                          current: _model,
+                          shown: _shown,
+                          contentWidth: drawerW,
+                          onPick: _pick,
+                          onSwatch: _swatch,
+                          onFront: () => _setOpen(!_wantOpen),
+                          slotKeys: _slotKeys,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (flying) deviceLayer,
+                // Le câble et la prise, par-dessus tout.
+                Positioned.fill(
+                  child: IgnorePointer(child: CustomPaint(painter: _LiveJackPainter(_jack))),
+                ),
+              ],
+            ),
           );
         },
       ),
@@ -514,4 +770,18 @@ class _IpodDeviceState extends State<IpodDevice> {
       ),
     );
   }
+}
+
+/// Peintre qui recalcule la prise au moment de peindre, une fois toute la
+/// mise en page (et les transformations de l'appareil) connue.
+class _LiveJackPainter extends CustomPainter {
+  const _LiveJackPainter(this.build);
+
+  final JackPainter Function() build;
+
+  @override
+  void paint(Canvas canvas, Size size) => build().paint(canvas, size);
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => true;
 }

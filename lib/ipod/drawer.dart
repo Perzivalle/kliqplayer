@@ -24,6 +24,7 @@ class IpodDrawer extends StatelessWidget {
     required this.onPick,
     required this.onSwatch,
     required this.onFront,
+    this.slotKeys = const {},
   });
 
   /// Les modèles, regroupés par famille (une liste par emplacement).
@@ -44,6 +45,10 @@ class IpodDrawer extends StatelessWidget {
 
   /// Clic sur la façade (ouvrir / fermer).
   final VoidCallback onFront;
+
+  /// Clés posées sur la forme de chaque emplacement, par famille : la scène
+  /// s'en sert pour faire voler les appareils jusqu'à leur place.
+  final Map<String, GlobalKey> slotKeys;
 
   static const double _wall = 10;
 
@@ -70,6 +75,7 @@ class IpodDrawer extends StatelessWidget {
               width: slots.width,
               height: cellH,
               child: _Slot(
+                shapeKey: slotKeys[families[i].first.family],
                 variants: families[i],
                 shown: shown[families[i].first.family] ?? families[i].first,
                 current: current,
@@ -98,6 +104,7 @@ class IpodDrawer extends StatelessWidget {
 
 class _Slot extends StatefulWidget {
   const _Slot({
+    this.shapeKey,
     required this.variants,
     required this.shown,
     required this.current,
@@ -106,6 +113,7 @@ class _Slot extends StatefulWidget {
     required this.onSwatch,
   });
 
+  final GlobalKey? shapeKey;
   final List<IpodModel> variants;
   final IpodModel shown;
   final IpodModel current;
@@ -170,6 +178,7 @@ class _SlotState extends State<_Slot> {
           child: GestureDetector(
             onTap: empty ? null : () => widget.onPick(m),
             child: SizedBox.fromSize(
+              key: widget.shapeKey,
               size: size,
               child: Stack(
                 clipBehavior: Clip.none,

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/core/player.dart';
 import 'package:lecteur/ipod/classic.dart';
 import 'package:lecteur/ipod/drawer.dart';
 import 'package:lecteur/ipod/ipod.dart';
+import 'package:lecteur/ipod/mini.dart';
 
 const _window = Size(460, 760);
 
@@ -111,5 +113,23 @@ void main() {
     await _drag(tester, Offset(_window.width - _drawerW + 10, 380), const Offset(40, 0), over: const Duration(milliseconds: 50));
     await _settle(tester);
     expect(_drawerLeft(tester), isNull);
+  });
+
+  testWidgets('choisir un autre modèle : débranché, rangé, sorti, branché', (tester) async {
+    await _show(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await _settle(tester);
+    final mini = find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'mini');
+    expect(mini, findsOneWidget);
+    await tester.tap(mini);
+    await tester.pump();
+    // Pendant l'échange, le Classic est encore en main.
+    expect(find.byWidgetPredicate((w) => w is IpodDevice && w.model is ClassicModel), findsOneWidget);
+    for (var i = 0; i < 400; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(find.byWidgetPredicate((w) => w is IpodDevice && w.model is MiniModel), findsOneWidget);
+    expect(find.byWidgetPredicate((w) => w is IpodDevice && w.model is ClassicModel), findsNothing);
+    expect(_drawerLeft(tester), isNull, reason: 'le tiroir se referme une fois branché');
   });
 }
