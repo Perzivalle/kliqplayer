@@ -52,9 +52,13 @@ class ClassicModel extends IpodModel {
   @override
   Rect get screen => G.screen;
 
-  /// En haut à gauche, comme sur le vrai (le verrou est à droite).
+  /// En haut à droite (le verrou est à gauche).
   @override
-  double get jackX => 74;
+  double get jackX => 325;
+
+  /// En haut à gauche : curseur métallique.
+  @override
+  HoldSwitch? get hold => const HoldSwitch(84, kind: HoldKind.metal);
 
   @override
   Offset get wheelCenter => G.wheelCenter;
@@ -231,16 +235,19 @@ const _ink = Color(0xFF111111);
 const _font = 'Noto Sans';
 
 class ClassicLook extends ScreenLook {
-  const ClassicLook();
+  const ClassicLook({this.portrait = false});
+
+  /// Écran vertical, 240 × 320 (nano de 4e génération).
+  final bool portrait;
 
   @override
-  Size get size => const Size(320, 240);
+  Size get size => portrait ? const Size(240, 320) : const Size(320, 240);
 
   @override
   double get rowHeight => 24;
 
   @override
-  int get visibleRows => 9;
+  int get visibleRows => portrait ? 12 : 9;
 
   @override
   double get scrollbarWidth => 9;
@@ -253,8 +260,10 @@ class ClassicLook extends ScreenLook {
   Color get background => Colors.white;
 
   @override
-  Widget statusBar({required String title, required bool playing, required bool hasTrack}) =>
-      _StatusBar(title: title, playing: playing, hasTrack: hasTrack);
+  Widget statusBar({required String title, required bool playing, required bool hasTrack, bool nowPlaying = false}) =>
+      portrait && nowPlaying
+          ? _DarkStatusBar(title: title, playing: playing, hasTrack: hasTrack)
+          : _StatusBar(title: title, playing: playing, hasTrack: hasTrack);
 
   @override
   Widget highlight() => const DecoratedBox(
@@ -281,7 +290,8 @@ class ClassicLook extends ScreenLook {
       );
 
   @override
-  Widget nowPlaying(PlayerController player, NowPlayingMode mode) => _NowPlaying(player: player, mode: mode);
+  Widget nowPlaying(PlayerController player, NowPlayingMode mode) =>
+      portrait ? _NowPlayingPortrait(player: player, mode: mode) : _NowPlaying(player: player, mode: mode);
 }
 
 // --- Barre de titre ----------------------------------------------------------
@@ -327,6 +337,56 @@ class _StatusBar extends StatelessWidget {
               top: 0,
               bottom: 0,
               child: Icon(playing ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 15, color: const Color(0xFF2E6FCB)),
+            ),
+          const Positioned(right: 7, top: 6, child: CustomPaint(size: Size(24, 10), painter: _BatteryPainter())),
+        ],
+      ),
+    );
+  }
+}
+
+/// Barre noire de l'écran « En lecture » du nano 4G : titre blanc, l'icône
+/// de lecture à côté de la batterie.
+class _DarkStatusBar extends StatelessWidget {
+  const _DarkStatusBar({required this.title, required this.playing, required this.hasTrack});
+
+  final String title;
+  final bool playing;
+  final bool hasTrack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: _barH,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF55585E), Color(0xFF2C2E33), Color(0xFF17181B)],
+        ),
+        border: Border(bottom: BorderSide(color: Color(0xFF000000))),
+      ),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            left: 30,
+            right: 52,
+            child: Center(
+              child: Text(
+                title,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFFF2F3F5)),
+              ),
+            ),
+          ),
+          if (hasTrack)
+            Positioned(
+              right: 33,
+              top: 0,
+              bottom: 0,
+              child: Icon(playing ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 15, color: const Color(0xFFE9EBEE)),
             ),
           const Positioned(right: 7, top: 6, child: CustomPaint(size: Size(24, 10), painter: _BatteryPainter())),
         ],
@@ -471,6 +531,117 @@ class _NowPlaying extends StatelessWidget {
                 : _Progress(key: const ValueKey('prog'), player: player, scrub: mode == NowPlayingMode.scrub),
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// En lecture sur l'écran vertical du nano 4G : pochette carrée bord à
+/// bord, puis sur fond noir le titre et l'artiste centrés, et une seule
+/// ligne temps écoulé · barre · temps restant.
+class _NowPlayingPortrait extends StatelessWidget {
+  const _NowPlayingPortrait({required this.player, required this.mode});
+
+  final PlayerController player;
+  final NowPlayingMode mode;
+
+  static const _white = Color(0xFFF2F3F5);
+
+  @override
+  Widget build(BuildContext context) {
+    final track = player.current;
+    if (track == null) {
+      return const ColoredBox(
+        color: Color(0xFF0E0F12),
+        child: Center(child: Text('Aucun morceau', style: TextStyle(color: _white))),
+      );
+    }
+    const art = 240.0;
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF2A2C31), Color(0xFF0E0F12)],
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned(left: 0, top: 0, child: _Artwork(bytes: player.cover, size: art)),
+          Positioned(
+            left: 8,
+            right: 8,
+            top: art + 3,
+            child: Column(
+              children: [
+                Marquee(track.title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _white)),
+                const SizedBox(height: 2),
+                Marquee(track.artist, style: const TextStyle(fontSize: 11, color: Color(0xFFB4B8BE))),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 6,
+            right: 6,
+            bottom: 5,
+            height: 14,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              child: mode == NowPlayingMode.volume
+                  ? _VolumeLine(key: const ValueKey('vol'), volume: player.volume / 100)
+                  : _ProgressLine(key: const ValueKey('prog'), player: player, scrub: mode == NowPlayingMode.scrub),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 0:21 ━━━━━━━━━ -2:15, sur une ligne.
+class _ProgressLine extends StatelessWidget {
+  const _ProgressLine({super.key, required this.player, required this.scrub});
+
+  final PlayerController player;
+  final bool scrub;
+
+  @override
+  Widget build(BuildContext context) {
+    final pos = player.smoothPosition;
+    final remaining = player.duration - pos;
+    const time = TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: _NowPlayingPortrait._white);
+    return Row(
+      children: [
+        SizedBox(width: 30, child: Text(_time(pos), style: time)),
+        Expanded(child: SizedBox(height: 8, child: CustomPaint(size: Size.infinite, painter: _BarPainter(player.progress, scrub)))),
+        SizedBox(
+          width: 34,
+          child: Text(
+            '-${_time(remaining.isNegative ? Duration.zero : remaining)}',
+            style: time,
+            textAlign: TextAlign.right,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _VolumeLine extends StatelessWidget {
+  const _VolumeLine({super.key, required this.volume});
+
+  final double volume;
+
+  @override
+  Widget build(BuildContext context) {
+    const icon = Color(0xFFD5D8DC);
+    return Row(
+      children: [
+        const Icon(Icons.volume_mute_rounded, size: 13, color: icon),
+        const SizedBox(width: 4),
+        Expanded(child: SizedBox(height: 8, child: CustomPaint(size: Size.infinite, painter: _BarPainter(volume, false)))),
+        const SizedBox(width: 4),
+        const Icon(Icons.volume_up_rounded, size: 13, color: icon),
       ],
     );
   }

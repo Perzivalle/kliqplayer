@@ -1,7 +1,9 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import 'model.dart';
 import 'nav.dart';
@@ -57,37 +59,80 @@ class IpodDrawer extends StatelessWidget {
     return LayoutBuilder(builder: (context, box) {
       final inner = Rect.fromLTRB(drawerFront, _wall, box.maxWidth, box.maxHeight - _wall);
       final slots = Rect.fromLTRB(inner.left, inner.top, contentWidth, inner.bottom);
-      // Une colonne pour deux modèles, deux au-delà.
-      final columns = families.length > 2 ? 2 : 1;
-      final rows = (families.length / columns).ceil();
-      final cellW = slots.width / columns;
-      final cellH = slots.height / rows;
       const below = 58.0; // nom gravé + pastilles
       // Même échelle pour tous : les tailles relatives sont celles des vrais.
       final all = families.expand((f) => f);
       final maxW = all.map((m) => m.size.width).reduce(math.max);
       final maxH = all.map((m) => m.size.height).reduce(math.max);
-      final scale = math.min((cellW - 28) / maxW, (cellH - below - 20) / maxH);
+      final n = families.length;
+
+      // Le nombre de colonnes qui donne les plus grands appareils, selon la
+      // forme de la place disponible.
+      double scaleFor(int columns) {
+        final rows = (n / columns).ceil();
+        final cellW = slots.width / columns;
+        final cellH = slots.height / rows;
+        return math.min((cellW - 28) / maxW, (cellH - below - 20) / maxH);
+      }
+
+      var columns = 1;
+      for (var c = 2; c <= math.min(n, 4); c++) {
+        if (scaleFor(c) > scaleFor(columns)) columns = c;
+      }
+      var scale = scaleFor(columns);
+
+      // En dessous d'une taille où l'on vise encore facilement, on garde
+      // cette taille et les emplacements défilent.
+      const minDevice = 96.0; // hauteur du plus grand appareil, en pixels
+      final minScale = minDevice / maxH;
+      final scrolls = scale < minScale;
+      if (scrolls) {
+        scale = minScale;
+        final fit = ((slots.width) / (maxW * minScale + 28)).floor();
+        columns = fit.clamp(1, math.min(n, 4));
+      }
+      final rows = (n / columns).ceil();
+      final cellW = slots.width / columns;
+      final cellH = scrolls ? maxH * scale + below + 20 : slots.height / rows;
+
+      final grid = SizedBox(
+        width: slots.width,
+        height: cellH * rows,
+        child: Stack(
+          children: [
+            for (var i = 0; i < n; i++)
+              Positioned(
+                left: (i % columns) * cellW,
+                top: (i ~/ columns) * cellH,
+                width: cellW,
+                height: cellH,
+                child: _Slot(
+                  shapeKey: slotKeys[families[i].first.family],
+                  variants: families[i],
+                  shown: shown[families[i].first.family] ?? families[i].first,
+                  current: current,
+                  scale: scale,
+                  onPick: onPick,
+                  onSwatch: onSwatch,
+                ),
+              ),
+          ],
+        ),
+      );
 
       return Stack(
         children: [
-          Positioned.fill(child: CustomPaint(painter: _TrayPainter(inner: inner))),
-          for (var i = 0; i < families.length; i++)
-            Positioned(
-              left: slots.left + (i % columns) * cellW,
-              top: slots.top + (i ~/ columns) * cellH,
-              width: cellW,
-              height: cellH,
-              child: _Slot(
-                shapeKey: slotKeys[families[i].first.family],
-                variants: families[i],
-                shown: shown[families[i].first.family] ?? families[i].first,
-                current: current,
-                scale: scale,
-                onPick: onPick,
-                onSwatch: onSwatch,
-              ),
+          Positioned.fill(
+            // L'ombre du tiroir déborde à gauche.
+            child: _Frozen(
+              overflow: 64,
+              child: CustomPaint(painter: _TrayPainter(inner: inner)),
             ),
+          ),
+          Positioned.fromRect(
+            rect: slots,
+            child: scrolls ? _ScrollingSlots(child: grid) : grid,
+          ),
           // Façade : clic pour ouvrir ou refermer.
           Positioned(
             left: 0,
@@ -130,13 +175,24 @@ class _Slot extends StatefulWidget {
 }
 
 class _SlotState extends State<_Slot> {
+  /// Pointeur sur l'appareil (il se soulève).
   bool _hover = false;
+
+  /// Pointeur dans l'emplacement : les pastilles apparaissent.
+  bool _inside = false;
+
+  /// Teinte survolée : l'appareil la prend le temps du survol.
+  IpodModel? _preview, _ghostModel;
 
   @override
   Widget build(BuildContext context) {
-    final m = widget.shown;
-    final empty = m.family == widget.current.family;
-    final selected = empty ? widget.current : m;
+    final empty = widget.shown.family == widget.current.family;
+    final selected = empty ? widget.current : widget.shown;
+    // Vide, il garde la dernière teinte survolée pendant qu'elle s'efface.
+    if (empty && _preview != null) _ghostModel = _preview;
+    final m = empty ? (_preview ?? _ghostModel ?? widget.shown) : (_preview ?? widget.shown);
+    // L'emplacement vide montre la teinte survolée en transparence.
+    final ghost = empty && _preview != null && _preview!.id != widget.current.id;
     final size = m.size * widget.scale;
     final radius = m.cornerRadius * widget.scale;
     final lifted = _hover && !empty;
@@ -165,54 +221,101 @@ class _SlotState extends State<_Slot> {
             // Changement de teinte : fondu enchaîné.
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 260),
-              child: FittedBox(key: ValueKey(m.id), child: IpodPreview(model: m)),
+              child: _Frozen(
+                key: ValueKey(m.id),
+                child: FittedBox(child: IpodPreview(model: m)),
+              ),
             ),
           ),
         ),
       ),
     );
 
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        MouseRegion(
-          cursor: empty ? MouseCursor.defer : SystemMouseCursors.click,
-          onEnter: (_) => setState(() => _hover = true),
-          onExit: (_) => setState(() => _hover = false),
-          child: GestureDetector(
-            onTap: empty ? null : () => widget.onPick(m),
-            child: SizedBox.fromSize(
-              key: widget.shapeKey,
-              size: size,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Positioned.fill(child: CustomPaint(painter: _ImprintPainter(radius))),
-                  if (!empty) Positioned.fill(child: device),
-                ],
+    final swatches = _inside && widget.variants.length > 1;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _inside = true),
+      onExit: (_) => setState(() {
+        _inside = false;
+        _preview = null;
+      }),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          MouseRegion(
+            cursor: empty ? MouseCursor.defer : SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hover = true),
+            onExit: (_) => setState(() => _hover = false),
+            child: GestureDetector(
+              onTap: empty ? null : () => widget.onPick(m),
+              child: SizedBox.fromSize(
+                key: widget.shapeKey,
+                size: size,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned.fill(
+                      child: _Frozen(overflow: 8, child: CustomPaint(painter: _ImprintPainter(radius))),
+                    ),
+                    if (!empty) Positioned.fill(child: device),
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: AnimatedOpacity(
+                          opacity: ghost ? 0.55 : 0,
+                          duration: const Duration(milliseconds: 200),
+                          child: ghost || empty ? device : null,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 14),
-        _Engraved(m.label),
-        const SizedBox(height: 10),
-        // Pastilles : sur une ligne si elles tiennent, sinon sur deux.
-        ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 18),
-          child: widget.variants.length < 2
-              ? null
-              : Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 6,
-                  runSpacing: 5,
-                  children: [
-                    for (final v in widget.variants)
-                      _Swatch(model: v, selected: v.id == selected.id, onTap: () => widget.onSwatch(v)),
-                  ],
-                ),
-        ),
-      ],
+          const SizedBox(height: 14),
+          _Engraved(m.label),
+          const SizedBox(height: 10),
+          // Pastilles, seulement au survol de l'emplacement : sur une ligne si
+          // elles tiennent, sinon sur deux. Survolée, une teinte habille
+          // l'appareil ; cliquée, elle le prend en main.
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 18),
+            child: widget.variants.length < 2
+                ? null
+                : IgnorePointer(
+                    ignoring: !swatches,
+                    child: AnimatedOpacity(
+                      opacity: swatches ? 1 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      child: AnimatedSlide(
+                        offset: swatches ? Offset.zero : const Offset(0, -0.25),
+                        duration: const Duration(milliseconds: 240),
+                        curve: Curves.easeOutCubic,
+                        child: Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 6,
+                          runSpacing: 5,
+                          children: [
+                            for (final v in widget.variants)
+                              _Swatch(
+                                model: v,
+                                selected: v.id == (_preview ?? selected).id,
+                                onTap: () => widget.onSwatch(v),
+                                onHover: (on) => setState(() {
+                                  if (on) {
+                                    _preview = v;
+                                  } else if (_preview?.id == v.id) {
+                                    _preview = null;
+                                  }
+                                }),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -228,7 +331,10 @@ class _Engraved extends StatelessWidget {
     // Toujours sur une ligne : rétrécit dans une colonne étroite.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: FittedBox(fit: BoxFit.scaleDown, child: _text()),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: _Frozen(overflow: 2, child: _text()),
+      ),
     );
   }
 
@@ -251,11 +357,12 @@ class _Engraved extends StatelessWidget {
 
 /// Pastille de teinte : petit disque d'aluminium anodisé.
 class _Swatch extends StatefulWidget {
-  const _Swatch({required this.model, required this.selected, required this.onTap});
+  const _Swatch({required this.model, required this.selected, required this.onTap, required this.onHover});
 
   final IpodModel model;
   final bool selected;
   final VoidCallback onTap;
+  final ValueChanged<bool> onHover;
 
   @override
   State<_Swatch> createState() => _SwatchState();
@@ -272,30 +379,40 @@ class _SwatchState extends State<_Swatch> {
       waitDuration: const Duration(milliseconds: 400),
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hover = true),
-        onExit: (_) => setState(() => _hover = false),
+        onEnter: (_) {
+          setState(() => _hover = true);
+          widget.onHover(true);
+        },
+        onExit: (_) {
+          setState(() => _hover = false);
+          widget.onHover(false);
+        },
         child: GestureDetector(
           onTap: widget.onTap,
           child: AnimatedScale(
             scale: _hover ? 1.18 : 1,
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOutBack,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: 14,
-              height: 14,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color.lerp(c, Colors.white, 0.45)!, c, Color.lerp(c, Colors.black, 0.2)!],
+            child: _Frozen(
+              key: ValueKey(widget.selected),
+              overflow: 6,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: 14,
+                height: 14,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color.lerp(c, Colors.white, 0.45)!, c, Color.lerp(c, Colors.black, 0.2)!],
+                  ),
+                  border: Border.all(
+                    color: widget.selected ? Colors.white.withValues(alpha: 0.9) : Colors.black.withValues(alpha: 0.35),
+                    width: widget.selected ? 2 : 1,
+                  ),
+                  boxShadow: const [BoxShadow(color: Color(0x88000000), blurRadius: 3, offset: Offset(0, 1.5))],
                 ),
-                border: Border.all(
-                  color: widget.selected ? Colors.white.withValues(alpha: 0.9) : Colors.black.withValues(alpha: 0.35),
-                  width: widget.selected ? 2 : 1,
-                ),
-                boxShadow: const [BoxShadow(color: Color(0x88000000), blurRadius: 3, offset: Offset(0, 1.5))],
               ),
             ),
           ),
@@ -303,6 +420,98 @@ class _SwatchState extends State<_Swatch> {
       ),
     );
   }
+}
+
+/// Partie immobile du tiroir, peinte une fois en image puis réutilisée.
+/// Impeller redessine toute la scène à chaque image ; sans cela, la moindre
+/// animation (survol d'un appareil, titre qui défile) repeindrait feutrine,
+/// ombres floues et miniatures, bien trop lourd pour tenir 60 images/s.
+class _Frozen extends StatelessWidget {
+  const _Frozen({super.key, this.overflow = 0, required this.child});
+
+  /// Ce que le dessin déborde de son cadre (ombres) : l'image est prise
+  /// sur un cadre élargi d'autant, sans changer la mise en page.
+  final double overflow;
+  final Widget child;
+
+  static final _always = SnapshotController(allowSnapshotting: true);
+
+  @override
+  Widget build(BuildContext context) {
+    if (overflow == 0) {
+      return SnapshotWidget(controller: _always, mode: SnapshotMode.permissive, autoresize: true, child: child);
+    }
+    return _Bleed(
+      margin: overflow,
+      child: SnapshotWidget(
+        controller: _always,
+        mode: SnapshotMode.permissive,
+        autoresize: true,
+        child: Padding(padding: EdgeInsets.all(overflow), child: child),
+      ),
+    );
+  }
+}
+
+/// Mise en page d'un enfant plus grand de [margin] de chaque côté, qui
+/// déborde sans prendre plus de place.
+class _Bleed extends SingleChildRenderObjectWidget {
+  const _Bleed({required this.margin, super.child});
+
+  final double margin;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderBleed(margin);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderBleed renderObject) => renderObject.margin = margin;
+}
+
+class _RenderBleed extends RenderShiftedBox {
+  _RenderBleed(this._margin) : super(null);
+
+  double _margin;
+  set margin(double value) {
+    if (value == _margin) return;
+    _margin = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    final c = constraints;
+    final m2 = _margin * 2;
+    final child = this.child;
+    if (child == null) {
+      size = c.smallest;
+      return;
+    }
+    child.layout(
+      BoxConstraints(
+        minWidth: c.minWidth + m2,
+        maxWidth: c.maxWidth + m2,
+        minHeight: c.minHeight + m2,
+        maxHeight: c.maxHeight + m2,
+      ),
+      parentUsesSize: true,
+    );
+    (child.parentData! as BoxParentData).offset = Offset(-_margin, -_margin);
+    size = c.constrain(Size(child.size.width - m2, child.size.height - m2));
+  }
+
+  double _shrink(double v) => (v - _margin * 2).clamp(0.0, double.infinity);
+
+  @override
+  double computeMinIntrinsicWidth(double height) => _shrink(super.computeMinIntrinsicWidth(height + _margin * 2));
+
+  @override
+  double computeMaxIntrinsicWidth(double height) => _shrink(super.computeMaxIntrinsicWidth(height + _margin * 2));
+
+  @override
+  double computeMinIntrinsicHeight(double width) => _shrink(super.computeMinIntrinsicHeight(width + _margin * 2));
+
+  @override
+  double computeMaxIntrinsicHeight(double width) => _shrink(super.computeMaxIntrinsicHeight(width + _margin * 2));
 }
 
 /// L'appareil en miniature, figé sur son menu principal.
@@ -421,14 +630,9 @@ class _TrayPainter extends CustomPainter {
           const [0, 0.4, 1],
         ),
     );
-    final rnd = math.Random(3);
-    final grain = <Offset>[
-      for (var i = 0; i < (size.width * size.height / 30).round(); i++)
-        Offset(rnd.nextDouble() * size.width, rnd.nextDouble() * size.height),
-    ];
-    canvas.drawPoints(
+    canvas.drawRawPoints(
       ui.PointMode.points,
-      grain,
+      _grain(Offset.zero & size, 30, 3),
       Paint()
         ..color = Colors.black.withValues(alpha: 0.06)
         ..strokeWidth = 0.9,
@@ -481,14 +685,9 @@ class _TrayPainter extends CustomPainter {
     canvas.drawRRect(felt, Paint()..color = const Color(0xFF262A31));
     canvas.save();
     canvas.clipRRect(felt);
-    final fuzz = math.Random(9);
-    final dots = <Offset>[
-      for (var i = 0; i < (inner.width * inner.height / 26).round(); i++)
-        Offset(inner.left + fuzz.nextDouble() * inner.width, inner.top + fuzz.nextDouble() * inner.height),
-    ];
-    canvas.drawPoints(
+    canvas.drawRawPoints(
       ui.PointMode.points,
-      dots,
+      _grain(inner, 26, 9),
       Paint()
         ..color = Colors.white.withValues(alpha: 0.05)
         ..strokeWidth = 1.2,
@@ -506,6 +705,23 @@ class _TrayPainter extends CustomPainter {
       );
     }
     canvas.restore();
+  }
+
+  static final _grainCache = <(Rect, double, int), Float32List>{};
+
+  /// Grains semés au hasard (toujours les mêmes pour un rectangle donné).
+  static Float32List _grain(Rect r, double perDot, int seed) {
+    return _grainCache.putIfAbsent((r, perDot, seed), () {
+      if (_grainCache.length > 16) _grainCache.clear();
+      final rnd = math.Random(seed);
+      final n = (r.width * r.height / perDot).round();
+      final pts = Float32List(n * 2);
+      for (var i = 0; i < n; i++) {
+        pts[i * 2] = r.left + rnd.nextDouble() * r.width;
+        pts[i * 2 + 1] = r.top + rnd.nextDouble() * r.height;
+      }
+      return pts;
+    });
   }
 
   @override
@@ -549,4 +765,44 @@ class _ImprintPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ImprintPainter old) => old.radius != radius;
+}
+
+/// Emplacements trop nombreux pour la hauteur de la fenêtre : ils défilent
+/// à la molette, avec un fin repère clair sur la feutrine.
+class _ScrollingSlots extends StatefulWidget {
+  const _ScrollingSlots({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_ScrollingSlots> createState() => _ScrollingSlotsState();
+}
+
+class _ScrollingSlotsState extends State<_ScrollingSlots> {
+  final _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false, overscroll: false),
+      child: RawScrollbar(
+        controller: _controller,
+        thumbColor: Colors.white.withValues(alpha: 0.22),
+        radius: const Radius.circular(3),
+        thickness: 4,
+        crossAxisMargin: 3,
+        child: SingleChildScrollView(
+          controller: _controller,
+          physics: const BouncingScrollPhysics(),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
 }

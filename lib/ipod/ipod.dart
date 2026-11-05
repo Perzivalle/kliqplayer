@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
@@ -15,6 +16,7 @@ import 'drawer.dart';
 import 'jack.dart';
 import 'mini.dart';
 import 'nano.dart';
+import 'nanos.dart';
 import 'vintage.dart';
 import 'model.dart';
 import 'nav.dart';
@@ -23,22 +25,18 @@ import 'wheel.dart';
 
 export 'wheel.dart' show IpodWheel, WheelStyle, WheelZone;
 
-/// Tous les modèles et leurs teintes, dans l'ordre du tiroir.
-const List<IpodModel> ipodModels = [
-  ClassicModel(),
-  ClassicModel(ClassicColor.noir),
-  NanoModel(NanoColor.argent),
-  NanoModel(NanoColor.noir),
-  NanoModel(NanoColor.bleu),
-  NanoModel(NanoColor.vert),
-  NanoModel(NanoColor.rouge),
-  MiniModel(MiniColor.argent),
-  MiniModel(MiniColor.bleu),
-  MiniModel(MiniColor.rose),
-  MiniModel(MiniColor.vert),
-  MiniModel(MiniColor.or),
-  ThirdGenModel(),
-  FirstGenModel(),
+/// Tous les modèles et leurs teintes, dans l'ordre du tiroir : par date de
+/// sortie.
+final List<IpodModel> ipodModels = [
+  const FirstGenModel(), // 2001
+  const ThirdGenModel(), // 2003
+  for (final c in MiniColor.values) MiniModel(c), // janvier 2004
+  for (final c in FourthGenColor.values) FourthGenModel(c), // juillet 2004
+  for (final c in nano2Colors) Nano2Model(c), // 2006
+  const ClassicModel(), // septembre 2007
+  const ClassicModel(ClassicColor.noir),
+  for (final c in NanoColor.values) NanoModel(c), // septembre 2007
+  for (final c in nano4Colors) Nano4Model(c), // 2008
 ];
 
 /// Étapes d'un changement d'appareil.
@@ -81,6 +79,10 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   static const _settingsKey = 'ipod.model';
 
   late IpodModel _model = widget.initial ?? _saved();
+
+  /// Navigation dans les menus : elle appartient à la scène, pas à
+  /// l'appareil, si bien qu'en changeant d'iPod on reste sur le même écran.
+  late final IpodNav _nav = IpodNav(widget.player, visibleRows: _model.look.visibleRows);
   bool get _remember => widget.initial == null;
 
   late final Ticker _ticker = createTicker(_tick);
@@ -161,15 +163,35 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       _plug.value = JackGeometry.away;
       _startPlugging();
     }
+    if (Platform.environment['LECTEUR_BENCH'] != null) _bench();
+  }
+
+  /// LECTEUR_BENCH=1 : ouvre et referme le tiroir plusieurs fois, puis quitte
+  /// (avec LECTEUR_FPS=1 pour lire les temps d'image).
+  Future<void> _bench() async {
+    await Future<void>.delayed(const Duration(seconds: 3));
+    for (var i = 0; i < 4; i++) {
+      for (final open in [true, false]) {
+        _wantOpen = open;
+        _kick();
+        await Future<void>.delayed(const Duration(milliseconds: 1300));
+      }
+    }
+    exit(0);
   }
 
   static IpodModel _saved() {
     final id = Settings.getString(_settingsKey);
-    return ipodModels.firstWhere((m) => m.id == id, orElse: () => ipodModels.first);
+    // Par défaut, le Classic.
+    return ipodModels.firstWhere((m) => m.id == id, orElse: () => const ClassicModel());
   }
 
   @override
   void dispose() {
+    _liveTimer?.cancel();
+    _nav.dispose();
+    _drawerSnap.dispose();
+    _deviceSnap.dispose();
     _ticker.dispose();
     super.dispose();
   }
@@ -194,6 +216,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     if (_peek.isSettled) _peek.value = _nearEdge && !_wantOpen && !_dragging ? 1 : 0;
     _stepSwap(dt);
     _stepSway(dt);
+    _updateDrawerSnap();
     setState(() {});
     if (!_dragging &&
         _phase == _Swap.none &&
@@ -452,6 +475,33 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _kick();
   }
 
+  /// Le tiroir est une photo, sauf quand il est immobile, ouvert, avec la
+  /// souris dessus : là il redevient vivant (survol des appareils et des
+  /// pastilles). La photo est prise d'avance, tiroir fermé, pour que
+  /// l'ouverture ne coûte rien ; repeindre en vrai à chaque image est trop
+  /// lourd (Impeller ne garde rien en cache, écran à l'échelle 1,5).
+  void _updateDrawerSnap() {
+    final still = !_dragging && _open.isSettled && _peek.isSettled && _lift.isSettled;
+    _drawerSnap.allowSnapshotting = !(_drawerLive && still && _wantOpen);
+    _deviceSnap.allowSnapshotting = (_dragging || !_open.isSettled) && _phase == _Swap.none && !_hideDevice;
+  }
+
+  void _drawerHover(bool inside) {
+    _setNearEdge(inside);
+    _liveTimer?.cancel();
+    if (inside) {
+      _drawerLive = true;
+      _updateDrawerSnap();
+    } else {
+      // On laisse finir les animations de survol avant de reprendre la photo.
+      _liveTimer = Timer(const Duration(milliseconds: 450), () {
+        if (!mounted) return;
+        _drawerLive = false;
+        _updateDrawerSnap();
+      });
+    }
+  }
+
   void _setNearEdge(bool near) {
     if (_nearEdge == near) return;
     _nearEdge = near;
@@ -459,6 +509,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   }
 
   void _choose(IpodModel m) {
+    _nav.fitRows(m.look.visibleRows);
     setState(() {
       _model = m;
       _shown[m.family] = m;
@@ -474,14 +525,15 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _startSwap(m);
   }
 
-  /// Clic sur une pastille : recolore la miniature, ou directement
-  /// l'appareil en main si c'est sa famille (le tiroir reste ouvert).
+  /// Clic sur une pastille : prend cet appareil, dans cette teinte. Si
+  /// c'est la famille en main, il change juste de teinte (tiroir ouvert).
   void _swatch(IpodModel m) {
-    WheelClick.instance.play();
     if (m.family == _model.family) {
+      if (m.id == _model.id) return;
+      WheelClick.instance.play();
       _choose(m);
     } else {
-      setState(() => _shown[m.family] = m);
+      _pick(m);
     }
   }
 
@@ -500,6 +552,40 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     return KeyEventResult.ignored;
   }
 
+  // Widgets réutilisés d'une image à l'autre : Flutter saute alors leur
+  // reconstruction pendant les animations de la scène.
+  Widget? _deviceCache, _drawerCache;
+  final _drawerSnap = SnapshotController(allowSnapshotting: true);
+  final _deviceSnap = SnapshotController();
+  bool _drawerLive = false;
+  Timer? _liveTimer;
+  static const double _shadowPad = 64;
+  Object? _deviceCacheKey, _drawerCacheKey;
+
+  Widget _drawer(double width) {
+    final key = (width, _model.id, _shown.values.map((m) => m.id).join(','));
+    if (key != _drawerCacheKey) {
+      _drawerCacheKey = key;
+      if (_drawerSnap.allowSnapshotting) {
+        _drawerSnap.allowSnapshotting = false;
+        _drawerSnap.allowSnapshotting = true;
+      }
+      _drawerCache = RepaintBoundary(
+        child: IpodDrawer(
+          families: _families,
+          current: _model,
+          shown: Map.of(_shown),
+          contentWidth: width,
+          onPick: _pick,
+          onSwatch: _swatch,
+          onFront: () => _setOpen(!_wantOpen),
+          slotKeys: _slotKeys,
+        ),
+      );
+    }
+    return _drawerCache!;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Focus(
@@ -514,16 +600,10 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
           final openC = open.clamp(0.0, 1.0);
           final visible = open * drawerW + (1 - openC) * _peek.value * drawerFront;
 
-          Widget device = AnimatedSwitcher(
-            // Pendant un échange, c'est le vol qui anime : pas de fondu.
-            duration: _phase == _Swap.none ? const Duration(milliseconds: 480) : Duration.zero,
-            switchInCurve: Curves.easeOutBack,
-            switchOutCurve: Curves.easeIn,
-            transitionBuilder: (child, anim) => FadeTransition(
-              opacity: anim,
-              child: ScaleTransition(scale: Tween(begin: 0.82, end: 1.0).animate(anim), child: child),
-            ),
-            child: Center(
+          final deviceKey = (_model.id, box.maxHeight);
+          if (deviceKey != _deviceCacheKey) {
+            _deviceCacheKey = deviceKey;
+            _deviceCache = Center(
               key: ValueKey(_model.id),
               child: Padding(
                 // Marge pour l'ombre portée, et de la place en haut pour la
@@ -531,12 +611,31 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                 padding: _model.jackOnTop
                     ? _model.margin.copyWith(top: math.max(_model.margin.top, box.maxHeight * 0.2))
                     : _model.margin.copyWith(bottom: math.max(_model.margin.bottom, box.maxHeight * 0.2)),
-                child: FittedBox(
-                  child: IpodDevice(key: _deviceKey(_model), model: _model, player: widget.player),
+                // Couche à part : pendant que le tiroir bouge, l'appareil
+                // n'est pas repeint, seulement déplacé.
+                child: RepaintBoundary(
+                  child: FittedBox(
+                    child: IpodDevice(key: _deviceKey(_model), model: _model, player: widget.player, nav: _nav),
+                  ),
                 ),
               ),
-            ),
+            );
+          }
+          Widget device = AnimatedSwitcher(
+            // Changement de teinte : fondu enchaîné, comme les miniatures du
+            // tiroir. Pendant un échange, c'est le vol qui anime : pas de fondu.
+            duration: _phase == _Swap.none ? const Duration(milliseconds: 260) : Duration.zero,
+            switchInCurve: Curves.easeOut,
+            // La nouvelle teinte apparaît par-dessus l'ancienne, qui reste
+            // opaque dessous : pas de transparence à mi-chemin.
+            transitionBuilder: (child, anim) =>
+                child.key == ValueKey(_model.id) ? FadeTransition(opacity: anim, child: child) : child,
+            child: _deviceCache,
           );
+          // Pendant que le tiroir glisse, l'appareil rétrécit : on fait
+          // rétrécir une photo de lui (ses ombres floues coûtent trop cher à
+          // recalculer à chaque taille). Immobile, il redevient vivant.
+          device = SnapshotWidget(controller: _deviceSnap, mode: SnapshotMode.permissive, child: device);
           if (open != 0) {
             // L'appareil s'écarte et rétrécit pour laisser la place au tiroir.
             final room = ((w - drawerW) / w).clamp(0.55, 1.0);
@@ -584,41 +683,48 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                     ),
                   ),
                 ),
-                if (visible > 0.5)
-                  Positioned(
-                    left: w - visible,
-                    top: _lift.value,
-                    bottom: -_lift.value,
-                    // Plus large que nécessaire : le rebond et l'élastique ne
-                    // laissent jamais de vide au bord de la fenêtre.
-                    width: drawerW * 1.4 + 40,
-                    child: MouseRegion(
-                      onEnter: (_) => _setNearEdge(true),
-                      onExit: (_) => _setNearEdge(false),
-                      // On l'attrape n'importe où : façade, coque ou feutrine.
-                      child: GestureDetector(
-                        // Compte depuis le point d'appui : le tiroir colle au pointeur.
-                        dragStartBehavior: DragStartBehavior.down,
-                        onPanStart: _dragBegin,
-                        onPanUpdate: _dragUpdate,
-                        onPanEnd: _dragEnd,
-                        child: IpodDrawer(
-                          families: _families,
-                          current: _model,
-                          shown: _shown,
-                          contentWidth: drawerW,
-                          onPick: _pick,
-                          onSwatch: _swatch,
-                          onFront: () => _setOpen(!_wantOpen),
-                          slotKeys: _slotKeys,
+                // Toujours construit, hors de la fenêtre quand il est fermé :
+                // sa photo est prête avant qu'on l'ouvre.
+                Positioned(
+                  // Fermé, il attend loin à droite : son ombre ne déborde pas.
+                  left: visible > 0.5 ? w - visible - _shadowPad : w + _shadowPad,
+                  top: _lift.value,
+                  bottom: -_lift.value,
+                  // Plus large que nécessaire : le rebond et l'élastique ne
+                  // laissent jamais de vide au bord de la fenêtre.
+                  width: drawerW * 1.4 + 40 + _shadowPad,
+                  // Impeller ne garde rien d'une image à l'autre : pendant que
+                  // le tiroir glisse, on fait glisser une photo de lui, prise
+                  // une fois, au lieu de tout repeindre (feutrine, grain,
+                  // ombres floues, miniatures) à chaque image.
+                  child: SnapshotWidget(
+                    controller: _drawerSnap,
+                    mode: SnapshotMode.permissive,
+                    child: Padding(
+                      // Place pour l'ombre du tiroir, qui déborde à gauche.
+                      padding: const EdgeInsets.only(left: _shadowPad),
+                      child: MouseRegion(
+                        onEnter: (_) => _drawerHover(true),
+                        onExit: (_) => _drawerHover(false),
+                        // On l'attrape n'importe où : façade, coque ou feutrine.
+                        child: GestureDetector(
+                          // Compte depuis le point d'appui : le tiroir colle au pointeur.
+                          dragStartBehavior: DragStartBehavior.down,
+                          onPanStart: _dragBegin,
+                          onPanUpdate: _dragUpdate,
+                          onPanEnd: _dragEnd,
+                          child: _drawer(drawerW),
                         ),
                       ),
                     ),
                   ),
+                ),
                 if (flying) deviceLayer,
                 // Le câble et la prise, par-dessus tout.
                 Positioned.fill(
-                  child: IgnorePointer(child: CustomPaint(painter: _LiveJackPainter(_jack))),
+                  child: IgnorePointer(
+                    child: RepaintBoundary(child: CustomPaint(painter: _LiveJackPainter(_jack))),
+                  ),
                 ),
               ],
             ),
@@ -630,17 +736,20 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 }
 
 class IpodDevice extends StatefulWidget {
-  const IpodDevice({super.key, required this.model, required this.player});
+  const IpodDevice({super.key, required this.model, required this.player, required this.nav});
 
   final IpodModel model;
   final PlayerController player;
+
+  /// Navigation de la scène, passée d'un appareil à l'autre.
+  final IpodNav nav;
 
   @override
   State<IpodDevice> createState() => _IpodDeviceState();
 }
 
 class _IpodDeviceState extends State<IpodDevice> {
-  late final IpodNav _nav = IpodNav(widget.player, visibleRows: widget.model.look.visibleRows);
+  IpodNav get _nav => widget.nav;
   final _focus = FocusNode(debugLabel: 'baladeur');
 
   @override
@@ -655,7 +764,6 @@ class _IpodDeviceState extends State<IpodDevice> {
   @override
   void dispose() {
     _endHold();
-    _nav.dispose();
     _focus.dispose();
     super.dispose();
   }
@@ -787,6 +895,15 @@ class _IpodDeviceState extends State<IpodDevice> {
         child: Stack(
           clipBehavior: Clip.none,
           children: [
+            if (m.hold case final h?)
+              Positioned(
+                left: h.x - h.width / 2,
+                top: h.onTop ? -HoldPainter.depth : null,
+                bottom: h.onTop ? null : -HoldPainter.depth,
+                width: h.width,
+                height: HoldPainter.depth,
+                child: CustomPaint(painter: HoldPainter(h)),
+              ),
             Positioned.fill(child: CustomPaint(painter: m.body)),
             Positioned.fromRect(
               rect: m.screen,
@@ -885,4 +1002,72 @@ class _LiveJackPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter old) => true;
+}
+
+/// Le curseur du verrou, qui dépasse à peine de la tranche.
+class HoldPainter extends CustomPainter {
+  const HoldPainter(this.hold);
+
+  final HoldSwitch hold;
+
+  /// Ce qui dépasse de la tranche.
+  static const double depth = 3;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Vers l'extérieur de l'appareil : le haut pour un verrou du haut.
+    if (!hold.onTop) {
+      canvas.translate(0, size.height);
+      canvas.scale(1, -1);
+    }
+    final w = size.width, h = size.height;
+    switch (hold.kind) {
+      case HoldKind.pin:
+        // Demi-perle de métal poli, avec son reflet.
+        final dome = Rect.fromLTWH(0, 0, w, h * 2);
+        canvas.save();
+        canvas.clipRect(Rect.fromLTWH(0, 0, w, h + 0.5));
+        canvas.drawOval(
+          dome,
+          Paint()
+            ..shader = RadialGradient(
+              center: const Alignment(-0.35, -0.6),
+              radius: 0.9,
+              colors: hold.knob ?? const [Color(0xFFFFFFFF), Color(0xFFC3C7CC), Color(0xFF7D8287)],
+              stops: const [0, 0.45, 1],
+            ).createShader(dome),
+        );
+        canvas.restore();
+      case HoldKind.plastic || HoldKind.metal:
+        final knob = RRect.fromRectAndCorners(
+          Rect.fromLTWH(0, 0, w, h + 0.5),
+          topLeft: const Radius.circular(1.5),
+          topRight: const Radius.circular(1.5),
+        );
+        final colors =
+            hold.knob ??
+            (hold.kind == HoldKind.metal
+                ? const [Color(0xFFE9EBED), Color(0xFFA3A7AC), Color(0xFFD5D8DB)]
+                : const [Color(0xFFFFFFFF), Color(0xFFE3E5E7), Color(0xFFC7CACE)]);
+        canvas.drawRRect(
+          knob,
+          Paint()
+            ..shader = LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: colors,
+            ).createShader(knob.outerRect),
+        );
+        canvas.drawRRect(
+          knob,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 0.6
+            ..color = Colors.black.withValues(alpha: 0.25),
+        );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant HoldPainter old) => old.hold != hold;
 }

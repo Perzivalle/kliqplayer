@@ -44,7 +44,7 @@ class NanoModel extends IpodModel {
   String get family => 'nano';
 
   @override
-  String get label => 'Nano';
+  String get label => 'Nano 3G';
 
   @override
   String get variantName => color.displayName;
@@ -61,9 +61,9 @@ class NanoModel extends IpodModel {
   @override
   Rect get screen => _screen;
 
-  /// En bas à gauche, à côté du connecteur.
+  /// En bas à droite (le verrou est en bas à gauche).
   @override
-  double get jackX => 72;
+  double get jackX => 297;
 
   @override
   bool get jackOnTop => false;
@@ -75,7 +75,7 @@ class NanoModel extends IpodModel {
   WheelStyle get wheel => color == NanoColor.noir
       ? const WheelStyle(
           radius: 86,
-          buttonRadius: 30,
+          buttonRadius: 42,
           iconScale: 0.65,
           labelSize: 11,
           labelSpacing: 0.8,
@@ -89,12 +89,19 @@ class NanoModel extends IpodModel {
         )
       : WheelStyle(
           radius: 86,
-          buttonRadius: 30,
+          buttonRadius: 42,
           iconScale: 0.65,
           labelSize: 11,
           labelSpacing: 0.8,
           recess: Color.lerp(color.dark, Colors.black, 0.15)!,
+          // Bouton central de la couleur du boîtier.
+          buttonUp: [color.light, color.base],
+          buttonDown: [color.dark, color.base],
         );
+
+  /// Petit curseur en métal, en bas à gauche.
+  @override
+  HoldSwitch? get hold => const HoldSwitch(35, onTop: false, kind: HoldKind.metal);
 
   @override
   ScreenLook get look => const ClassicLook();

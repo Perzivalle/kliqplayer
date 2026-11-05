@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 // ignore: deprecated_member_use
@@ -23,9 +26,35 @@ Future<void> main() async {
     await windowManager.focus();
   });
 
+  if (Platform.environment['LECTEUR_FPS'] != null) _logFrameTimings();
+
   final player = PlayerController();
   runApp(LecteurApp(player: player));
   player.loadLibrary();
+}
+
+/// LECTEUR_FPS=1 : chaque seconde d'animation, temps de construction (UI)
+/// et de rendu (raster) des images, pour traquer les saccades.
+void _logFrameTimings() {
+  final ui = <double>[], raster = <double>[];
+  var since = DateTime.now();
+  SchedulerBinding.instance.addTimingsCallback((timings) {
+    for (final t in timings) {
+      ui.add(t.buildDuration.inMicroseconds / 1000);
+      raster.add(t.rasterDuration.inMicroseconds / 1000);
+    }
+    if (DateTime.now().difference(since).inMilliseconds < 1000) return;
+    String stat(List<double> v) {
+      final avg = v.reduce((a, b) => a + b) / v.length;
+      final max = v.reduce((a, b) => a > b ? a : b);
+      return 'moy ${avg.toStringAsFixed(1)} max ${max.toStringAsFixed(1)} ms';
+    }
+    final slow = [for (var i = 0; i < ui.length; i++) if (ui[i] > 16.7 || raster[i] > 16.7) i].length;
+    stdout.writeln('[fps] ${ui.length} images · ui ${stat(ui)} · raster ${stat(raster)} · lentes $slow');
+    ui.clear();
+    raster.clear();
+    since = DateTime.now();
+  });
 }
 
 class LecteurApp extends StatefulWidget {

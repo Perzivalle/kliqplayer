@@ -26,7 +26,11 @@ class WheelStyle {
     this.innerRadius,
     this.labelInset,
     this.inner = const [Color(0xFFF7F8F9), Color(0xFFE6E8EB), Color(0xFFD9DCE0)],
+    this.menuLabel = 'MENU',
   });
+
+  /// Texte du haut de la molette (« menu » en minuscules sur la 1re génération).
+  final String menuLabel;
 
   final double radius;
   final double buttonRadius;
@@ -205,7 +209,7 @@ class WheelPainter extends CustomPainter {
     final r = s.radius;
     final tp = TextPainter(
       text: TextSpan(
-        text: 'MENU',
+        text: s.menuLabel,
         style: TextStyle(
           fontFamily: 'Noto Sans',
           fontSize: s.labelSize,

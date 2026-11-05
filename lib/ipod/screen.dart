@@ -32,6 +32,9 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
+    // La navigation peut venir d'un autre appareil : on reprend là où elle
+    // en est, sans rejouer la dernière transition.
+    _transition = nav.transition;
     nav.addListener(_wake);
     widget.player.addListener(_wake);
     _wake();
@@ -97,7 +100,12 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
         color: look.background,
         child: Column(
           children: [
-            look.statusBar(title: nav.page.title, playing: widget.player.playing, hasTrack: widget.player.current != null),
+            look.statusBar(
+              title: nav.page.title,
+              playing: widget.player.playing,
+              hasTrack: widget.player.current != null,
+              nowPlaying: nav.page is NowPlayingPage,
+            ),
             Expanded(
               child: ClipRect(
                 child: Stack(

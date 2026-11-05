@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 
 import '../core/library.dart';
@@ -60,7 +61,23 @@ class IpodNav extends ChangeNotifier {
   final PlayerController player;
 
   /// Nombre de lignes visibles dans un menu (dépend de l'écran du modèle).
-  final int visibleRows;
+  int visibleRows;
+
+  /// Un autre appareil prend la navigation : même écran, même sélection,
+  /// recadrée pour son nombre de lignes.
+  void fitRows(int rows) {
+    if (rows == visibleRows) return;
+    visibleRows = rows;
+    for (final p in stack.whereType<MenuPage>()) {
+      if (p.selected >= p.top + rows) p.top = p.selected - rows + 1;
+      final count = p.entries.length;
+      p.top = p.top.clamp(0, math.max(0, count - rows));
+      p.topSpring
+        ..value = p.top.toDouble()
+        ..velocity = 0;
+    }
+    notifyListeners();
+  }
   late final List<IpodPage> stack;
 
   IpodPage get page => stack.last;
@@ -75,7 +92,7 @@ class IpodNav extends ChangeNotifier {
 
   /// Retour à l'affichage de la progression après un moment d'inactivité.
   bool expireMode() {
-    if (mode != NowPlayingMode.progress && DateTime.now().isAfter(_modeUntil)) {
+    if (mode != NowPlayingMode.progress && clock.now().isAfter(_modeUntil)) {
       mode = NowPlayingMode.progress;
       notifyListeners();
       return true;
@@ -92,7 +109,7 @@ class IpodNav extends ChangeNotifier {
 
   void _setMode(NowPlayingMode m, Duration hold) {
     mode = m;
-    _modeUntil = DateTime.now().add(hold);
+    _modeUntil = clock.now().add(hold);
   }
 
   // --- Commandes de la molette ---------------------------------------------

@@ -45,20 +45,22 @@ class FirstGenModel extends IpodModel {
   @override
   Rect get screen => _screen;
 
-  /// À droite sur la tranche du haut (le port FireWire est à gauche).
+  /// Au milieu de la tranche du haut, entre le port FireWire (à gauche) et
+  /// le verrou (à droite).
   @override
-  double get jackX => 318;
+  double get jackX => 212;
 
   @override
-  Offset get wheelCenter => const Offset(206, 470);
+  Offset get wheelCenter => const Offset(206, 461);
 
   @override
   WheelStyle get wheel => const WheelStyle(
-        radius: 132,
-        buttonRadius: 42,
-        innerRadius: 94,
+        radius: 172,
+        buttonRadius: 62,
+        innerRadius: 123,
         labelInset: 0.86,
-        labelSize: 13,
+        labelSize: 17,
+        menuLabel: 'menu',
         labelSpacing: 1,
         iconScale: 0.75,
         label: Color(0xFF9A9EA3),
@@ -66,6 +68,10 @@ class FirstGenModel extends IpodModel {
         inner: [Color(0xFFFBFBFC), Color(0xFFEEEFF1), Color(0xFFDFE1E4)],
         groove: Color(0xFFB9BCC0),
       );
+
+  /// En haut à droite.
+  @override
+  HoldSwitch? get hold => const HoldSwitch(330);
 
   @override
   ScreenLook get look => _monoLook;
@@ -84,7 +90,7 @@ class ThirdGenModel extends IpodModel {
 
   // ≈ 6,67 unités par mm (61,8 × 104 mm).
   static const Size _size = Size(412, 693);
-  static const Rect _screen = Rect.fromLTWH(76, 40, 260, 208);
+  static const Rect _screen = Rect.fromLTWH(65, 46, 282, 226);
   static const double _radius = 32;
 
   @override
@@ -111,17 +117,18 @@ class ThirdGenModel extends IpodModel {
   @override
   Rect get screen => _screen;
 
-  /// À droite sur la tranche du haut, à côté de la prise télécommande.
+  /// Au milieu de la tranche du haut, entre le verrou (à gauche) et la
+  /// prise télécommande (à droite).
   @override
-  double get jackX => 322;
+  double get jackX => 218;
 
   @override
-  Offset get wheelCenter => const Offset(206, 506);
+  Offset get wheelCenter => const Offset(206, 532);
 
   @override
   WheelStyle get wheel => const WheelStyle(
-        radius: 122,
-        buttonRadius: 42,
+        radius: 138,
+        buttonRadius: 52,
         labels: false,
         sideClicks: false,
         ring: [Color(0xFFF1F2F3), Color(0xFFE5E7E9), Color(0xFFD9DCDF)],
@@ -129,11 +136,15 @@ class ThirdGenModel extends IpodModel {
 
   @override
   List<IpodButton> get buttons => const [
-        IpodButton(WheelZone.previous, Offset(83, 304), 27),
-        IpodButton(WheelZone.menu, Offset(165, 304), 27),
-        IpodButton(WheelZone.playPause, Offset(247, 304), 27),
-        IpodButton(WheelZone.next, Offset(329, 304), 27),
+        IpodButton(WheelZone.previous, Offset(83, 318), 27),
+        IpodButton(WheelZone.menu, Offset(165, 318), 27),
+        IpodButton(WheelZone.playPause, Offset(247, 318), 27),
+        IpodButton(WheelZone.next, Offset(329, 318), 27),
       ];
+
+  /// En haut à gauche.
+  @override
+  HoldSwitch? get hold => const HoldSwitch(82);
 
   @override
   CustomPainter buttonPainter(IpodButton button, {required bool pressed}) =>
@@ -149,14 +160,135 @@ class ThirdGenModel extends IpodModel {
   CustomPainter? get glass => const _GlassPainter(_size, _radius, _screen);
 }
 
+/// Teintes de la 4e génération : blanche, ou l'édition U2 (façade noire,
+/// molette rouge).
+enum FourthGenColor {
+  blanc('Blanc', Color(0xFFF7F7F5)),
+  u2('U2', Color(0xFFC41E26));
+
+  const FourthGenColor(this.displayName, this.swatch);
+
+  final String displayName;
+  final Color swatch;
+}
+
+/// La 4e génération (2004) : la molette cliquable du Mini sur le grand
+/// iPod, inscriptions sur la molette, écran monochrome.
+class FourthGenModel extends IpodModel {
+  const FourthGenModel([this.color = FourthGenColor.blanc]);
+
+  final FourthGenColor color;
+
+  // ≈ 6,67 unités par mm (61 × 104,1 mm).
+  static const Size _size = Size(407, 694);
+  static const Rect _screen = Rect.fromLTWH(70, 50, 267, 214);
+  static const double _radius = 28;
+
+  @override
+  String get id => color == FourthGenColor.blanc ? 'gen4' : 'gen4-${color.name}';
+
+  @override
+  String get family => 'gen4';
+
+  @override
+  String get label => '4e génération';
+
+  @override
+  String get variantName => color.displayName;
+
+  @override
+  Color get swatch => color.swatch;
+
+  @override
+  Size get size => _size;
+
+  @override
+  double get cornerRadius => _radius;
+
+  @override
+  Rect get screen => _screen;
+
+  /// Au milieu de la tranche du haut, à droite de la prise télécommande
+  /// (le verrou est tout à droite).
+  @override
+  double get jackX => 216;
+
+  @override
+  Offset get wheelCenter => const Offset(203.5, 495);
+
+  @override
+  WheelStyle get wheel => switch (color) {
+    // Molette gris clair, inscriptions presque blanches.
+    FourthGenColor.blanc => const WheelStyle(
+      radius: 140,
+      buttonRadius: 47,
+      labelSize: 17,
+      label: Color(0xFFF2F3F4),
+      recess: Color(0xFFDDDEDF),
+      ring: [Color(0xFFD3D5D8), Color(0xFFC8CACD), Color(0xFFBCBEC2)],
+      edgeLight: 0.45,
+      groove: Color(0xFFAEB1B5),
+      buttonUp: [Color(0xFFF7F7F8), Color(0xFFE2E3E5)],
+      buttonDown: [Color(0xFFD9DADC), Color(0xFFEDEEEF)],
+    ),
+    // Molette rouge, inscriptions claires, bouton central noir.
+    FourthGenColor.u2 => const WheelStyle(
+      radius: 140,
+      buttonRadius: 47,
+      labelSize: 17,
+      label: Color(0xFFF1DADB),
+      recess: Color(0xFF0E0F10),
+      ring: [Color(0xFFD9333A), Color(0xFFC41E26), Color(0xFFA3151C)],
+      edgeLight: 0.3,
+      groove: Color(0xFF3A0B0E),
+      buttonUp: [Color(0xFF47484C), Color(0xFF2A2B2E)],
+      buttonDown: [Color(0xFF26272A), Color(0xFF34353A)],
+    ),
+  };
+
+  @override
+  ScreenLook get look => _monoLook;
+
+  @override
+  CustomPainter get body => switch (color) {
+    FourthGenColor.blanc => const _WhiteBodyPainter(_size, _radius, _screen),
+    FourthGenColor.u2 => const _WhiteBodyPainter(
+      _size,
+      _radius,
+      _screen,
+      front: [Color(0xFF3A3B3E), Color(0xFF242528), Color(0xFF17181A)],
+    ),
+  };
+
+  @override
+  CustomPainter? get glass => const _GlassPainter(_size, _radius, _screen);
+
+  /// En haut à droite (curseur noir sur l'U2).
+  @override
+  HoldSwitch? get hold => color == FourthGenColor.u2
+      ? const HoldSwitch(346, knob: [Color(0xFF55565A), Color(0xFF2A2B2E), Color(0xFF1A1B1D)])
+      : const HoldSwitch(346);
+
+  @override
+  bool operator ==(Object other) => other is FourthGenModel && other.color == color;
+
+  @override
+  int get hashCode => color.hashCode;
+}
+
 // --- Boîtier blanc à dos chromé -------------------------------------------------
 
 class _WhiteBodyPainter extends CustomPainter {
-  const _WhiteBodyPainter(this.bodySize, this.radius, this.screen);
+  const _WhiteBodyPainter(this.bodySize, this.radius, this.screen, {this.front = _ivory});
 
   final Size bodySize;
   final double radius;
   final Rect screen;
+
+  /// Dégradé de la façade, de haut en bas.
+  final List<Color> front;
+
+  static const _ivory = [Color(0xFFFDFDFB), Color(0xFFF3F3F0), Color(0xFFE8E8E4)];
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -188,13 +320,7 @@ class _WhiteBodyPainter extends CustomPainter {
     final front = outer.deflate(3.5);
     canvas.drawRRect(
       front,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          Offset.zero,
-          Offset(0, size.height),
-          const [Color(0xFFFDFDFB), Color(0xFFF3F3F0), Color(0xFFE8E8E4)],
-          const [0, 0.55, 1],
-        ),
+      Paint()..shader = ui.Gradient.linear(Offset.zero, Offset(0, size.height), this.front, const [0, 0.55, 1]),
     );
     canvas.drawRRect(
       front.deflate(1),
@@ -210,7 +336,8 @@ class _WhiteBodyPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _WhiteBodyPainter old) => old.screen != screen || old.radius != radius;
+  bool shouldRepaint(covariant _WhiteBodyPainter old) =>
+      old.screen != screen || old.radius != radius || old.front != front;
 }
 
 class _GlassPainter extends CustomPainter {

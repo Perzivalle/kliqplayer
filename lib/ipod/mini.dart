@@ -101,19 +101,20 @@ class MiniModel extends IpodModel {
   @override
   double get screenCornerRadius => 1;
 
-  /// À droite sur la tranche du haut (le verrou est à gauche).
+  /// Tout à droite sur la tranche du haut, après la prise télécommande
+  /// (le verrou est à gauche).
   @override
-  double get jackX => 252;
+  double get jackX => 300;
 
   @override
-  Offset get wheelCenter => const Offset(170, 402);
+  Offset get wheelCenter => const Offset(170, 419);
 
   @override
   WheelStyle get wheel => WheelStyle(
-        radius: 100,
-        buttonRadius: 37,
-        iconScale: 0.76,
-        labelSize: 13,
+        radius: 132,
+        buttonRadius: 45,
+        iconScale: 1,
+        labelSize: 17,
         labelSpacing: 0.9,
         label: color.label,
         recess: Color.lerp(color.dark, color.base, 0.4)!,
@@ -123,6 +124,10 @@ class MiniModel extends IpodModel {
         buttonUp: [color.wheel.first, color.wheel[1]],
         buttonDown: [color.wheel.last, color.wheel[1]],
       );
+
+  /// En haut à gauche, dans le bouchon en plastique blanc.
+  @override
+  HoldSwitch? get hold => const HoldSwitch(75);
 
   @override
   ScreenLook get look => const MiniLook();
@@ -327,7 +332,8 @@ class MiniLook extends ScreenLook {
   Color get background => _lcd;
 
   @override
-  Widget statusBar({required String title, required bool playing, required bool hasTrack}) => Container(
+  Widget statusBar({required String title, required bool playing, required bool hasTrack, bool nowPlaying = false}) =>
+      Container(
         height: _barH,
         decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: _ink, width: 1)),

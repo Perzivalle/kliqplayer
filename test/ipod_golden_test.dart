@@ -4,16 +4,19 @@
 //   flutter test --update-goldens test/ipod_golden_test.dart
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/core/library.dart';
 import 'package:lecteur/core/player.dart';
 import 'package:lecteur/ipod/classic.dart';
+import 'package:lecteur/ipod/drawer.dart';
 import 'package:lecteur/ipod/ipod.dart';
 import 'package:lecteur/ipod/mini.dart';
 import 'package:lecteur/ipod/model.dart';
 import 'package:lecteur/ipod/nano.dart';
+import 'package:lecteur/ipod/nanos.dart';
 import 'package:lecteur/ipod/vintage.dart';
 
 Future<void> _loadFont(String family, List<String> files) async {
@@ -49,9 +52,9 @@ PlayerController _player({int index = -1, bool playing = false, Duration positio
   );
 }
 
-Future<void> _show(WidgetTester tester, Widget stage) async {
+Future<void> _show(WidgetTester tester, Widget stage, {Size size = const Size(460, 760)}) async {
   tester.view
-    ..physicalSize = const Size(460, 760)
+    ..physicalSize = size
     ..devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
@@ -178,6 +181,41 @@ void main() {
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_open_classic.png'));
       await _key(tester, LogicalKeyboardKey.escape);
     });
+
+    // Survol : les pastilles du nano 4G apparaissent, et l'appareil prend
+    // la teinte survolée.
+    testWidgets('survol d\'une pastille', (tester) async {
+      await _show(tester, IpodStage(player: _player(index: 0), initial: const ClassicModel()));
+      await _key(tester, LogicalKeyboardKey.keyT);
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(tester.getCenter(find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'nano4')));
+      await tester.pumpAndSettle();
+      await mouse.moveTo(tester.getCenter(find.byTooltip('Violet')));
+      await tester.pumpAndSettle();
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_swatch_preview.png'));
+      await mouse.moveTo(Offset.zero);
+      await tester.pumpAndSettle();
+    });
+
+    // Fenêtre basse : les emplacements s'étalent sur plus de colonnes au
+    // lieu de rapetisser.
+    testWidgets('fenêtre large et basse', (tester) async {
+      await _show(tester, IpodStage(player: _player(index: 0), initial: const ClassicModel()), size: const Size(1100, 420));
+      await _key(tester, LogicalKeyboardKey.keyT);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_low_window.png'));
+      await _key(tester, LogicalKeyboardKey.escape);
+    });
+
+    // Fenêtre minuscule : les appareils gardent une taille où on les vise,
+    // et les emplacements défilent.
+    testWidgets('fenêtre minuscule', (tester) async {
+      await _show(tester, IpodStage(player: _player(index: 0), initial: const ClassicModel()), size: const Size(520, 300));
+      await _key(tester, LogicalKeyboardKey.keyT);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_tiny_window.png'));
+      await _key(tester, LogicalKeyboardKey.escape);
+    });
   });
 
   group('Autres modèles', () {
@@ -186,6 +224,9 @@ void main() {
       for (final c in NanoColor.values) 'nano_${c.name}': NanoModel(c),
       'gen3': const ThirdGenModel(),
       'gen1': const FirstGenModel(),
+      for (final c in FourthGenColor.values) c == FourthGenColor.blanc ? 'gen4' : 'gen4_${c.name}': FourthGenModel(c),
+      for (final c in nano2Colors) 'nano2_${c.name}': Nano2Model(c),
+      for (final c in nano4Colors) 'nano4_${c.name}': Nano4Model(c),
     };
     for (final MapEntry(key: name, value: model) in models.entries) {
       testWidgets('menu ($name)', (tester) async {
@@ -196,6 +237,9 @@ void main() {
     for (final MapEntry(key: name, value: model) in {
       'nano': const NanoModel(),
       'gen3': const ThirdGenModel(),
+      'gen4': const FourthGenModel(),
+      'nano2': Nano2Model(nano2Colors.first),
+      'nano4': Nano4Model(nano4Colors.first),
     }.entries) {
       testWidgets('en lecture ($name)', (tester) async {
         await _show(

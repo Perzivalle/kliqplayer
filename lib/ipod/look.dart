@@ -19,7 +19,9 @@ abstract class ScreenLook {
   TextStyle get textStyle;
   Color get background;
 
-  Widget statusBar({required String title, required bool playing, required bool hasTrack});
+  /// [nowPlaying] : on est sur l'écran « En lecture » (le nano 4G y passe
+  /// sa barre en noir).
+  Widget statusBar({required String title, required bool playing, required bool hasTrack, bool nowPlaying = false});
 
   /// Bandeau de la ligne sélectionnée.
   Widget highlight();
