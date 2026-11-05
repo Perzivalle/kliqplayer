@@ -1,4 +1,4 @@
-// Captures de référence de la skin baladeur. Elles verrouillent l'apparence
+// Captures de référence du baladeur. Elles verrouillent l'apparence
 // du Classic : toute modification qui change un seul pixel fait échouer le
 // test. Pour accepter volontairement un changement :
 //   flutter test --update-goldens test/ipod_golden_test.dart
@@ -9,9 +9,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/core/library.dart';
 import 'package:lecteur/core/player.dart';
-import 'package:lecteur/skins/ipod/classic.dart';
-import 'package:lecteur/skins/ipod/ipod_skin.dart';
-import 'package:lecteur/skins/ipod/mini.dart';
+import 'package:lecteur/ipod/classic.dart';
+import 'package:lecteur/ipod/ipod.dart';
+import 'package:lecteur/ipod/mini.dart';
 
 Future<void> _loadFont(String family, List<String> files) async {
   final loader = FontLoader(family);
@@ -46,7 +46,7 @@ PlayerController _player({int index = -1, bool playing = false, Duration positio
   );
 }
 
-Future<void> _show(WidgetTester tester, Widget skin) async {
+Future<void> _show(WidgetTester tester, Widget stage) async {
   tester.view
     ..physicalSize = const Size(460, 760)
     ..devicePixelRatio = 1;
@@ -58,7 +58,7 @@ Future<void> _show(WidgetTester tester, Widget skin) async {
       home: ColoredBox(
         color: const Color(0xFF203040),
         // Comme dans l'appli (main.dart) : fond Material transparent.
-        child: Material(type: MaterialType.transparency, child: skin),
+        child: Material(type: MaterialType.transparency, child: stage),
       ),
     ),
   );
@@ -93,15 +93,15 @@ void main() {
   });
 
   group('Classic', () {
-    const skin = IpodSkin(ClassicModel());
+    const model = ClassicModel();
 
     testWidgets('menu principal', (tester) async {
-      await _show(tester, skin.build(_player(index: 0)));
+      await _show(tester, IpodStage(player: _player(index: 0), initial: model));
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_menu.png'));
     });
 
     testWidgets('liste longue, titre défilant', (tester) async {
-      await _show(tester, skin.build(_player(index: 0)));
+      await _show(tester, IpodStage(player: _player(index: 0), initial: model));
       await _key(tester, LogicalKeyboardKey.enter); // Musique
       await _key(tester, LogicalKeyboardKey.arrowDown, 2);
       await _key(tester, LogicalKeyboardKey.enter); // Morceaux
@@ -110,7 +110,7 @@ void main() {
     });
 
     testWidgets('en lecture', (tester) async {
-      await _show(tester, skin.build(_player(index: 5, playing: false, position: const Duration(minutes: 1, seconds: 23))));
+      await _show(tester, IpodStage(player: _player(index: 5, playing: false, position: const Duration(minutes: 1, seconds: 23)), initial: model));
       await _key(tester, LogicalKeyboardKey.arrowDown, 2);
       await _key(tester, LogicalKeyboardKey.enter); // En lecture
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_now_playing.png'));
@@ -121,7 +121,7 @@ void main() {
     });
 
     testWidgets('bouton enfoncé', (tester) async {
-      await _show(tester, skin.build(_player(index: 0)));
+      await _show(tester, IpodStage(player: _player(index: 0), initial: model));
       final wheel = tester.getCenter(find.byType(IpodWheel));
       final scale = tester.getSize(find.byType(IpodWheel)).width / 264;
       final g = await tester.startGesture(wheel + Offset(100 * scale, 0));
@@ -135,15 +135,15 @@ void main() {
   group('Mini', () {
     for (final color in MiniColor.values) {
       testWidgets('menu principal (${color.name})', (tester) async {
-        await _show(tester, IpodSkin(MiniModel(color)).build(_player(index: 0)));
+        await _show(tester, IpodStage(player: _player(index: 0), initial: MiniModel(color)));
         await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/mini_${color.name}_menu.png'));
       });
     }
 
-    const skin = IpodSkin(MiniModel());
+    const model = MiniModel();
 
     testWidgets('liste longue, titre défilant', (tester) async {
-      await _show(tester, skin.build(_player(index: 0)));
+      await _show(tester, IpodStage(player: _player(index: 0), initial: model));
       await _key(tester, LogicalKeyboardKey.enter); // Musique
       await _key(tester, LogicalKeyboardKey.arrowDown, 2);
       await _key(tester, LogicalKeyboardKey.enter); // Morceaux
@@ -152,7 +152,7 @@ void main() {
     });
 
     testWidgets('en lecture', (tester) async {
-      await _show(tester, skin.build(_player(index: 5, position: const Duration(minutes: 1, seconds: 23))));
+      await _show(tester, IpodStage(player: _player(index: 5, position: const Duration(minutes: 1, seconds: 23)), initial: model));
       await _key(tester, LogicalKeyboardKey.arrowDown, 2);
       await _key(tester, LogicalKeyboardKey.enter); // En lecture
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/mini_now_playing.png'));
@@ -163,14 +163,14 @@ void main() {
 
   group('Tiroir', () {
     testWidgets('ouvert (touche T), Mini rose en main', (tester) async {
-      await _show(tester, const IpodSkin(MiniModel(MiniColor.rose)).build(_player(index: 0)));
+      await _show(tester, IpodStage(player: _player(index: 0), initial: const MiniModel(MiniColor.rose)));
       await _key(tester, LogicalKeyboardKey.keyT);
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_open.png'));
       await _key(tester, LogicalKeyboardKey.escape);
     });
 
     testWidgets('ouvert, Classic en main : le Mini et ses teintes', (tester) async {
-      await _show(tester, const IpodSkin(ClassicModel()).build(_player(index: 0)));
+      await _show(tester, IpodStage(player: _player(index: 0), initial: const ClassicModel()));
       await _key(tester, LogicalKeyboardKey.keyT);
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_open_classic.png'));
       await _key(tester, LogicalKeyboardKey.escape);

@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../../core/player.dart';
-import '../../physics.dart';
+import '../core/player.dart';
+import '../physics.dart';
 import 'look.dart';
 import 'nav.dart';
 

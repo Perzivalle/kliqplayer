@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../../core/player.dart';
+import '../core/player.dart';
 import 'nav.dart';
 
 /// Apparence de l'écran d'un modèle : la logique (menus, transitions,

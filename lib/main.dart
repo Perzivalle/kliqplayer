@@ -5,12 +5,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:window_manager/legacy.dart';
 
 import 'core/player.dart';
-import 'skins/skin.dart';
-import 'skins/ipod/ipod_skin.dart';
-import 'skins/turntable/turntable_skin.dart';
-
-/// Les skins disponibles, dans l'ordre de Tab.
-const List<Skin> skins = [IpodSkin(), TurntableSkin()];
+import 'ipod/ipod.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,7 +13,7 @@ Future<void> main() async {
   await windowManager.ensureInitialized();
 
   final options = WindowOptions(
-    size: skins.first.windowSize,
+    size: IpodStage.savedModel.windowSize,
     title: 'Lecteur',
     backgroundColor: Colors.transparent,
     titleBarStyle: TitleBarStyle.hidden,
@@ -43,7 +38,6 @@ class LecteurApp extends StatefulWidget {
 }
 
 class _LecteurAppState extends State<LecteurApp> {
-  int _skin = 0;
   final _keys = FocusNode(debugLabel: 'raccourcis');
 
   @override
@@ -52,35 +46,13 @@ class _LecteurAppState extends State<LecteurApp> {
     super.dispose();
   }
 
-  Skin get skin => skins[_skin];
-
-  Future<void> _nextSkin() async {
-    setState(() => _skin = (_skin + 1) % skins.length);
-    // La skin quittée avait peut-être le focus : on le reprend (la nouvelle
-    // peut le redemander juste après).
-    WidgetsBinding.instance.addPostFrameCallback((_) => _keys.requestFocus());
-  }
-
+  /// Raccourcis globaux. Le baladeur gère lui-même ↑ ↓ ← → Entrée,
+  /// Retour arrière et T ; ce qu'il n'utilise pas remonte jusqu'ici.
   KeyEventResult _onKey(FocusNode _, KeyEvent e) {
     if (e is! KeyDownEvent) return KeyEventResult.ignored;
-    // Pendant qu'on écrit (recherche), les touches vont au texte. Les autres
-    // touches non utilisées par la skin remontent jusqu'ici.
-    final focused = FocusManager.instance.primaryFocus?.context;
-    if (focused?.findAncestorWidgetOfExactType<EditableText>() != null) return KeyEventResult.ignored;
-    final p = widget.player;
     switch (e.logicalKey) {
       case LogicalKeyboardKey.space:
-        p.playPause();
-      case LogicalKeyboardKey.arrowRight:
-        p.next();
-      case LogicalKeyboardKey.arrowLeft:
-        p.previous();
-      case LogicalKeyboardKey.arrowUp:
-        p.setVolume(p.volume + 5);
-      case LogicalKeyboardKey.arrowDown:
-        p.setVolume(p.volume - 5);
-      case LogicalKeyboardKey.tab:
-        _nextSkin();
+        widget.player.playPause();
       case LogicalKeyboardKey.escape || LogicalKeyboardKey.keyQ:
         windowManager.close();
       default:
@@ -106,7 +78,7 @@ class _LecteurAppState extends State<LecteurApp> {
           focusNode: _keys,
           autofocus: true,
           onKeyEvent: _onKey,
-          child: skin.build(widget.player),
+          child: IpodStage(player: widget.player),
         ),
       ),
     );

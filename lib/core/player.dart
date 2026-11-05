@@ -5,9 +5,9 @@ import 'package:media_kit/media_kit.dart' hide Track;
 
 import 'library.dart';
 
-/// Moteur de lecture commun à toutes les skins.
+/// Moteur de lecture.
 ///
-/// Les skins lisent l'état (morceau, lecture, volume…) et appellent les
+/// L'interface lit l'état (morceau, lecture, volume…) et appellent les
 /// commandes. [smoothPosition] donne une position interpolée à chaque image,
 /// pour des animations parfaitement continues.
 class PlayerController extends ChangeNotifier {
@@ -27,10 +27,6 @@ class PlayerController extends ChangeNotifier {
         volume = v;
         notifyListeners();
       }),
-      _player.stream.rate.listen((r) {
-        rate = r;
-        notifyListeners();
-      }),
       _player.stream.playlist.listen((playlist) {
         if (playlist.index != index) {
           index = playlist.index;
@@ -41,7 +37,7 @@ class PlayerController extends ChangeNotifier {
   }
 
   /// Sans moteur audio : état figé fourni à la main, commandes sans effet.
-  /// Sert aux tests (captures de référence des skins).
+  /// Sert aux tests (captures de référence du baladeur).
   @visibleForTesting
   PlayerController.preview({
     this.queue = const [],
@@ -71,16 +67,10 @@ class PlayerController extends ChangeNotifier {
   List<Track> queue = const [];
   List<Album> albums = const [];
 
-  /// Pochettes des albums (index dans [albums]), chargées en arrière-plan.
-  final Map<int, Uint8List> albumCovers = {};
-
-  /// Incrémenté à chaque pochette d'album chargée.
-  final ValueNotifier<int> albumCoversLoaded = ValueNotifier(0);
   int index = -1;
   bool playing = false;
   Duration duration = Duration.zero;
   double volume = 100;
-  double rate = 1;
   bool loading = true;
 
   /// Pochette du morceau en cours (null si absente).
@@ -101,8 +91,7 @@ class PlayerController extends ChangeNotifier {
 
   Duration get smoothPosition {
     if (!playing) return _anchor;
-    final elapsed = _sinceAnchor.elapsedMicroseconds * rate;
-    final pos = _anchor + Duration(microseconds: elapsed.round());
+    final pos = _anchor + _sinceAnchor.elapsed;
     return duration > Duration.zero && pos > duration ? duration : pos;
   }
 
@@ -128,16 +117,8 @@ class PlayerController extends ChangeNotifier {
       );
     }
     notifyListeners();
-    _loadAlbumCovers();
   }
 
-  Future<void> _loadAlbumCovers() async {
-    for (var i = 0; i < albums.length; i++) {
-      final bytes = await loadCover(queue[albums[i].firstIndex]);
-      if (bytes != null) albumCovers[i] = bytes;
-      albumCoversLoaded.value++;
-    }
-  }
 
   /// Album du morceau en cours (index dans [albums]), ou -1.
   int get currentAlbum => albums.lastIndexWhere((a) => a.firstIndex <= index);
@@ -163,12 +144,6 @@ class PlayerController extends ChangeNotifier {
   Future<void> previous() => _run((p) => p.previous());
   Future<void> jumpTo(int i) => _run((p) => p.jump(i));
 
-  Future<void> playAlbum(int album) async {
-    await _run((p) async {
-      await p.jump(albums[album].firstIndex);
-      await p.play();
-    });
-  }
 
   Future<void> seekProgress(double p) async {
     final target = duration * p.clamp(0.0, 1.0);
@@ -177,7 +152,6 @@ class PlayerController extends ChangeNotifier {
   }
 
   Future<void> setVolume(double v) => _run((p) => p.setVolume(v.clamp(0, 100)));
-  Future<void> setRate(double r) => _run((p) => p.setRate(r.clamp(0.25, 4)));
 
   @override
   void dispose() {
@@ -185,7 +159,6 @@ class PlayerController extends ChangeNotifier {
       s.cancel();
     }
     _engine?.dispose();
-    albumCoversLoaded.dispose();
     super.dispose();
   }
 }

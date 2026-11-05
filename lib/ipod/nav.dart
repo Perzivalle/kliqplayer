@@ -2,9 +2,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
-import '../../core/library.dart';
-import '../../core/player.dart';
-import '../../physics.dart';
+import '../core/library.dart';
+import '../core/player.dart';
+import '../physics.dart';
 
 sealed class IpodPage {
   String get title;

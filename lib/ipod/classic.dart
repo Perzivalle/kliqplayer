@@ -2,7 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-import '../../core/player.dart';
+import '../core/player.dart';
 import 'look.dart';
 import 'model.dart';
 import 'nav.dart';
@@ -11,9 +11,6 @@ import 'wheel.dart';
 /// Le Classic blanc : façade laquée, liseré chromé, écran couleur 320×240.
 class ClassicModel extends IpodModel {
   const ClassicModel();
-
-  @override
-  String get name => 'Baladeur Classic';
 
   @override
   String get id => 'classic';

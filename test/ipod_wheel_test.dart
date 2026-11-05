@@ -1,8 +1,8 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lecteur/skins/ipod/ipod_skin.dart';
-import 'package:lecteur/skins/ipod/classic.dart';
+import 'package:lecteur/ipod/ipod.dart';
+import 'package:lecteur/ipod/classic.dart';
 
 /// La molette seule, et le journal de ce qu'elle a déclenché.
 Future<List<String>> _pumpWheel(WidgetTester tester) async {

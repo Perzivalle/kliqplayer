@@ -3,7 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-import '../../core/player.dart';
+import '../core/player.dart';
 import 'look.dart';
 import 'model.dart';
 import 'nav.dart';
@@ -73,9 +73,6 @@ class MiniModel extends IpodModel {
   static const Size _size = Size(340, 607);
   static const Rect _screen = Rect.fromLTWH(59.5, 54, 221, 176);
   static const double _radius = 22;
-
-  @override
-  String get name => 'Baladeur Mini (${color.displayName})';
 
   @override
   String get id => 'mini-${color.name}';

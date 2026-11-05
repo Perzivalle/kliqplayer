@@ -8,9 +8,6 @@ import 'wheel.dart';
 abstract class IpodModel {
   const IpodModel();
 
-  /// Nom de la skin.
-  String get name;
-
   /// Identifiant stable (préférences).
   String get id;
 

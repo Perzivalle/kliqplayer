@@ -4,10 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
-import '../../core/player.dart';
-import '../../core/settings.dart';
-import '../../physics.dart';
-import '../skin.dart';
+import '../core/player.dart';
+import '../core/settings.dart';
+import '../physics.dart';
 import 'classic.dart';
 import 'click.dart';
 import 'drawer.dart';
@@ -29,31 +28,20 @@ const List<IpodModel> ipodModels = [
   MiniModel(MiniColor.or),
 ];
 
-/// Les baladeurs à molette. Sans [model], c'est le dernier choisi dans le
-/// tiroir (retenu d'un lancement à l'autre) ; avec, le modèle est imposé
-/// au départ et le choix n'est pas enregistré (tests).
-class IpodSkin extends Skin {
-  const IpodSkin([this.model]);
-
-  final IpodModel? model;
-
-  @override
-  String get name => 'Baladeur';
-
-  @override
-  Size get windowSize => (model ?? const ClassicModel()).windowSize;
-
-  @override
-  Widget build(PlayerController player) => IpodStage(player: player, initial: model);
-}
-
 /// L'appareil qui flotte au milieu de la fenêtre, et le tiroir des autres
 /// modèles qui sort du bord droit (poignée au survol du bord, ou touche T).
+///
+/// Sans [initial], c'est le dernier modèle choisi dans le tiroir (retenu
+/// d'un lancement à l'autre) ; avec, le modèle est imposé au départ et le
+/// choix n'est pas enregistré (tests).
 class IpodStage extends StatefulWidget {
   const IpodStage({super.key, required this.player, this.initial});
 
   final PlayerController player;
   final IpodModel? initial;
+
+  /// Le modèle qui s'affichera au lancement.
+  static IpodModel get savedModel => _IpodStageState._saved();
 
   @override
   State<IpodStage> createState() => _IpodStageState();
@@ -315,7 +303,7 @@ class _IpodDeviceState extends State<IpodDevice> {
         WheelClick.instance.play();
         _press(WheelZone.menu);
       default:
-        // Espace, Tab, Échap : raccourcis communs à toutes les skins.
+        // Espace, T, Échap : gérés plus haut (scène, raccourcis globaux).
         return KeyEventResult.ignored;
     }
     return KeyEventResult.handled;
