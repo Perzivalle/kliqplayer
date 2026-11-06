@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/core/library.dart';
@@ -82,5 +84,24 @@ void main() {
       now = now.add(const Duration(hours: 1));
       expect(nav.lit, isTrue, reason: 'toujours allumé');
     });
+  });
+
+  test('Bibliothèque : on parcourt les dossiers et on en choisit un', () {
+    final root = Directory.systemTemp.createTempSync('lecteur');
+    addTearDown(() => root.deleteSync(recursive: true));
+    for (final d in ['Rock', 'Jazz', '.cache']) {
+      Directory('${root.path}/$d').createSync();
+    }
+    final player = _player()..musicDir = root.path;
+    final nav = IpodNav(player, look: const ClassicLook());
+    _open(nav, 'Réglages');
+    _open(nav, 'Bibliothèque');
+    _open(nav, 'Dossier actuel');
+    final labels = (nav.page as MenuPage).entries.map((e) => e.label).toList();
+    expect(labels, ['Utiliser ce dossier', 'Jazz', 'Rock'], reason: 'triés, sans les dossiers cachés');
+    _open(nav, 'Rock');
+    _open(nav, 'Utiliser ce dossier');
+    expect(player.musicDir, '${root.path}/Rock');
+    expect(nav.page.title, 'Réglages', reason: 'choisi : retour aux Réglages');
   });
 }

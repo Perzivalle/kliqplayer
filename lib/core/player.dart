@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
@@ -120,16 +121,39 @@ class PlayerController extends ChangeNotifier {
     return (smoothPosition.inMicroseconds / total).clamp(0.0, 1.0);
   }
 
+  /// Dossier d'où vient la musique.
+  String musicDir = defaultMusicDirectory().path;
+
+  /// Réglages › Bibliothèque : lit la musique d'un autre dossier (retenu
+  /// d'un lancement à l'autre).
+  Future<void> setMusicDir(String path) async {
+    musicDir = path;
+    Settings.setString('library.folder', path);
+    if (_engine == null) {
+      notifyListeners();
+      return;
+    }
+    await loadLibrary();
+  }
+
   Future<void> loadLibrary() async {
     loading = true;
     notifyListeners();
-    final library = await scanLibrary(defaultMusicDirectory());
+    final library = await scanLibrary(Directory(musicDir));
     final tracks = library.tracks;
     queue = tracks;
     albums = library.albums;
     playlists = library.playlists;
+    // Les pochettes d'avant ne correspondent plus aux albums.
+    _albumCovers.clear();
+    _coverLoads.clear();
+    _coverGeneration++;
     loading = false;
-    if (tracks.isNotEmpty) {
+    if (tracks.isEmpty) {
+      await _player.stop();
+      index = -1;
+      cover = null;
+    } else {
       await _player.open(
         Playlist([for (final t in tracks) Media(t.path)], index: 0),
         play: false,
@@ -164,13 +188,16 @@ class PlayerController extends ChangeNotifier {
 
   final Map<int, Uint8List?> _albumCovers = {};
   final Set<int> _coverLoads = {};
+  int _coverGeneration = 0;
 
   /// Pochette de l'album [i] si elle est déjà lue ; sinon null, et elle est
   /// lue en arrière-plan (l'écran est prévenu quand elle arrive).
   Uint8List? albumCover(int i) {
     if (_albumCovers.containsKey(i)) return _albumCovers[i];
     if (_engine != null && i >= 0 && i < albums.length && _coverLoads.add(i)) {
+      final generation = _coverGeneration;
       loadCover(queue[albums[i].firstIndex]).then((bytes) {
+        if (generation != _coverGeneration) return; // autre bibliothèque entre-temps
         _albumCovers[i] = bytes;
         _coverLoads.remove(i);
         notifyListeners();
@@ -262,12 +289,18 @@ class PlayerController extends ChangeNotifier {
 
   Future<void> setVolume(double v) => _run((p) => p.setVolume(v.clamp(0, 100)));
 
-  @override
-  void dispose() {
+  /// Enregistre tout de suite les écoutes pas encore écrites (avant de
+  /// quitter).
+  void savePlays() {
     if (_savePlays?.isActive ?? false) {
       _savePlays!.cancel();
       Settings.setMap('plays', _plays);
     }
+  }
+
+  @override
+  void dispose() {
+    savePlays();
     for (final s in _subs) {
       s.cancel();
     }

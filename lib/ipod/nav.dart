@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:clock/clock.dart';
@@ -290,6 +291,11 @@ class IpodNav extends ChangeNotifier {
   MenuPage _settings() => MenuPage('Réglages', live: true, () => [
         MenuEntry('À propos', open: _about),
         MenuEntry(
+          'Bibliothèque',
+          value: () => player.loading ? 'Lecture…' : _folderName(player.musicDir),
+          open: _places,
+        ),
+        MenuEntry(
           'Lecture aléatoire',
           value: () => player.shuffle ? 'Morceaux' : 'Non',
           action: () => player.setShuffle(!player.shuffle),
@@ -334,6 +340,62 @@ class IpodNav extends ChangeNotifier {
     return page;
   }
 
+  // --- Bibliothèque : choisir le dossier de musique ---------------------------
+
+  static String _folderName(String path) {
+    final parts = path.split('/').where((p) => p.isNotEmpty);
+    return parts.isEmpty ? '/' : parts.last;
+  }
+
+  /// Points de départ : le dossier actuel, le dossier personnel, les disques
+  /// branchés, la racine.
+  MenuPage _places() => MenuPage('Bibliothèque', live: true, () {
+        final env = Platform.environment;
+        final home = env['HOME'] ?? '/';
+        final user = env['USER'] ?? '';
+        return [
+          MenuEntry('Dossier actuel', value: () => _folderName(player.musicDir), open: () => _folder(player.musicDir)),
+          MenuEntry('Dossier personnel', open: () => _folder(home)),
+          for (final (label, path) in [('Disques', '/run/media/$user'), ('Disques', '/media/$user'), ('/mnt', '/mnt')])
+            if (user.isNotEmpty || !path.endsWith('/')) // pas de « /media/ » sans nom
+              if (Directory(path).existsSync()) MenuEntry(label, open: () => _folder(path)),
+          MenuEntry('Racine', open: () => _folder('/')),
+        ];
+      });
+
+  /// Un dossier : « Utiliser ce dossier », puis ses sous-dossiers.
+  MenuPage _folder(String path) => MenuPage(_folderName(path), () {
+        List<Directory> subs;
+        try {
+          subs = Directory(path)
+              .listSync(followLinks: false)
+              .whereType<Directory>()
+              .where((d) => !_folderName(d.path).startsWith('.'))
+              .toList()
+            ..sort((a, b) => _cmp(_folderName(a.path), _folderName(b.path)));
+        } catch (_) {
+          subs = const []; // illisible : on peut quand même le choisir
+        }
+        return [
+          MenuEntry('Utiliser ce dossier', checked: () => path == player.musicDir, action: () {
+            if (path != player.musicDir) player.setMusicDir(path);
+            _backTo('Réglages');
+          }),
+          for (final d in subs) MenuEntry(_folderName(d.path), open: () => _folder(d.path)),
+        ];
+      });
+
+  /// Revient d'un coup à la page [title] (en glissant vers la droite).
+  void _backTo(String title) {
+    final at = stack.lastIndexWhere((p) => p.title == title);
+    if (at < 0 || at == stack.length - 1) return;
+    leaving = stack.last;
+    stack.removeRange(at + 1, stack.length);
+    direction = -1;
+    transition++;
+    notifyListeners();
+  }
+
   MenuPage _about() => MenuPage('À propos', () {
         final artists = {for (final a in player.albums) a.artist.toLowerCase()};
         return [
@@ -341,7 +403,7 @@ class IpodNav extends ChangeNotifier {
           MenuEntry('Albums', value: () => '${player.albums.length}'),
           MenuEntry('Artistes', value: () => '${artists.length}'),
           MenuEntry('Listes', value: () => '${player.playlists.length}'),
-          MenuEntry('Version', value: () => '1.0'),
+          MenuEntry('Version', value: () => '0.1.0'),
         ];
       });
 

@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 
+import 'settings.dart';
+
 /// Un morceau de la bibliothèque.
 class Track {
   const Track({
@@ -62,11 +64,14 @@ class Library {
 
 const _audioExtensions = {'.mp3', '.flac', '.ogg', '.opus', '.m4a', '.aac', '.wav'};
 
-/// Dossier de musique par défaut : celui de MPD.
+/// Dossier de musique : $LECTEUR_MUSIC s'il est donné, sinon celui choisi
+/// dans Réglages › Bibliothèque, sinon celui de MPD.
 Directory defaultMusicDirectory() {
   final home = Platform.environment['HOME'] ?? '.';
   final override = Platform.environment['LECTEUR_MUSIC'];
   if (override != null && override.isNotEmpty) return Directory(override);
+  final chosen = Settings.getString('library.folder');
+  if (chosen != null && chosen.isNotEmpty) return Directory(chosen);
   return Directory('$home/Music/Musique Ipod');
 }
 

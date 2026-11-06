@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -91,10 +92,15 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   /// Ouverture du tiroir (0 fermé, 1 ouvert ; un léger rebond dépasse 1).
   final _open = Spring(0, stiffness: 230, damping: 0.78);
 
-  /// La façade qui dépasse quand la souris approche du bord.
-  final _peek = Spring(0, stiffness: 420, damping: 0.9);
+  /// Côté où sort le tiroir : 1 à droite, -1 à gauche (la poignée tirée).
+  int _side = 1;
+
+  /// Les poignées derrière les coins du haut, qui dépassent un peu plus
+  /// quand la souris les approche (gauche, droite).
+  final _peekL = Spring(0, stiffness: 420, damping: 0.9);
+  final _peekR = Spring(0, stiffness: 420, damping: 0.9);
+  int _hoverSide = 0;
   bool _wantOpen = false;
-  bool _nearEdge = false;
 
   /// Décalage vertical du tiroir quand on le tire de travers : un ressort
   /// le ramène toujours dans l'axe.
@@ -105,6 +111,17 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   double _dragStart = 0;
   Offset _drag = Offset.zero;
   double _drawerW = 300;
+
+  /// Part du tiroir qui reste engagée derrière l'iPod, ouvert.
+  static const double _tuck = 28;
+
+  /// Au tout début de l'ouverture, son bord extérieur part de ce retrait
+  /// derrière le flanc de l'iPod : juste à la ligne où il devient visible,
+  /// pour qu'il apparaisse dès la première image.
+  static const double _hideBack = _tuck + 4;
+
+  /// Course du tiroir, de rangé à ouvert.
+  double get _travel => _drawerW - _tuck + _hideBack;
 
   /// Un emplacement par famille, dans l'ordre de [ipodModels].
   static final List<List<IpodModel>> _families = [
@@ -212,8 +229,11 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       if (_open.isSettled) _open.value = _wantOpen ? 1 : 0;
       if (_lift.isSettled) _lift.value = 0;
     }
-    _peek.step(_nearEdge && !_wantOpen && !_dragging ? 1 : 0, dt);
-    if (_peek.isSettled) _peek.value = _nearEdge && !_wantOpen && !_dragging ? 1 : 0;
+    for (final (peek, side) in [(_peekL, -1), (_peekR, 1)]) {
+      final target = _hoverSide == side && !_wantOpen && !_dragging ? 1.0 : 0.0;
+      peek.step(target, dt);
+      if (peek.isSettled) peek.value = target;
+    }
     _stepSwap(dt);
     _stepSway(dt);
     _updateDrawerSnap();
@@ -221,7 +241,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     if (!_dragging &&
         _phase == _Swap.none &&
         _open.isSettled &&
-        _peek.isSettled &&
+        _peekL.isSettled &&
+        _peekR.isSettled &&
         _lift.isSettled &&
         _sway.isSettled &&
         _plug.isSettled) {
@@ -414,7 +435,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       scale: scale,
       lift: _plug.value,
       // Le câble pend depuis là où serait la prise, tiroir fermé.
-      anchorX: socket.dx + _open.value.clamp(0.0, 1.0) * _drawerW * 0.35,
+      anchorX: socket.dx - _deviceShift * 0.7,
       sway: _sway.value,
       fromBelow: !_model.jackOnTop,
     );
@@ -429,15 +450,15 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     return over.sign * (1 - 1 / (x * 0.55 / limit + 1)) * limit;
   }
 
+  /// On tire une poignée : le tiroir sortira de ce côté (s'il est rangé).
+  void _dragBeginSide(int side, DragStartDetails d) {
+    if (_open.value.abs() < 0.02 && !_wantOpen) _side = side;
+    _dragBegin(d);
+  }
+
   void _dragBegin(DragStartDetails _) {
-    // Reprend le tiroir là où il est (y compris la façade qui dépasse).
-    final visible = _open.value * _drawerW + (1 - _open.value.clamp(0.0, 1.0)) * _peek.value * drawerFront;
-    _open
-      ..value = visible / _drawerW
-      ..velocity = 0;
-    _peek
-      ..value = 0
-      ..velocity = 0;
+    // Reprend le tiroir là où il est.
+    _open.velocity = 0;
     _dragStart = _open.value;
     _drag = Offset(0, _lift.value);
     _dragging = true;
@@ -446,7 +467,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   void _dragUpdate(DragUpdateDetails d) {
     _drag += d.delta;
-    final raw = _dragStart - _drag.dx / _drawerW;
+    // Tirer vers l'extérieur l'ouvre.
+    final raw = _dragStart + _side * _drag.dx / _travel;
     _open.value = raw <= 1 ? raw.clamp(0.0, 1.0) : 1 + _rubber(raw - 1, 0.35);
     _lift.value = _rubber(_drag.dy, 36);
     setState(() {});
@@ -456,7 +478,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _dragging = false;
     final v = d.velocity.pixelsPerSecond;
     // Vitesse en « tiroirs par seconde » ; on projette où l'élan l'emmène.
-    final vel = (-v.dx / _drawerW).clamp(-14.0, 14.0);
+    final vel = (_side * v.dx / _travel).clamp(-14.0, 14.0);
     final open = _open.value + vel * 0.18 > 0.5;
     if (open != _wantOpen) {
       _wantOpen = open;
@@ -466,6 +488,12 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _open.velocity = vel;
     _lift.velocity = v.dy.clamp(-1500.0, 1500.0) * 0.4;
     _kick();
+  }
+
+  /// Clic sur une poignée : le tiroir sort de ce côté.
+  void _openSide(int side) {
+    if (!_wantOpen && _open.value.abs() < 0.02) _side = side;
+    _setOpen(true);
   }
 
   void _setOpen(bool open) {
@@ -481,13 +509,12 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   /// l'ouverture ne coûte rien ; repeindre en vrai à chaque image est trop
   /// lourd (Impeller ne garde rien en cache, écran à l'échelle 1,5).
   void _updateDrawerSnap() {
-    final still = !_dragging && _open.isSettled && _peek.isSettled && _lift.isSettled;
+    final still = !_dragging && _open.isSettled && _lift.isSettled;
     _drawerSnap.allowSnapshotting = !(_drawerLive && still && _wantOpen);
     _deviceSnap.allowSnapshotting = (_dragging || !_open.isSettled) && _phase == _Swap.none && !_hideDevice;
   }
 
   void _drawerHover(bool inside) {
-    _setNearEdge(inside);
     _liveTimer?.cancel();
     if (inside) {
       _drawerLive = true;
@@ -502,9 +529,14 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     }
   }
 
-  void _setNearEdge(bool near) {
-    if (_nearEdge == near) return;
-    _nearEdge = near;
+  void _setHoverSide(int side, bool inside) {
+    final next = inside ? side : (_hoverSide == side ? 0 : _hoverSide);
+    if (next == _hoverSide) return;
+    _hoverSide = next;
+    // La souris approche d'une poignée : le tiroir se prépare tout de suite
+    // de ce côté (caché derrière l'iPod), pour que sa photo soit prête
+    // avant le clic au lieu de coûter une image au début de l'ouverture.
+    if (next != 0 && !_wantOpen && _open.value.abs() < 0.02) _side = next;
     _kick();
   }
 
@@ -562,28 +594,159 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   static const double _shadowPad = 64;
   Object? _deviceCacheKey, _drawerCacheKey;
 
-  Widget _drawer(double width) {
-    final key = (width, _model.id, _shown.values.map((m) => m.id).join(','));
+  /// Rangé, immobile, et aucune poignée en vue.
+  bool get _drawerIdle =>
+      !_wantOpen && !_dragging && _open.value == 0 && _open.isSettled && _hoverSide == 0 && _phase == _Swap.none;
+
+  /// Le tiroir et tout ce qui l'entoure, construits une fois pour toutes
+  /// (tant que rien ne change) : pendant qu'il glisse, seule sa position
+  /// change, Flutter ne reconstruit rien d'autre.
+  Widget _drawer(double width, bool right) {
+    final key = (width, right, _model.id, _shown.values.map((m) => m.id).join(','));
     if (key != _drawerCacheKey) {
       _drawerCacheKey = key;
       if (_drawerSnap.allowSnapshotting) {
         _drawerSnap.allowSnapshotting = false;
         _drawerSnap.allowSnapshotting = true;
       }
-      _drawerCache = RepaintBoundary(
-        child: IpodDrawer(
+      // Impeller ne garde rien d'une image à l'autre : pendant que le tiroir
+      // glisse, on fait glisser une photo de lui, prise une fois, au lieu de
+      // tout repeindre (feutrine, grain, ombres floues, miniatures).
+      _drawerCache = SnapshotWidget(
+        controller: _drawerSnap,
+        mode: SnapshotMode.permissive,
+        child: Padding(
+          // Place pour l'ombre du tiroir.
+          padding: const EdgeInsets.all(_shadowPad),
+          child: MouseRegion(
+            onEnter: (_) => _drawerHover(true),
+            onExit: (_) => _drawerHover(false),
+            // On l'attrape n'importe où : façade, coque ou feutrine.
+            child: GestureDetector(
+              // Compte depuis le point d'appui : le tiroir colle au pointeur.
+              dragStartBehavior: DragStartBehavior.down,
+              onPanStart: _dragBegin,
+              onPanUpdate: _dragUpdate,
+              onPanEnd: _dragEnd,
+              child: RepaintBoundary(
+                child: IpodDrawer(
           families: _families,
           current: _model,
           shown: Map.of(_shown),
           contentWidth: width,
+          frontOnRight: right,
           onPick: _pick,
           onSwatch: _swatch,
           onFront: () => _setOpen(!_wantOpen),
           slotKeys: _slotKeys,
+                ),
+              ),
+            ),
+          ),
         ),
       );
     }
     return _drawerCache!;
+  }
+
+  /// Décalage horizontal de l'appareil (tiroir ouvert), pour le câble.
+  double _deviceShift = 0;
+
+  /// Mise en place pour une fenêtre [w] × [h] : où est l'appareil au repos,
+  /// la largeur du tiroir, et de combien l'appareil rétrécit et s'écarte
+  /// (à droite ou à gauche) quand le tiroir est ouvert.
+  ({
+    Rect device,
+    double cornerRadius,
+    double drawerW,
+    double room,
+    double shiftRight,
+    double shiftLeft,
+    double drawerHeight,
+  }) _geometry(double w, double h) {
+    // Comme la mise en page de l'appareil : centré, marges, réduit pour
+    // tenir (jamais agrandi).
+    final m = _model;
+    final pad = _devicePadding(h);
+    final f = math.min(1.0, math.min((w - pad.horizontal) / m.size.width, (h - pad.vertical) / m.size.height));
+    final size = m.size * f;
+    final left = (w - size.width - pad.horizontal) / 2 + pad.left;
+    final top = (h - size.height - pad.vertical) / 2 + pad.top;
+    final device = Rect.fromLTWH(left, top, size.width, size.height);
+
+    // L'appareil (réduit jusqu'à 55 %) et le tiroir doivent tenir côte à
+    // côte avec une petite marge.
+    const margin = 14.0;
+    final drawerW = math.max(140.0, math.min((w * 0.5).clamp(230.0, 460.0), w - 2 * margin - device.width * 0.55 + _tuck));
+    final room = ((w - 2 * margin - drawerW + _tuck) / device.width).clamp(0.55, 1.0);
+    final devW = device.width * room;
+    final groupLeft = (w - (devW + drawerW - _tuck)) / 2;
+    final cx = w / 2;
+    final scaledCx = cx + (device.center.dx - cx) * room;
+    return (
+      device: device,
+      cornerRadius: m.cornerRadius * f,
+      drawerW: drawerW,
+      room: room,
+      shiftRight: groupLeft + devW / 2 - scaledCx,
+      shiftLeft: w - groupLeft - devW / 2 - scaledCx,
+      // Un peu moins haut que l'appareil au repos : rangé, il reste caché
+      // derrière ; ouvert, il dépasse un peu de l'appareil réduit.
+      drawerHeight: device.height * 0.9,
+    );
+  }
+
+  /// Marge autour de l'appareil : son ombre, et la place pour la prise.
+  EdgeInsets _devicePadding(double h) => _model.jackOnTop
+      ? _model.margin.copyWith(top: math.max(_model.margin.top, h * 0.2))
+      : _model.margin.copyWith(bottom: math.max(_model.margin.bottom, h * 0.2));
+
+  /// Poignée cachée derrière un coin du haut de l'appareil [dev] : quand la
+  /// souris approche de ce coin, elle glisse dehors ; cliquée ou tirée, le
+  /// tiroir sort de ce côté. Tiroir ouvert, elle n'a plus lieu d'être.
+  Widget _handle(int side, Rect dev, double corner, double openC) {
+    final peek = (side < 0 ? _peekL : _peekR).value;
+    const width = 40.0, height = 46.0, reach = 22.0;
+    // Zone sensible juste au-delà du flanc, même quand on ne voit rien.
+    const zone = 30.0;
+    final out = peek * reach;
+    final top = dev.top + corner + 10;
+    return Positioned(
+      left: side > 0 ? dev.right - width : dev.left - zone,
+      top: top - 8,
+      width: width + zone,
+      height: height + 16,
+      child: IgnorePointer(
+        ignoring: openC > 0.05,
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => _setHoverSide(side, true),
+          onExit: (_) => _setHoverSide(side, false),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _openSide(side),
+            dragStartBehavior: DragStartBehavior.down,
+            onPanStart: (d) => _dragBeginSide(side, d),
+            onPanUpdate: _dragUpdate,
+            onPanEnd: _dragEnd,
+            child: Stack(
+              children: [
+                Positioned(
+                  left: side > 0 ? out : zone - out,
+                  top: 8,
+                  width: width,
+                  height: height,
+                  child: Opacity(
+                    opacity: (peek.clamp(0.0, 1.0) * (1 - openC)).toDouble(),
+                    child: CustomPaint(painter: _HandlePainter(side)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -594,11 +757,12 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       onKeyEvent: _onKey,
       child: LayoutBuilder(
         builder: (context, box) {
-          final w = box.maxWidth;
-          final drawerW = _drawerW = (w * 0.5).clamp(230.0, 460.0);
+          final w = box.maxWidth, h = box.maxHeight;
+          final g = _geometry(w, h);
+          final drawerW = _drawerW = g.drawerW;
           final open = _open.value;
           final openC = open.clamp(0.0, 1.0);
-          final visible = open * drawerW + (1 - openC) * _peek.value * drawerFront;
+          final right = _side > 0;
 
           final deviceKey = (_model.id, box.maxHeight);
           if (deviceKey != _deviceCacheKey) {
@@ -608,9 +772,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
               child: Padding(
                 // Marge pour l'ombre portée, et de la place en haut pour la
                 // prise et le câble.
-                padding: _model.jackOnTop
-                    ? _model.margin.copyWith(top: math.max(_model.margin.top, box.maxHeight * 0.2))
-                    : _model.margin.copyWith(bottom: math.max(_model.margin.bottom, box.maxHeight * 0.2)),
+                padding: _devicePadding(box.maxHeight),
                 // Couche à part : pendant que le tiroir bouge, l'appareil
                 // n'est pas repeint, seulement déplacé.
                 child: RepaintBoundary(
@@ -636,20 +798,39 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
           // rétrécir une photo de lui (ses ombres floues coûtent trop cher à
           // recalculer à chaque taille). Immobile, il redevient vivant.
           device = SnapshotWidget(controller: _deviceSnap, mode: SnapshotMode.permissive, child: device);
+          // L'appareil s'écarte et rétrécit pour laisser la place au tiroir :
+          // ensemble, ils restent centrés dans la fenêtre.
+          final scale = 1 + (g.room - 1) * openC;
+          final shift = _deviceShift = (right ? g.shiftRight : g.shiftLeft) * open;
           if (open != 0) {
-            // L'appareil s'écarte et rétrécit pour laisser la place au tiroir.
-            final room = ((w - drawerW) / w).clamp(0.55, 1.0);
             device = Transform.translate(
-              offset: Offset(-open * drawerW / 2, 0),
-              child: Transform.scale(scale: 1 + (room - 1) * openC, child: device),
+              offset: Offset(shift, 0),
+              child: Transform.scale(scale: scale, child: device),
             );
           }
+          // Où est l'appareil à l'écran en ce moment.
+          final c = Offset(w / 2, h / 2);
+          Offset place(Offset p) => c + (p - c) * scale + Offset(shift, 0);
+          final dev = Rect.fromPoints(place(g.device.topLeft), place(g.device.bottomRight));
+
+          // Le tiroir sort de derrière l'appareil : son bord extérieur part
+          // d'un peu en retrait de son flanc et va jusqu'à [_travel] plus loin.
+          final outer = right ? dev.right - _hideBack + open * _travel : dev.left + _hideBack - open * _travel;
+          final drawerRect = Rect.fromLTWH(
+            right ? outer - drawerW : outer,
+            // Toujours centré sur l'appareil.
+            dev.center.dy - g.drawerHeight / 2 + _lift.value,
+            drawerW,
+            g.drawerHeight,
+          ).shift(
+            // Rangé, il attend hors de la fenêtre, sa photo prête : rien de
+            // lui (pas même son ombre) ne dépasse de derrière l'iPod.
+            open == 0 ? Offset(right ? w + 2 * _shadowPad - (outer - drawerW) : -(outer + 2 * _shadowPad + drawerW), 0) : Offset.zero,
+          );
 
           if (_hideDevice) device = Opacity(opacity: 0, child: device);
           final flight = _flightTransform();
           if (flight != null) device = Transform(transform: flight, child: device);
-          // En vol, l'appareil passe au-dessus du tiroir.
-          final flying = _phase == _Swap.stowing || _phase == _Swap.unstowing;
           final deviceLayer = Positioned.fill(key: const ValueKey('appareil'), child: device);
 
           return IgnorePointer(
@@ -657,69 +838,36 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             child: Stack(
               key: _stageKey,
               children: [
-                if (!flying) deviceLayer,
                 // Un clic à côté du tiroir le referme.
                 if (_wantOpen)
                   Positioned.fill(
                     child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => _setOpen(false)),
                   ),
-                // Bande sensible le long du bord droit : fait dépasser la façade.
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: 36,
-                  child: MouseRegion(
-                    onEnter: (_) => _setNearEdge(true),
-                    onExit: (_) => _setNearEdge(false),
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onTap: () => _setOpen(true),
-                      // Compte depuis le point d'appui : le tiroir colle au pointeur.
-                      dragStartBehavior: DragStartBehavior.down,
-                      onPanStart: _dragBegin,
-                      onPanUpdate: _dragUpdate,
-                      onPanEnd: _dragEnd,
-                    ),
-                  ),
-                ),
-                // Toujours construit, hors de la fenêtre quand il est fermé :
-                // sa photo est prête avant qu'on l'ouvre.
-                Positioned(
-                  // Fermé, il attend loin à droite : son ombre ne déborde pas.
-                  left: visible > 0.5 ? w - visible - _shadowPad : w + _shadowPad,
-                  top: _lift.value,
-                  bottom: -_lift.value,
-                  // Plus large que nécessaire : le rebond et l'élastique ne
-                  // laissent jamais de vide au bord de la fenêtre.
-                  width: drawerW * 1.4 + 40 + _shadowPad,
-                  // Impeller ne garde rien d'une image à l'autre : pendant que
-                  // le tiroir glisse, on fait glisser une photo de lui, prise
-                  // une fois, au lieu de tout repeindre (feutrine, grain,
-                  // ombres floues, miniatures) à chaque image.
-                  child: SnapshotWidget(
-                    controller: _drawerSnap,
-                    mode: SnapshotMode.permissive,
-                    child: Padding(
-                      // Place pour l'ombre du tiroir, qui déborde à gauche.
-                      padding: const EdgeInsets.only(left: _shadowPad),
-                      child: MouseRegion(
-                        onEnter: (_) => _drawerHover(true),
-                        onExit: (_) => _drawerHover(false),
-                        // On l'attrape n'importe où : façade, coque ou feutrine.
-                        child: GestureDetector(
-                          // Compte depuis le point d'appui : le tiroir colle au pointeur.
-                          dragStartBehavior: DragStartBehavior.down,
-                          onPanStart: _dragBegin,
-                          onPanUpdate: _dragUpdate,
-                          onPanEnd: _dragEnd,
-                          child: _drawer(drawerW),
+                // Les deux poignées, derrière les coins du haut.
+                for (final side in const [-1, 1]) _handle(side, dev, g.cornerRadius * scale, openC),
+                // Le tiroir, derrière l'appareil, d'où il émerge. Coupé au
+                // flanc opposé : au début de l'ouverture, son autre bout ne
+                // dépasse pas de l'autre côté.
+                Positioned.fill(
+                  child: ClipRect(
+                    clipper: _SideClip(right ? dev.left + 4 : dev.right - 4, right),
+                    child: Stack(
+                      children: [
+                        Positioned.fromRect(
+                          rect: drawerRect.inflate(_shadowPad),
+                          // Rangé et au repos, il n'est pas dessiné du tout
+                          // (sa photo reste prête) : l'écran qui s'anime en
+                          // lecture ne le recompose pas à chaque image.
+                          child: Offstage(
+                            offstage: _drawerIdle,
+                            child: _drawer(drawerW - _tuck, right),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ),
-                if (flying) deviceLayer,
+                deviceLayer,
                 // Le câble et la prise, par-dessus tout.
                 Positioned.fill(
                   child: IgnorePointer(
@@ -1079,4 +1227,88 @@ class HoldPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant HoldPainter old) => old.hold != hold;
+}
+
+/// Ne laisse voir que ce qui est au-delà de [x], du côté où sort le tiroir.
+class _SideClip extends CustomClipper<Rect> {
+  const _SideClip(this.x, this.right);
+
+  final double x;
+  final bool right;
+
+  @override
+  Rect getClip(Size size) =>
+      right ? Rect.fromLTRB(x, -1e4, size.width + 1e4, 1e4) : Rect.fromLTRB(-1e4, -1e4, x, 1e4);
+
+  @override
+  bool shouldReclip(_SideClip old) => old.x != x || old.right != right;
+}
+
+/// Poignée du tiroir : une languette d'aluminium microbillé, arrondie du
+/// côté qui dépasse, avec une encoche pour le doigt.
+class _HandlePainter extends CustomPainter {
+  const _HandlePainter(this.side);
+
+  /// 1 : elle dépasse à droite ; -1 : à gauche.
+  final int side;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (side < 0) {
+      canvas
+        ..translate(size.width, 0)
+        ..scale(-1, 1);
+    }
+    final r = Offset.zero & size;
+    final shape = RRect.fromRectAndCorners(
+      r,
+      topRight: const Radius.circular(9),
+      bottomRight: const Radius.circular(9),
+    );
+    canvas.drawRRect(
+      shape.shift(const Offset(1, 3)),
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.4)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+    canvas.drawRRect(
+      shape,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          r.topCenter,
+          r.bottomCenter,
+          const [Color(0xFFE2E5E8), Color(0xFFC6CACE), Color(0xFFA9AEB3)],
+          const [0, 0.5, 1],
+        ),
+    );
+    // Arête : un filet de lumière en haut, plus sombre en bas.
+    canvas.drawRRect(
+      shape.deflate(0.6),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..shader = ui.Gradient.linear(
+          r.topCenter,
+          r.bottomCenter,
+          [Colors.white.withValues(alpha: 0.9), Colors.black.withValues(alpha: 0.2)],
+        ),
+    );
+    // Encoche pour le doigt, près du bout.
+    final notch = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(size.width - 8, size.height / 2), width: 4, height: size.height * 0.5),
+      const Radius.circular(2),
+    );
+    canvas.drawRRect(
+      notch,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          notch.outerRect.centerLeft,
+          notch.outerRect.centerRight,
+          const [Color(0xFF7C8085), Color(0xFFD2D5D8)],
+        ),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _HandlePainter old) => old.side != side;
 }

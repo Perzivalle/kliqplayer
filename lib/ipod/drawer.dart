@@ -9,13 +9,15 @@ import 'model.dart';
 import 'nav.dart';
 import 'wheel.dart';
 
-/// Épaisseur de la façade du tiroir (celle où l'on glisse le doigt) : c'est
-/// elle qui dépasse du bord de la fenêtre quand on l'approche.
+/// Épaisseur de la façade du tiroir (celle où l'on glisse le doigt).
 const double drawerFront = 26;
 
-/// Le tiroir sorti du bord droit de la fenêtre : coque en aluminium, fond
-/// en feutrine, un emplacement par modèle avec ses teintes en pastilles.
+/// Le tiroir qui sort de derrière l'iPod : coque en aluminium, fond en
+/// feutrine, un emplacement par modèle avec ses teintes en pastilles.
 /// L'emplacement du modèle en main est vide.
+///
+/// La façade est du côté extérieur ([frontOnRight] : il sort vers la
+/// droite) ; de l'autre côté, la coque se prolonge derrière l'iPod.
 class IpodDrawer extends StatelessWidget {
   const IpodDrawer({
     super.key,
@@ -26,8 +28,12 @@ class IpodDrawer extends StatelessWidget {
     required this.onPick,
     required this.onSwatch,
     required this.onFront,
+    this.frontOnRight = false,
     this.slotKeys = const {},
   });
+
+  /// Sort vers la droite : façade à droite, prolongement à gauche.
+  final bool frontOnRight;
 
   /// Les modèles, regroupés par famille (une liste par emplacement).
   final List<List<IpodModel>> families;
@@ -36,7 +42,8 @@ class IpodDrawer extends StatelessWidget {
   /// Teinte affichée dans chaque emplacement, par famille.
   final Map<String, IpodModel> shown;
 
-  /// Largeur utile (les emplacements) ; la coque se prolonge au-delà.
+  /// Largeur visible (façade et emplacements), mesurée depuis la façade ;
+  /// la coque se prolonge au-delà, cachée derrière l'iPod.
   final double contentWidth;
 
   /// Clic sur un appareil : on le prend en main.
@@ -57,8 +64,12 @@ class IpodDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, box) {
-      final inner = Rect.fromLTRB(drawerFront, _wall, box.maxWidth, box.maxHeight - _wall);
-      final slots = Rect.fromLTRB(inner.left, inner.top, contentWidth, inner.bottom);
+      final w = box.maxWidth;
+      // Dessiné façade à gauche, puis retourné si elle est à droite.
+      final inner = Rect.fromLTRB(drawerFront, _wall, w - _wall, box.maxHeight - _wall);
+      final slots = frontOnRight
+          ? Rect.fromLTRB(w - contentWidth, inner.top, w - drawerFront, inner.bottom)
+          : Rect.fromLTRB(inner.left, inner.top, contentWidth, inner.bottom);
       const below = 58.0; // nom gravé + pastilles
       // Même échelle pour tous : les tailles relatives sont celles des vrais.
       final all = families.expand((f) => f);
@@ -126,7 +137,7 @@ class IpodDrawer extends StatelessWidget {
             // L'ombre du tiroir déborde à gauche.
             child: _Frozen(
               overflow: 64,
-              child: CustomPaint(painter: _TrayPainter(inner: inner)),
+              child: CustomPaint(painter: _TrayPainter(inner: inner, mirrored: frontOnRight)),
             ),
           ),
           Positioned.fromRect(
@@ -135,7 +146,8 @@ class IpodDrawer extends StatelessWidget {
           ),
           // Façade : clic pour ouvrir ou refermer.
           Positioned(
-            left: 0,
+            left: frontOnRight ? null : 0,
+            right: frontOnRight ? 0 : null,
             top: 0,
             bottom: 0,
             width: drawerFront,
@@ -588,16 +600,31 @@ class IpodPreview extends StatelessWidget {
 // --- Coque en aluminium et feutrine -----------------------------------------
 
 class _TrayPainter extends CustomPainter {
-  const _TrayPainter({required this.inner});
+  const _TrayPainter({required this.inner, this.mirrored = false});
 
   final Rect inner;
 
+  /// Façade à droite : tout est dessiné en miroir.
+  final bool mirrored;
+
   @override
   void paint(Canvas canvas, Size size) {
+    if (mirrored) {
+      canvas
+        ..translate(size.width, 0)
+        ..scale(-1, 1);
+    }
     final all = Offset.zero & size;
-    final outer = RRect.fromRectAndCorners(all, topLeft: const Radius.circular(14), bottomLeft: const Radius.circular(14));
+    // Arrondi côté façade, plus serré au fond.
+    final outer = RRect.fromRectAndCorners(
+      all,
+      topLeft: const Radius.circular(14),
+      bottomLeft: const Radius.circular(14),
+      topRight: const Radius.circular(8),
+      bottomRight: const Radius.circular(8),
+    );
 
-    // Ombre portée du tiroir vers la gauche.
+    // Ombre portée du tiroir.
     canvas.drawRRect(
       outer.shift(const Offset(-6, 10)),
       Paint()
@@ -680,7 +707,7 @@ class _TrayPainter extends CustomPainter {
     );
 
     // Fond en feutrine, avec le chanfrein brillant du métal tout autour.
-    final felt = RRect.fromRectAndCorners(inner, topLeft: const Radius.circular(4), bottomLeft: const Radius.circular(4));
+    final felt = RRect.fromRectAndRadius(inner, const Radius.circular(4));
     canvas.drawRRect(felt.inflate(1.5), Paint()..color = const Color(0xFFF2F4F5));
     canvas.drawRRect(felt, Paint()..color = const Color(0xFF262A31));
     canvas.save();
@@ -725,7 +752,7 @@ class _TrayPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _TrayPainter old) => old.inner != inner;
+  bool shouldRepaint(covariant _TrayPainter old) => old.inner != inner || old.mirrored != mirrored;
 }
 
 /// Creux en forme d'appareil dans la feutrine.

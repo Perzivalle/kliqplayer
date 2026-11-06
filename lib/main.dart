@@ -4,8 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
-// ignore: deprecated_member_use
-import 'package:window_manager/legacy.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'core/player.dart';
 import 'ipod/ipod.dart';
@@ -13,24 +12,32 @@ import 'ipod/ipod.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
-  await windowManager.ensureInitialized();
-
-  final options = WindowOptions(
-    size: IpodStage.savedModel.windowSize,
-    title: 'Lecteur',
-    backgroundColor: Colors.transparent,
-    titleBarStyle: TitleBarStyle.hidden,
-  );
-  await windowManager.waitUntilReadyToShow(options, () async {
-    await windowManager.show();
-    await windowManager.focus();
-  });
+  // Fenêtre sans décor ni fond : l'iPod flotte seul sur le bureau.
+  final window = _window;
+  if (window != null) {
+    window
+      ..titleBarStyle = TitleBarStyle.hidden
+      ..setSize(IpodStage.savedModel.windowSize.toNative(), false)
+      ..backgroundColor = Colors.transparent.toNative()
+      ..title = 'Lecteur'
+      ..show()
+      ..focus();
+  }
 
   if (Platform.environment['LECTEUR_FPS'] != null) _logFrameTimings();
 
   final player = PlayerController();
   runApp(LecteurApp(player: player));
   player.loadLibrary();
+}
+
+/// La fenêtre de l'appli (null si le système ne la donne pas).
+Window? get _window {
+  try {
+    return WindowManager.instance.getCurrent();
+  } catch (_) {
+    return null;
+  }
 }
 
 /// LECTEUR_FPS=1 : chaque seconde d'animation, temps de construction (UI)
@@ -83,7 +90,8 @@ class _LecteurAppState extends State<LecteurApp> {
       case LogicalKeyboardKey.space:
         widget.player.playPause();
       case LogicalKeyboardKey.escape || LogicalKeyboardKey.keyQ:
-        windowManager.close();
+        widget.player.savePlays();
+        exit(0);
       default:
         return KeyEventResult.ignored;
     }

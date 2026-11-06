@@ -440,9 +440,15 @@ class _Row extends StatelessWidget {
           if (value != null)
             Padding(
               padding: EdgeInsets.only(left: 8, right: entry.open == null ? 4 : 0),
-              child: Text(
-                value,
-                style: TextStyle(color: selected ? Colors.white : const Color(0xFF6A6F75), fontWeight: FontWeight.w500),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 130),
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: selected ? Colors.white : const Color(0xFF6A6F75), fontWeight: FontWeight.w500),
+                ),
               ),
             ),
           if (entry.checked?.call() ?? false)

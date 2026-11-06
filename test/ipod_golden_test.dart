@@ -209,7 +209,7 @@ void main() {
       await _show(tester, IpodStage(player: _player(index: 0), initial: const ClassicModel()));
       await _key(tester, LogicalKeyboardKey.arrowDown);
       await _key(tester, LogicalKeyboardKey.enter); // Réglages
-      await _key(tester, LogicalKeyboardKey.arrowDown, 2);
+      await _key(tester, LogicalKeyboardKey.arrowDown, 3);
       await _key(tester, LogicalKeyboardKey.enter); // Répéter : Non → Un
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_settings.png'));
     });
@@ -267,6 +267,25 @@ void main() {
       await _key(tester, LogicalKeyboardKey.escape);
     });
 
+    testWidgets('ouvert à gauche (nano 4G en main)', (tester) async {
+      await _show(tester, IpodStage(player: _player(index: 0), initial: Nano4Model(nano4Colors[4])));
+      final d = tester.getRect(find.byType(IpodDevice));
+      await tester.tapAt(Offset(d.left - 6, d.top + 30));
+      await _frames(tester, 120);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_open_left.png'));
+    });
+
+    testWidgets('poignée survolée', (tester) async {
+      await _show(tester, IpodStage(player: _player(index: 0), initial: const MiniModel(MiniColor.bleu)));
+      final d = tester.getRect(find.byType(IpodDevice));
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: Offset.zero);
+      await mouse.moveTo(Offset(d.right + 6, d.top + 50));
+      await _frames(tester);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_handle_hover.png'));
+    });
+
     // Survol : les pastilles du nano 4G apparaissent, et l'appareil prend
     // la teinte survolée.
     testWidgets('survol d\'une pastille', (tester) async {
@@ -275,7 +294,10 @@ void main() {
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
       addTearDown(mouse.removePointer);
       await mouse.addPointer(location: Offset.zero);
-      await mouse.moveTo(tester.getCenter(find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'nano4')));
+      final nano4 = find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'nano4');
+      await tester.ensureVisible(nano4); // le tiroir défile jusqu'à lui
+      await _frames(tester);
+      await mouse.moveTo(tester.getCenter(nano4));
       await tester.pumpAndSettle();
       await mouse.moveTo(tester.getCenter(find.byTooltip('Violet')));
       await tester.pumpAndSettle();

@@ -384,7 +384,16 @@ class MiniLook extends ScreenLook {
           if (value != null)
             Padding(
               padding: EdgeInsets.only(left: 5, right: entry.open == null ? 3 : 0),
-              child: Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w500)),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: size.width * 0.42),
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: color, fontWeight: FontWeight.w500),
+                ),
+              ),
             ),
           if (entry.checked?.call() ?? false) Icon(Icons.check, size: 12, color: color),
           if (entry.open != null) Icon(Icons.chevron_right, size: 13, color: color),
