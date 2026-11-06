@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +11,8 @@ import 'package:lecteur/ipod/drawer.dart';
 import 'package:lecteur/ipod/ipod.dart';
 import 'package:lecteur/ipod/mini.dart';
 import 'package:lecteur/ipod/nanos.dart';
+import 'package:lecteur/ipod/screen.dart';
+import 'package:lecteur/ipod/shuffle.dart';
 
 const _window = Size(460, 760);
 
@@ -187,7 +191,8 @@ void main() {
     addTearDown(mouse.removePointer);
     await mouse.addPointer(location: Offset.zero);
     // Cachées tant qu'on ne survole pas l'emplacement.
-    final violet = find.byTooltip('Violet');
+    // Le dernier « Violet » du tiroir : celui du nano 4G (le shuffle 2G en a un aussi).
+    final violet = find.byTooltip('Violet').last;
     final nano4 = find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'nano4');
     await tester.ensureVisible(nano4); // le tiroir défile jusqu'à lui
     await _settle(tester);
@@ -269,6 +274,79 @@ void main() {
     await _settle(tester);
     expect(_stowed(tester), isTrue);
     expect(_device(tester), d);
+  });
+
+  testWidgets('shuffle : pas d\'écran, le bouton central lance la lecture et le voyant s\'allume', (tester) async {
+    final player = PlayerController.preview();
+    tester.view
+      ..physicalSize = _window
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          type: MaterialType.transparency,
+          child: IpodStage(player: player, initial: Shuffle4Model(shuffle4Colors.first)),
+        ),
+      ),
+    );
+    await _settle(tester);
+    expect(find.byType(IpodScreen), findsNothing);
+    await tester.tapAt(tester.getCenter(find.byType(IpodWheel)));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(player.playing, isTrue);
+    await _settle(tester);
+  });
+
+  testWidgets('changer pour un modèle d\'un autre format : le tiroir change de taille en douceur', (tester) async {
+    await _show(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await _settle(tester);
+    final shuffle = find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'shuffle4');
+    await tester.ensureVisible(shuffle);
+    await _settle(tester);
+    await tester.tap(shuffle, kind: PointerDeviceKind.mouse);
+    final heights = <double>[];
+    for (var i = 0; i < 400; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      final f = find.byType(IpodDrawer);
+      if (f.evaluate().isNotEmpty) heights.add(tester.getSize(f).height);
+    }
+    expect(find.byWidgetPredicate((w) => w is IpodDevice && w.model is Shuffle4Model), findsOneWidget);
+    var jump = 0.0;
+    for (var i = 1; i < heights.length; i++) {
+      jump = math.max(jump, (heights[i] - heights[i - 1]).abs());
+    }
+    expect(heights.first - heights.last, greaterThan(20), reason: 'le tiroir a bien changé de taille');
+    expect(jump, lessThan(20), reason: 'sans saut d\'une image à l\'autre');
+  });
+
+  testWidgets('l\'emplacement vide hors de vue : le tiroir défile jusqu\'à lui avant le rangement', (tester) async {
+    await _show(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await _settle(tester);
+    final classicSlot = find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'classic', skipOffstage: false);
+    Rect view() => tester.getRect(find.byType(Scrollable).first);
+    // Le tiroir est en haut : l'emplacement du Classic, plus bas, n'est pas visible.
+    final slot = find.byType(IpodDrawer);
+    expect(tester.getRect(slot).height, greaterThan(0));
+    final classicTop = tester.getRect(find.ancestor(of: classicSlot, matching: find.byType(SizedBox)).first).top;
+    expect(classicTop, greaterThan(view().bottom), reason: 'hors de vue au départ');
+    await tester.tap(find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'gen1'), kind: PointerDeviceKind.mouse);
+    // Le temps que la prise sorte : le tiroir a défilé.
+    var seenStowing = false;
+    for (var i = 0; i < 60; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    final empty = find.byWidgetPredicate((w) => w is CustomPaint && w.painter.runtimeType.toString() == '_ImprintPainter');
+    for (final e in empty.evaluate()) {
+      final r = tester.getRect(find.byWidget(e.widget));
+      if (r.center.dy > view().top && r.center.dy < view().bottom) seenStowing = true;
+    }
+    expect(seenStowing, isTrue, reason: 'l\'emplacement vide est revenu dans le tiroir');
+    for (var i = 0; i < 400; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
   });
 
   testWidgets('la musique se coupe quand on débranche, et reprend au branchement', (tester) async {

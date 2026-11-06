@@ -126,7 +126,7 @@ class Nano2Model extends IpodModel {
   ScreenLook get look => const ClassicLook();
 
   @override
-  CustomPainter get body => _AnodizedBodyPainter(color, _radius, _screen, rounded: false);
+  CustomPainter get body => AnodizedBodyPainter(color, _radius, _screen, rounded: false);
 
   @override
   CustomPainter? get glass => const _ScreenGlassPainter(_screen);
@@ -214,7 +214,7 @@ class Nano4Model extends IpodModel {
   ScreenLook get look => const ClassicLook(portrait: true);
 
   @override
-  CustomPainter get body => _AnodizedBodyPainter(color, _radius, _screen, rounded: true);
+  CustomPainter get body => AnodizedBodyPainter(color, _radius, _screen, rounded: true);
 
   @override
   CustomPainter? get glass => const _ScreenGlassPainter(_screen);
@@ -233,8 +233,8 @@ class Nano4Model extends IpodModel {
 
 /// Boîtier d'un seul tenant en aluminium anodisé. [rounded] : flancs galbés
 /// (4e génération), sinon tranches plates aux arêtes adoucies.
-class _AnodizedBodyPainter extends CustomPainter {
-  const _AnodizedBodyPainter(this.color, this.radius, this.screen, {required this.rounded});
+class AnodizedBodyPainter extends CustomPainter {
+  const AnodizedBodyPainter(this.color, this.radius, this.screen, {required this.rounded});
 
   final Anodized color;
   final double radius;
@@ -346,14 +346,15 @@ class _AnodizedBodyPainter extends CustomPainter {
         ..color = Colors.black.withValues(alpha: 0.35),
     );
 
-    // Écran sous une vitre noire, affleurante.
+    // Écran sous une vitre noire, affleurante (le shuffle n'en a pas).
+    if (screen.isEmpty) return;
     final frame = RRect.fromRectAndRadius(screen.inflate(7), const Radius.circular(5));
     canvas.drawRRect(frame.inflate(1), Paint()..color = Colors.black.withValues(alpha: 0.3));
     canvas.drawRRect(frame, Paint()..color = const Color(0xFF0F1012));
   }
 
   @override
-  bool shouldRepaint(covariant _AnodizedBodyPainter old) =>
+  bool shouldRepaint(covariant AnodizedBodyPainter old) =>
       old.color != color || old.radius != radius || old.screen != screen || old.rounded != rounded;
 }
 

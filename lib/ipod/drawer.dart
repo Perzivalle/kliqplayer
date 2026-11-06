@@ -548,7 +548,7 @@ class IpodPreview extends StatelessWidget {
       child: Stack(
         children: [
           Positioned.fill(child: CustomPaint(painter: m.body)),
-          Positioned.fromRect(
+          if (m.hasScreen) Positioned.fromRect(
             rect: m.screen,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(m.screenCornerRadius),

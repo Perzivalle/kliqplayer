@@ -18,6 +18,7 @@ import 'package:lecteur/ipod/mini.dart';
 import 'package:lecteur/ipod/model.dart';
 import 'package:lecteur/ipod/nano.dart';
 import 'package:lecteur/ipod/nanos.dart';
+import 'package:lecteur/ipod/shuffle.dart';
 import 'package:lecteur/ipod/vintage.dart';
 
 Future<void> _loadFont(String family, List<String> files) async {
@@ -299,7 +300,7 @@ void main() {
       await _frames(tester);
       await mouse.moveTo(tester.getCenter(nano4));
       await tester.pumpAndSettle();
-      await mouse.moveTo(tester.getCenter(find.byTooltip('Violet')));
+      await mouse.moveTo(tester.getCenter(find.byTooltip('Violet').last));
       await tester.pumpAndSettle();
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_swatch_preview.png'));
       await mouse.moveTo(Offset.zero);
@@ -334,6 +335,14 @@ void main() {
       for (final c in FourthGenColor.values) c == FourthGenColor.blanc ? 'gen4' : 'gen4_${c.name}': FourthGenModel(c),
       for (final c in nano2Colors) 'nano2_${c.name}': Nano2Model(c),
       for (final c in nano4Colors) 'nano4_${c.name}': Nano4Model(c),
+      'gen2': const SecondGenModel(),
+      'photo': const PhotoModel(),
+      'gen5': const VideoModel(),
+      'gen5_noir': const VideoModel(ClassicColor.noir),
+      for (final c in Nano1Color.values) c == Nano1Color.blanc ? 'nano1' : 'nano1_${c.name}': Nano1Model(c),
+      'shuffle1': const Shuffle1Model(),
+      for (final c in shuffle2Colors) 'shuffle2_${c.name}': Shuffle2Model(c),
+      for (final c in shuffle4Colors) 'shuffle4_${c.name}': Shuffle4Model(c),
     };
     for (final MapEntry(key: name, value: model) in models.entries) {
       testWidgets('menu ($name)', (tester) async {
@@ -347,6 +356,9 @@ void main() {
       'gen4': const FourthGenModel(),
       'nano2': Nano2Model(nano2Colors.first),
       'nano4': Nano4Model(nano4Colors.first),
+      'photo': const PhotoModel(),
+      'gen5': const VideoModel(ClassicColor.noir),
+      'nano1': const Nano1Model(),
     }.entries) {
       testWidgets('en lecture ($name)', (tester) async {
         await _show(

@@ -27,6 +27,13 @@ abstract class IpodModel {
 
   /// Emplacement de l'écran sur la façade.
   Rect get screen;
+
+  /// Un écran (le shuffle n'en a pas : on ne fait que lire, à l'aveugle).
+  bool get hasScreen => true;
+
+  /// Voyant d'état sur la tranche du haut (abscisse, en unités) : il
+  /// clignote en vert quand on appuie (shuffle).
+  double? get led => null;
   double get screenCornerRadius => 2;
 
   /// Position de la prise casque (abscisse), sur la tranche du haut ou,

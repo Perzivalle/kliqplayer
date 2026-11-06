@@ -27,10 +27,20 @@ class WheelStyle {
     this.labelInset,
     this.inner = const [Color(0xFFF7F8F9), Color(0xFFE6E8EB), Color(0xFFD9DCE0)],
     this.menuLabel = 'MENU',
+    this.turns = true,
+    this.shuffle = false,
   });
 
   /// Texte du haut de la molette (« menu » en minuscules sur la 1re génération).
   final String menuLabel;
+
+  /// L'anneau intérieur ([innerRadius]) tourne sous le doigt (1re
+  /// génération) ; sinon c'est une surface tactile fixe (2e génération).
+  final bool turns;
+
+  /// Anneau de commandes d'un shuffle : + et − en haut et en bas, ⏮ ⏭ sur
+  /// les côtés, ⏯ sur le bouton central.
+  final bool shuffle;
 
   final double radius;
   final double buttonRadius;
@@ -132,7 +142,7 @@ class WheelPainter extends CustomPainter {
       );
     }
 
-    if (s.labels) _labels(canvas, c);
+    if (s.labels) s.shuffle ? _shuffleLabels(canvas, c) : _labels(canvas, c);
     final inner = s.innerRadius;
     if (inner != null) _mechanical(canvas, c, inner);
 
@@ -159,6 +169,22 @@ class WheelPainter extends CustomPainter {
         ..strokeWidth = 1.2
         ..color = Colors.white.withValues(alpha: down ? 0.3 : 0.9),
     );
+    if (s.shuffle && s.labels) _playPause(canvas, c.translate(1.5 * s.iconScale, 0), Paint()..color = s.label);
+  }
+
+  /// + − ⏮ ⏭ autour de l'anneau d'un shuffle.
+  void _shuffleLabels(Canvas canvas, Offset c) {
+    final s = style;
+    final at = s.labelInset == null ? s.radius * 0.8 : s.radius * s.labelInset!;
+    final k = s.iconScale;
+    final ink = Paint()..color = s.label;
+    final arm = 8.0 * k, t = 2.6 * k;
+    final top = c.translate(0, -at), bottom = c.translate(0, at);
+    canvas.drawRect(Rect.fromCenter(center: top, width: arm * 2, height: t), ink);
+    canvas.drawRect(Rect.fromCenter(center: top, width: t, height: arm * 2), ink);
+    canvas.drawRect(Rect.fromCenter(center: bottom, width: arm * 2, height: t), ink);
+    _skip(canvas, c.translate(at, 0), 1, ink);
+    _skip(canvas, c.translate(-at, 0), -1, ink);
   }
 
   /// Anneau qui tourne : séparé des boutons par une rainure, et strié de
@@ -179,6 +205,8 @@ class WheelPainter extends CustomPainter {
       r,
       Paint()..shader = ui.Gradient.radial(c.translate(0, -r * 0.35), r * 1.3, s.inner, const [0, 0.6, 1]),
     );
+    // Surface tactile fixe (2e génération) : lisse, sans repères.
+    if (!s.turns) return;
     final tick = Paint()
       ..strokeWidth = 1.2
       ..strokeCap = StrokeCap.round;
@@ -348,7 +376,9 @@ class _IpodWheelState extends State<IpodWheel> {
     var delta = a - last;
     if (delta > math.pi) delta -= 2 * math.pi;
     if (delta < -math.pi) delta += 2 * math.pi;
-    if (_s.innerRadius != null) setState(() => _rotation += delta);
+    if (_s.innerRadius != null && _s.turns) setState(() => _rotation += delta);
+    // L'anneau d'un shuffle ne se tourne pas : seulement des boutons.
+    if (_s.shuffle) return;
     _accum += delta;
     while (_accum >= _step) {
       _accum -= _step;
@@ -368,7 +398,7 @@ class _IpodWheelState extends State<IpodWheel> {
       onPointerSignal: (e) {
         if (e is PointerScrollEvent && e.scrollDelta.dy != 0) {
           final dir = e.scrollDelta.dy > 0 ? 1 : -1;
-          if (_s.innerRadius != null) setState(() => _rotation += dir * _step);
+          if (_s.innerRadius != null && _s.turns) setState(() => _rotation += dir * _step);
           widget.onScroll(dir);
         }
       },

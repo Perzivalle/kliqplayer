@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import 'classic.dart';
 import 'look.dart';
 import 'mini.dart';
 import 'model.dart';
@@ -70,6 +71,80 @@ class FirstGenModel extends IpodModel {
       );
 
   /// En haut à droite.
+  @override
+  HoldSwitch? get hold => const HoldSwitch(330);
+
+  @override
+  ScreenLook get look => _monoLook;
+
+  @override
+  CustomPainter get body => const _WhiteBodyPainter(_size, _radius, _screen);
+
+  @override
+  CustomPainter? get glass => const _GlassPainter(_size, _radius, _screen);
+}
+
+/// La 2e génération (2002) : même boîtier que la première, mais la molette
+/// est tactile (elle ne tourne plus), toujours entourée de ses quatre
+/// boutons.
+class SecondGenModel extends IpodModel {
+  const SecondGenModel();
+
+  static const Size _size = FirstGenModel._size;
+  static const Rect _screen = FirstGenModel._screen;
+  static const double _radius = FirstGenModel._radius;
+
+  @override
+  String get id => 'gen2';
+
+  @override
+  String get family => 'gen2';
+
+  @override
+  String get label => '2e génération';
+
+  @override
+  String get variantName => 'Blanc';
+
+  @override
+  Color get swatch => const Color(0xFFF7F7F5);
+
+  @override
+  Size get size => _size;
+
+  @override
+  double get cornerRadius => _radius;
+
+  @override
+  Rect get screen => _screen;
+
+  /// Au milieu de la tranche du haut, à côté de la prise télécommande ; le
+  /// port FireWire (sous son volet) à gauche, le verrou à droite.
+  @override
+  double get jackX => 200;
+
+  @override
+  Offset get wheelCenter => const Offset(206, 461);
+
+  /// Surface tactile lisse et fixe, un peu plus claire que la molette
+  /// mécanique.
+  @override
+  WheelStyle get wheel => const WheelStyle(
+        radius: 172,
+        buttonRadius: 62,
+        innerRadius: 123,
+        turns: false,
+        labelInset: 0.86,
+        labelSize: 17,
+        menuLabel: 'menu',
+        labelSpacing: 1,
+        iconScale: 0.75,
+        label: Color(0xFF9A9EA3),
+        ring: [Color(0xFFF4F5F6), Color(0xFFE6E8EA), Color(0xFFD8DBDE)],
+        inner: [Color(0xFFFDFDFD), Color(0xFFF3F4F5), Color(0xFFE6E8EA)],
+        groove: Color(0xFFC3C6CA),
+      );
+
   @override
   HoldSwitch? get hold => const HoldSwitch(330);
 
@@ -276,12 +351,191 @@ class FourthGenModel extends IpodModel {
   int get hashCode => color.hashCode;
 }
 
+/// L'iPod photo (fin 2004) : le boîtier de la 4e génération, molette
+/// grise, et pour la première fois un écran couleur.
+class PhotoModel extends IpodModel {
+  const PhotoModel();
+
+  static const Size _size = FourthGenModel._size;
+  static const Rect _screen = Rect.fromLTWH(76, 44, 256, 192);
+  static const double _radius = FourthGenModel._radius;
+
+  @override
+  String get id => 'photo';
+
+  @override
+  String get family => 'photo';
+
+  @override
+  String get label => 'iPod photo';
+
+  @override
+  String get variantName => 'Blanc';
+
+  @override
+  Color get swatch => const Color(0xFFF7F7F5);
+
+  @override
+  Size get size => _size;
+
+  @override
+  double get cornerRadius => _radius;
+
+  @override
+  Rect get screen => _screen;
+
+  @override
+  double get jackX => 216;
+
+  @override
+  Offset get wheelCenter => const Offset(203.5, 488);
+
+  @override
+  WheelStyle get wheel => const FourthGenModel().wheel;
+
+  @override
+  HoldSwitch? get hold => const HoldSwitch(346);
+
+  @override
+  ScreenLook get look => const ClassicLook();
+
+  @override
+  CustomPainter get body => const _WhiteBodyPainter(_size, _radius, _screen);
+
+  @override
+  CustomPainter? get glass => const _GlassPainter(_size, _radius, _screen);
+}
+
+/// Teintes du nano de 1re génération : plastique brillant blanc ou noir.
+enum Nano1Color {
+  blanc('Blanc', Color(0xFFF7F7F5)),
+  noir('Noir', Color(0xFF1E1F21));
+
+  const Nano1Color(this.displayName, this.swatch);
+
+  final String displayName;
+  final Color swatch;
+}
+
+/// Le nano de 1re génération (2005) : très fin (40 × 90 mm), façade en
+/// plastique brillant sous un liseré transparent, dos chromé, petit écran
+/// couleur en haut, molette grise.
+class Nano1Model extends IpodModel {
+  const Nano1Model([this.color = Nano1Color.blanc]);
+
+  final Nano1Color color;
+
+  static const Size _size = Size(267, 600);
+  static const Rect _screen = Rect.fromLTWH(37, 27, 193, 145);
+  static const double _radius = 20;
+
+  @override
+  String get id => color == Nano1Color.blanc ? 'nano1' : 'nano1-${color.name}';
+
+  @override
+  String get family => 'nano1';
+
+  @override
+  String get label => 'Nano 1G';
+
+  @override
+  String get variantName => color.displayName;
+
+  @override
+  Color get swatch => color.swatch;
+
+  @override
+  Size get size => _size;
+
+  @override
+  double get cornerRadius => _radius;
+
+  @override
+  Rect get screen => _screen;
+
+  /// En bas à gauche, à côté du connecteur dock.
+  @override
+  double get jackX => 46;
+
+  @override
+  bool get jackOnTop => false;
+
+  /// En haut à droite.
+  @override
+  HoldSwitch? get hold => const HoldSwitch(206);
+
+  @override
+  Offset get wheelCenter => const Offset(133.5, 350);
+
+  @override
+  WheelStyle get wheel => switch (color) {
+    // Molette gris clair, inscriptions blanches, bouton central blanc.
+    Nano1Color.blanc => const WheelStyle(
+      radius: 104,
+      buttonRadius: 47,
+      iconScale: 0.7,
+      labelSize: 12,
+      labelSpacing: 0.8,
+      label: Color(0xFFF7F8F9),
+      recess: Color(0xFFDDDEE0),
+      ring: [Color(0xFFCDCED3), Color(0xFFC3C5CA), Color(0xFFB8BAC0)],
+      edgeLight: 0.4,
+      groove: Color(0xFFAAADB2),
+    ),
+    // Molette gris anthracite, bouton central noir.
+    Nano1Color.noir => const WheelStyle(
+      radius: 104,
+      buttonRadius: 47,
+      iconScale: 0.7,
+      labelSize: 12,
+      labelSpacing: 0.8,
+      label: Color(0xFFC9CBCE),
+      recess: Color(0xFF0E0F10),
+      ring: [Color(0xFF6E7074), Color(0xFF5E6064), Color(0xFF4E5054)],
+      edgeLight: 0.18,
+      groove: Color(0xFF111214),
+      buttonUp: [Color(0xFF3A3B3E), Color(0xFF1F2022)],
+      buttonDown: [Color(0xFF1C1D1F), Color(0xFF2C2D30)],
+    ),
+  };
+
+  @override
+  ScreenLook get look => const ClassicLook();
+
+  @override
+  CustomPainter get body => switch (color) {
+    Nano1Color.blanc => const _WhiteBodyPainter(_size, _radius, _screen, rim: 2.5),
+    Nano1Color.noir => const _WhiteBodyPainter(
+      _size,
+      _radius,
+      _screen,
+      rim: 2.5,
+      front: [Color(0xFF2E2F32), Color(0xFF1B1C1E), Color(0xFF111213)],
+    ),
+  };
+
+  @override
+  CustomPainter? get glass => const _GlassPainter(_size, _radius, _screen);
+
+  @override
+  Size get windowSize => const Size(360, 720);
+
+  @override
+  bool operator ==(Object other) => other is Nano1Model && other.color == color;
+
+  @override
+  int get hashCode => color.hashCode;
+}
+
 // --- Boîtier blanc à dos chromé -------------------------------------------------
 
 class _WhiteBodyPainter extends CustomPainter {
-  const _WhiteBodyPainter(this.bodySize, this.radius, this.screen, {this.front = _ivory});
+  const _WhiteBodyPainter(this.bodySize, this.radius, this.screen, {this.front = _ivory, this.rim = 3.5});
 
   final Size bodySize;
+
+  /// Épaisseur du dos chromé visible autour de la façade.
+  final double rim;
   final double radius;
   final Rect screen;
 
@@ -317,7 +571,7 @@ class _WhiteBodyPainter extends CustomPainter {
         ),
     );
     // Façade en plastique blanc, un peu plus ivoire que le Classic.
-    final front = outer.deflate(3.5);
+    final front = outer.deflate(rim);
     canvas.drawRRect(
       front,
       Paint()..shader = ui.Gradient.linear(Offset.zero, Offset(0, size.height), this.front, const [0, 0.55, 1]),
@@ -337,7 +591,7 @@ class _WhiteBodyPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _WhiteBodyPainter old) =>
-      old.screen != screen || old.radius != radius || old.front != front;
+      old.screen != screen || old.radius != radius || old.front != front || old.rim != rim;
 }
 
 class _GlassPainter extends CustomPainter {

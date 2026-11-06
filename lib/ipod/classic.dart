@@ -96,6 +96,92 @@ class ClassicModel extends IpodModel {
   int get hashCode => color.hashCode;
 }
 
+/// La 5e génération « vidéo » (2005) : le format du Classic, mais une façade
+/// en plastique brillant, un écran plus large au cadre noir et une molette
+/// plus petite, grise.
+class VideoModel extends IpodModel {
+  const VideoModel([this.color = ClassicColor.blanc]);
+
+  final ClassicColor color;
+
+  static const Rect _screen = Rect.fromLTWH(45, 34, 322, 242);
+
+  @override
+  String get id => color == ClassicColor.blanc ? 'gen5' : 'gen5-${color.name}';
+
+  @override
+  String get family => 'gen5';
+
+  @override
+  String get label => '5e génération';
+
+  @override
+  String get variantName => color.displayName;
+
+  @override
+  Color get swatch => color.swatch;
+
+  @override
+  Size get size => G.size;
+
+  @override
+  double get cornerRadius => G.radius;
+
+  @override
+  Rect get screen => _screen;
+
+  /// En haut à droite (le verrou est à gauche).
+  @override
+  double get jackX => 325;
+
+  @override
+  HoldSwitch? get hold => const HoldSwitch(84);
+
+  @override
+  Offset get wheelCenter => const Offset(206, 492);
+
+  @override
+  WheelStyle get wheel => switch (color) {
+        // Molette gris clair, inscriptions blanches.
+        ClassicColor.blanc => const WheelStyle(
+            radius: 122,
+            buttonRadius: 44,
+            label: Color(0xFFFAFAFB),
+            recess: Color(0xFFDCDDDF),
+            ring: [Color(0xFFE2E3E5), Color(0xFFD6D7DA), Color(0xFFC9CBCE)],
+            edgeLight: 0.5,
+            groove: Color(0xFFBFC1C5),
+          ),
+        // Molette grise, bouton central noir.
+        ClassicColor.noir => const WheelStyle(
+            radius: 122,
+            buttonRadius: 44,
+            label: Color(0xFFF2F3F4),
+            recess: Color(0xFF0E0F10),
+            ring: [Color(0xFF8E9094), Color(0xFF7F8185), Color(0xFF6F7175)],
+            edgeLight: 0.25,
+            groove: Color(0xFF222326),
+            buttonUp: [Color(0xFF2E2F32), Color(0xFF141517)],
+            buttonDown: [Color(0xFF121314), Color(0xFF202124)],
+          ),
+      };
+
+  @override
+  ScreenLook get look => const ClassicLook();
+
+  @override
+  CustomPainter get body => BodyPainter(color, _screen.inflate(6), true);
+
+  @override
+  CustomPainter? get glass => const GlassPainter(_screen);
+
+  @override
+  bool operator ==(Object other) => other is VideoModel && other.color == color;
+
+  @override
+  int get hashCode => color.hashCode;
+}
+
 /// Dimensions du Classic, en unités de dessin (≈ 6,67 unités par mm,
 /// d'après un Classic de 61,8 × 103,5 mm).
 class G {
@@ -117,9 +203,16 @@ class G {
 /// Boîtier : ombre portée (il flotte), liseré chromé, façade blanche laquée
 /// et cadre sombre de l'écran.
 class BodyPainter extends CustomPainter {
-  const BodyPainter([this.color = ClassicColor.blanc]);
+  const BodyPainter([this.color = ClassicColor.blanc, this.frameRect = G.screenFrame, this.plastic = false]);
 
   final ClassicColor color;
+
+  /// Cadre sombre autour de l'écran.
+  final Rect frameRect;
+
+  /// Façade en plastique brillant sous une épaisse couche transparente
+  /// (5e génération) : un liseré clair court au ras du chrome.
+  final bool plastic;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -171,9 +264,24 @@ class BodyPainter extends CustomPainter {
         ..strokeWidth = 2
         ..color = Colors.black.withValues(alpha: 0.07),
     );
+    if (plastic) {
+      // L'épaisseur transparente du plastique, qui accroche la lumière.
+      canvas.drawRRect(
+        front.deflate(2.5),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3
+          ..shader = ui.Gradient.linear(
+            Offset.zero,
+            Offset(size.width * 0.4, size.height),
+            [Colors.white.withValues(alpha: 0.75), Colors.white.withValues(alpha: 0.25), Colors.white.withValues(alpha: 0.5)],
+            const [0, 0.5, 1],
+          ),
+      );
+    }
 
     // Cadre de l'écran.
-    final frame = RRect.fromRectAndRadius(G.screenFrame, const Radius.circular(6));
+    final frame = RRect.fromRectAndRadius(frameRect, const Radius.circular(6));
     canvas.drawRRect(
       frame.inflate(1),
       Paint()..color = color == ClassicColor.blanc ? const Color(0xFFD5D6D8) : const Color(0xFF0B0B0C),
@@ -182,12 +290,15 @@ class BodyPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant BodyPainter old) => old.color != color;
+  bool shouldRepaint(covariant BodyPainter old) =>
+      old.color != color || old.frameRect != frameRect || old.plastic != plastic;
 }
 
 /// Reflet de la plaque d'acrylique qui couvre toute la façade.
 class GlassPainter extends CustomPainter {
-  const GlassPainter();
+  const GlassPainter([this.screen = G.screen]);
+
+  final Rect screen;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -212,11 +323,11 @@ class GlassPainter extends CustomPainter {
     );
     // L'écran sous l'acrylique : très léger voile.
     canvas.drawRect(
-      G.screen,
+      screen,
       Paint()
         ..shader = ui.Gradient.linear(
-          G.screen.topLeft,
-          G.screen.bottomLeft,
+          screen.topLeft,
+          screen.bottomLeft,
           [Colors.white.withValues(alpha: 0.10), Colors.white.withValues(alpha: 0.0)],
           const [0, 0.5],
         ),

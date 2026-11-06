@@ -23,6 +23,7 @@ import 'vintage.dart';
 import 'model.dart';
 import 'nav.dart';
 import 'screen.dart';
+import 'shuffle.dart';
 import 'wheel.dart';
 
 export 'wheel.dart' show IpodWheel, WheelStyle, WheelZone;
@@ -31,14 +32,22 @@ export 'wheel.dart' show IpodWheel, WheelStyle, WheelZone;
 /// sortie.
 final List<IpodModel> ipodModels = [
   const FirstGenModel(), // 2001
+  const SecondGenModel(), // 2002
   const ThirdGenModel(), // 2003
   for (final c in MiniColor.values) MiniModel(c), // janvier 2004
   for (final c in FourthGenColor.values) FourthGenModel(c), // juillet 2004
-  for (final c in nano2Colors) Nano2Model(c), // 2006
+  const PhotoModel(), // octobre 2004
+  const Shuffle1Model(), // janvier 2005
+  for (final c in Nano1Color.values) Nano1Model(c), // septembre 2005
+  const VideoModel(), // octobre 2005
+  const VideoModel(ClassicColor.noir),
+  for (final c in nano2Colors) Nano2Model(c), // septembre 2006
+  for (final c in shuffle2Colors) Shuffle2Model(c), // septembre 2006
   const ClassicModel(), // septembre 2007
   const ClassicModel(ClassicColor.noir),
   for (final c in NanoColor.values) NanoModel(c), // septembre 2007
   for (final c in nano4Colors) Nano4Model(c), // 2008
+  for (final c in shuffle4Colors) Shuffle4Model(c), // septembre 2010
 ];
 
 /// Étapes d'un changement d'appareil.
@@ -235,6 +244,13 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       peek.step(target, dt);
       if (peek.isSettled) peek.value = target;
     }
+    if (_geoFrom != null) {
+      _morph.step(1, dt);
+      if (_morph.isSettled) {
+        _morph.value = 1;
+        _geoFrom = null;
+      }
+    }
     _stepSwap(dt);
     _stepSway(dt);
     _updateDrawerSnap();
@@ -246,6 +262,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
         _peekR.isSettled &&
         _lift.isSettled &&
         _sway.isSettled &&
+        _geoFrom == null &&
         _plug.isSettled) {
       _ticker.stop();
     }
@@ -262,6 +279,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   }
 
   void _startSwap(IpodModel to) {
+    _revealSlot(_model.family);
     // Prise arrachée : plus de son, comme avec de vrais écouteurs.
     _resumeOnPlug = widget.player.playing;
     if (_resumeOnPlug) widget.player.pause();
@@ -273,6 +291,26 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       ..damping = 0.5;
     _plugHold = 0;
     _kick();
+  }
+
+  /// Fait défiler le tiroir jusqu'à l'emplacement de [family] s'il n'est pas
+  /// entièrement visible : l'appareil va s'y ranger, il doit le voir.
+  void _revealSlot(String family) {
+    final context = _slotKeys[family]?.currentContext;
+    if (context == null) return;
+    final scrollable = Scrollable.maybeOf(context);
+    final slot = _rectOf(_slotKeys[family]);
+    final viewport = scrollable?.context.findRenderObject();
+    final stage = _stageKey.currentContext?.findRenderObject();
+    if (scrollable == null || slot == null || viewport is! RenderBox || stage is! RenderBox) return;
+    final view = MatrixUtils.transformRect(viewport.getTransformTo(stage), Offset.zero & viewport.size);
+    if (slot.top >= view.top && slot.bottom <= view.bottom) return;
+    Scrollable.ensureVisible(
+      context,
+      alignment: 0.5,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeInOutCubic,
+    );
   }
 
   void _startPlugging() {
@@ -393,9 +431,17 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   /// Transformation qui amène l'appareil de sa place naturelle à sa
   /// position de vol (avec un petit arc vers le haut).
-  Matrix4? _flightTransform() {
-    final from = _flyFrom, to = _flyTo, natural = _natural;
-    if (from == null || to == null || natural == null) return null;
+  /// Le vol entre la place de l'appareil ([natural], où il est mis en page)
+  /// et son emplacement dans le tiroir. Les deux bouts sont remesurés à
+  /// chaque image : le tiroir peut défiler ou changer de taille en même
+  /// temps.
+  Matrix4? _flightTransform(Rect natural) {
+    if (_flyFrom == null || _flyTo == null || _natural == null) return null;
+    final model = _phase == _Swap.stowing ? _model : _incoming;
+    final slot = model == null ? null : _rectOf(_slotKeys[model.family]);
+    final stowing = _phase == _Swap.stowing;
+    final from = stowing ? natural : (slot ?? _flyFrom!);
+    final to = stowing ? (slot ?? _flyTo!) : natural;
     final t = _fly.value;
     final r = Rect.lerp(from, to, t)!.shift(Offset(0, -math.sin(t.clamp(0.0, 1.0) * math.pi) * 36));
     return Matrix4.identity()
@@ -511,7 +557,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   /// lourd (Impeller ne garde rien en cache, écran à l'échelle 1,5).
   void _updateDrawerSnap() {
     final still = !_dragging && _open.isSettled && _lift.isSettled;
-    _drawerSnap.allowSnapshotting = !(_drawerLive && still && _wantOpen);
+    // Vivant aussi pendant un échange : il défile, il change de taille.
+    final busy = _drawerLive || _phase != _Swap.none || _geoFrom != null;
+    _drawerSnap.allowSnapshotting = !(busy && still && _wantOpen);
     _deviceSnap.allowSnapshotting = (_dragging || !_open.isSettled) && _phase == _Swap.none && !_hideDevice;
   }
 
@@ -543,6 +591,13 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   void _choose(IpodModel m) {
     _nav.fitLook(m.look);
+    if (m.size != _model.size && _geoShown != null) {
+      _geoFrom = _geoShown;
+      _morph
+        ..value = 0
+        ..velocity = 0;
+      _kick();
+    }
     setState(() {
       _model = m;
       _shown[m.family] = m;
@@ -653,18 +708,17 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   /// Décalage horizontal de l'appareil (tiroir ouvert), pour le câble.
   double _deviceShift = 0;
 
+  /// Passage en douceur d'une mise en place à l'autre quand on change pour
+  /// un modèle d'un autre format : le tiroir et l'appareil glissent vers
+  /// leur nouvelle taille au lieu d'y sauter.
+  final _morph = Spring(1, stiffness: 110, damping: 1);
+  _Geo? _geoFrom;
+  _Geo? _geoShown;
+
   /// Mise en place pour une fenêtre [w] × [h] : où est l'appareil au repos,
   /// la largeur du tiroir, et de combien l'appareil rétrécit et s'écarte
   /// (à droite ou à gauche) quand le tiroir est ouvert.
-  ({
-    Rect device,
-    double cornerRadius,
-    double drawerW,
-    double room,
-    double shiftRight,
-    double shiftLeft,
-    double drawerHeight,
-  }) _geometry(double w, double h) {
+  _Geo _geometry(double w, double h) {
     // Comme la mise en page de l'appareil : centré, marges, réduit pour
     // tenir (jamais agrandi).
     final m = _model;
@@ -691,8 +745,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       room: room,
       shiftRight: groupLeft + devW / 2 - scaledCx,
       shiftLeft: w - groupLeft - devW / 2 - scaledCx,
-      // Un peu moins haut que l'appareil au repos : rangé, il reste caché
-      // derrière ; ouvert, il dépasse un peu de l'appareil réduit.
+      // Un peu moins haut que l'appareil au repos : il sort de derrière lui,
+      // à sa mesure (en changeant d'appareil, il grandit ou rétrécit en
+      // douceur, voir [_morph]).
       drawerHeight: device.height * 0.9,
     );
   }
@@ -759,7 +814,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       child: LayoutBuilder(
         builder: (context, box) {
           final w = box.maxWidth, h = box.maxHeight;
-          final g = _geometry(w, h);
+          final target = _geometry(w, h);
+          final from = _geoFrom;
+          final g = _geoShown = from == null || _morph.value >= 1 ? target : _lerpGeo(from, target, _morph.value);
           final drawerW = _drawerW = g.drawerW;
           final open = _open.value;
           final openC = open.clamp(0.0, 1.0);
@@ -813,14 +870,16 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
           final c = Offset(w / 2, h / 2);
           Offset place(Offset p) => c + (p - c) * scale + Offset(shift, 0);
           final dev = Rect.fromPoints(place(g.device.topLeft), place(g.device.bottomRight));
+          // L'appareil, lui, est déjà mis en page à sa nouvelle place.
+          final devActual = Rect.fromPoints(place(target.device.topLeft), place(target.device.bottomRight));
 
           // Le tiroir sort de derrière l'appareil : son bord extérieur part
           // d'un peu en retrait de son flanc et va jusqu'à [_travel] plus loin.
           final outer = right ? dev.right - _hideBack + open * _travel : dev.left + _hideBack - open * _travel;
           final drawerRect = Rect.fromLTWH(
             right ? outer - drawerW : outer,
-            // Toujours centré sur l'appareil.
-            dev.center.dy - g.drawerHeight / 2 + _lift.value,
+            // Centré sur l'appareil, sans sortir de la fenêtre.
+            (dev.center.dy - g.drawerHeight / 2).clamp(14.0, math.max(14.0, h - 14 - g.drawerHeight)) + _lift.value,
             drawerW,
             g.drawerHeight,
           ).shift(
@@ -830,7 +889,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
           );
 
           if (_hideDevice) device = Opacity(opacity: 0, child: device);
-          final flight = _flightTransform();
+          final flight = _flightTransform(devActual);
           if (flight != null) device = Transform(transform: flight, child: device);
           final deviceLayer = Positioned.fill(key: const ValueKey('appareil'), child: device);
 
@@ -913,6 +972,7 @@ class _IpodDeviceState extends State<IpodDevice> {
   @override
   void dispose() {
     _endHold();
+    _ledTimer?.cancel();
     _focus.dispose();
     super.dispose();
   }
@@ -954,6 +1014,18 @@ class _IpodDeviceState extends State<IpodDevice> {
     return KeyEventResult.handled;
   }
 
+  /// Voyant du shuffle : un éclair vert à chaque appui.
+  bool _led = false;
+  Timer? _ledTimer;
+
+  void _blink() {
+    _ledTimer?.cancel();
+    setState(() => _led = true);
+    _ledTimer = Timer(const Duration(milliseconds: 380), () {
+      if (mounted) setState(() => _led = false);
+    });
+  }
+
   /// Le gestionnaire de fenêtres prend la main : la fenêtre suit le
   /// pointeur jusqu'au relâchement (sans effet sans vraie fenêtre, dans
   /// les tests).
@@ -965,6 +1037,11 @@ class _IpodDeviceState extends State<IpodDevice> {
 
   void _scroll(int delta) {
     _nav.touch();
+    // Sans écran (shuffle), la molette de la souris règle le volume.
+    if (!widget.model.hasScreen) {
+      widget.player.setVolume(widget.player.volume - delta * 4);
+      return;
+    }
     if (_nav.scroll(delta)) WheelClick.instance.play();
   }
 
@@ -1032,6 +1109,24 @@ class _IpodDeviceState extends State<IpodDevice> {
 
   void _press(WheelZone zone) {
     final p = widget.player;
+    if (!widget.model.hasScreen) {
+      _blink();
+      // Anneau d'un shuffle : + et − en haut et en bas, ⏯ au centre.
+      switch (zone) {
+        case WheelZone.menu:
+          p.setVolume(p.volume + 8);
+        case WheelZone.playPause:
+          p.setVolume(p.volume - 8);
+        case WheelZone.center:
+          p.playPause();
+        case WheelZone.next:
+          p.next();
+        case WheelZone.previous:
+          p.previous();
+        case WheelZone.none:
+      }
+      return;
+    }
     switch (zone) {
       case WheelZone.menu:
         _nav.menu();
@@ -1070,7 +1165,15 @@ class _IpodDeviceState extends State<IpodDevice> {
                 child: CustomPaint(painter: m.body),
               ),
             ),
-            Positioned.fromRect(
+            if (m.led case final x?)
+              Positioned(
+                left: x - 7,
+                top: -5,
+                width: 14,
+                height: 8,
+                child: IgnorePointer(child: CustomPaint(painter: _LedPainter(_led))),
+              ),
+            if (m.hasScreen) Positioned.fromRect(
               rect: m.screen,
               // L'écran laisse passer la main jusqu'au boîtier.
               child: IgnorePointer(child: ClipRRect(
@@ -1334,4 +1437,54 @@ class _HandlePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _HandlePainter old) => old.side != side;
+}
+
+/// Voyant d'état d'un shuffle, sur la tranche du haut : éteint, ou vert vif
+/// avec son halo.
+class _LedPainter extends CustomPainter {
+  const _LedPainter(this.on);
+
+  final bool on;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height - 3);
+    if (on) {
+      canvas.drawCircle(
+        c,
+        7,
+        Paint()
+          ..color = const Color(0xAA4CFF6A)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+      );
+    }
+    canvas.drawCircle(c, 2.6, Paint()..color = on ? const Color(0xFFB8FFC4) : const Color(0xFF3B4A3E));
+  }
+
+  @override
+  bool shouldRepaint(covariant _LedPainter old) => old.on != on;
+}
+
+/// Mise en place de la scène pour un modèle (voir `_geometry`).
+typedef _Geo = ({
+  Rect device,
+  double cornerRadius,
+  double drawerW,
+  double room,
+  double shiftRight,
+  double shiftLeft,
+  double drawerHeight,
+});
+
+_Geo _lerpGeo(_Geo a, _Geo b, double t) {
+  double l(double x, double y) => x + (y - x) * t;
+  return (
+    device: Rect.lerp(a.device, b.device, t)!,
+    cornerRadius: l(a.cornerRadius, b.cornerRadius),
+    drawerW: l(a.drawerW, b.drawerW),
+    room: l(a.room, b.room),
+    shiftRight: l(a.shiftRight, b.shiftRight),
+    shiftLeft: l(a.shiftLeft, b.shiftLeft),
+    drawerHeight: l(a.drawerHeight, b.drawerHeight),
+  );
 }

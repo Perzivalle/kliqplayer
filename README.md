@@ -1,8 +1,9 @@
 # Lecteur
 
 Lecteur de musique local pour Linux (Flutter + media_kit) en forme d'iPod à molette, qui flotte seul
-dans une fenêtre transparente. Huit modèles, de la 1re génération au nano 4G, dessinés d'après les vrais,
-avec des animations par ressorts façon iOS.
+dans une fenêtre transparente. Quinze modèles, de la 1re génération (2001) au shuffle 4G (2010), dessinés
+d'après les vrais, avec des animations par ressorts façon iOS. Les shuffle n'ont pas d'écran : leur anneau
+règle le volume (+ −), change de morceau (⏮ ⏭) et lance la lecture (au centre).
 
 ## Utilisation
 
@@ -43,7 +44,7 @@ Fluidité : `LECTEUR_FPS=1 LECTEUR_BENCH=1 build/linux/x64/profile/bundle/lecteu
   - `nav.dart` : menus et navigation ; `screen.dart` : l'écran (transitions, rétroéclairage) ;
     `coverflow.dart` : Cover Flow
   - `look.dart` : ce qui distingue un écran ; `model.dart` : ce qui distingue un modèle
-  - `classic.dart`, `nano.dart` (nano 3G), `nanos.dart` (nano 2G et 4G), `mini.dart`,
-    `vintage.dart` (1re, 3e et 4e générations)
+  - `classic.dart` (Classic, 5e génération), `nano.dart` (nano 3G), `nanos.dart` (nano 2G et 4G),
+    `mini.dart`, `vintage.dart` (1re à 4e générations, iPod photo, nano 1G), `shuffle.dart` (1G, 2G, 4G)
   - `wheel.dart`, `click.dart` : molette tactile et son clic ; `jack.dart` : la prise et le câble
   - `drawer.dart` : le tiroir de choix du modèle
