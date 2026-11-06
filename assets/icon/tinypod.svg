@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e3e5e8"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d9dce0"/>
+      <stop offset="1" stop-color="#9ea3a9"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6fb4f2"/>
+      <stop offset="1" stop-color="#2a74d6"/>
+    </linearGradient>
+    <radialGradient id="wheel" cx="0.5" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#f4f5f7"/>
+      <stop offset="1" stop-color="#d4d7db"/>
+    </radialGradient>
+    <linearGradient id="button" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e9ebee"/>
+    </linearGradient>
+  </defs>
+  <!-- Boîtier -->
+  <rect x="60" y="12" width="136" height="232" rx="24" fill="url(#edge)"/>
+  <rect x="62" y="14" width="132" height="228" rx="22" fill="url(#body)"/>
+  <!-- Écran -->
+  <rect x="76" y="30" width="104" height="80" rx="6" fill="#1c1d20"/>
+  <rect x="80" y="34" width="96" height="72" rx="3" fill="#f6f7f8"/>
+  <rect x="80" y="34" width="96" height="11" rx="3" fill="#d7dade"/>
+  <rect x="80" y="47" width="96" height="11" fill="url(#screen)"/>
+  <rect x="85" y="50.5" width="40" height="4" rx="2" fill="#ffffff"/>
+  <rect x="85" y="63" width="52" height="4" rx="2" fill="#5a5f66"/>
+  <rect x="85" y="74" width="34" height="4" rx="2" fill="#5a5f66"/>
+  <rect x="85" y="85" width="46" height="4" rx="2" fill="#5a5f66"/>
+  <!-- Molette -->
+  <circle cx="128" cy="174" r="50" fill="#c3c7cc"/>
+  <circle cx="128" cy="174" r="48.5" fill="url(#wheel)"/>
+  <circle cx="128" cy="174" r="19" fill="#b9bdc2"/>
+  <circle cx="128" cy="174" r="18" fill="url(#button)"/>
+  <!-- Inscriptions -->
+  <rect x="116" y="133" width="24" height="5" rx="2.5" fill="#a6abb1"/>
+  <path d="M93 168 l-8 6 8 6z M101 168 l-8 6 8 6z" fill="#a6abb1"/>
+  <path d="M155 168 l8 6 -8 6z M163 168 l8 6 -8 6z" fill="#a6abb1"/>
+  <path d="M120 207 l8 5 -8 5z" fill="#a6abb1"/>
+  <rect x="131" y="207" width="2.5" height="10" fill="#a6abb1"/>
+  <rect x="135.5" y="207" width="2.5" height="10" fill="#a6abb1"/>
+</svg>

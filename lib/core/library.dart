@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 
+import 'paths.dart';
 import 'settings.dart';
 
 /// Un morceau de la bibliothèque.
@@ -67,12 +68,12 @@ const _audioExtensions = {'.mp3', '.flac', '.ogg', '.opus', '.m4a', '.aac', '.wa
 /// Dossier de musique : $LECTEUR_MUSIC s'il est donné, sinon celui choisi
 /// dans Réglages › Bibliothèque, sinon celui de MPD.
 Directory defaultMusicDirectory() {
-  final home = Platform.environment['HOME'] ?? '.';
+  final home = homeDir();
   final override = Platform.environment['LECTEUR_MUSIC'];
   if (override != null && override.isNotEmpty) return Directory(override);
   final chosen = Settings.getString('library.folder');
   if (chosen != null && chosen.isNotEmpty) return Directory(chosen);
-  return Directory('$home/Music/Musique Ipod');
+  return Directory(joinPath(home, joinPath('Music', 'Musique Ipod')));
 }
 
 /// Parcourt le dossier et lit les tags, dans un isolate séparé pour ne pas
@@ -162,7 +163,7 @@ Library _scan(String rootPath) {
 
 /// Listes .m3u : une ligne par fichier, chemin absolu ou relatif à la liste.
 List<SongList> _readPlaylists(List<File> files, List<Track> tracks) {
-  final byPath = {for (var i = 0; i < tracks.length; i++) tracks[i].path: i};
+  final byPath = {for (var i = 0; i < tracks.length; i++) normalizePath(tracks[i].path): i};
   final lists = <SongList>[];
   for (final f in files) {
     try {
@@ -170,8 +171,8 @@ List<SongList> _readPlaylists(List<File> files, List<Track> tracks) {
       for (var line in f.readAsLinesSync()) {
         line = line.trim();
         if (line.isEmpty || line.startsWith('#')) continue;
-        final path = line.startsWith('/') ? line : '${f.parent.path}/$line';
-        final i = byPath[File(path).absolute.path] ?? byPath[path];
+        final path = normalizePath(isAbsolutePath(line) ? line : joinPath(f.parent.path, line));
+        final i = byPath[normalizePath(File(path).absolute.path)] ?? byPath[path];
         if (i != null) ids.add(i);
       }
       if (ids.isNotEmpty) {
@@ -215,7 +216,7 @@ String _orElse(String? value, String fallback) =>
     (value == null || value.trim().isEmpty) ? fallback : value.trim();
 
 String _basename(String path) {
-  final name = path.split('/').last;
+  final name = lastSegment(path);
   final dot = name.lastIndexOf('.');
   return dot > 0 ? name.substring(0, dot) : name;
 }

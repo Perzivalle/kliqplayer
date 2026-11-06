@@ -1,16 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'paths.dart';
+
 /// Préférences conservées d'un lancement à l'autre, dans
-/// ~/.config/lecteur/settings.json (ou $XDG_CONFIG_HOME/lecteur).
+/// ~/.config/lecteur/settings.json (ou $XDG_CONFIG_HOME/lecteur ; sous
+/// Windows, %APPDATA%\lecteur ; sous macOS, ~/Library/Application Support/lecteur).
 class Settings {
   Settings._();
 
-  static File get _file {
-    final env = Platform.environment;
-    final base = env['XDG_CONFIG_HOME'] ?? '${env['HOME'] ?? '.'}/.config';
-    return File('$base/lecteur/settings.json');
-  }
+  static File get _file => File(joinPath(configDir(), joinPath('lecteur', 'settings.json')));
 
   static Map<String, Object?>? _cache;
 

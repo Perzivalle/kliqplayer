@@ -1,0 +1,56 @@
+# Version Windows : compilée sur une machine Windows de GitHub (Flutter ne
+# sait pas la produire depuis Linux).
+# - push sur la branche windows ou lancement à la main : l'archive est
+#   téléchargeable dans l'onglet Actions (artefact) ;
+# - release publiée : l'archive est ajoutée à la release.
+name: Windows
+
+on:
+  push:
+    branches: [windows]
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Même version de Flutter que pour la version Linux.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.9
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - run: flutter build windows --release
+
+      - name: Archive
+        id: archive
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_EVENT_NAME -eq 'release') { $env:GITHUB_REF_NAME.TrimStart('v') } else { "dev-$($env:GITHUB_SHA.Substring(0, 7))" }
+          $name = "lecteur-$version-windows-x64"
+          New-Item -ItemType Directory -Path $name | Out-Null
+          Copy-Item -Recurse build\windows\x64\runner\Release\* $name
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+          "name=$name" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.archive.outputs.name }}
+          path: ${{ steps.archive.outputs.name }}.zip
+
+      - name: Ajouter à la release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload $env:GITHUB_REF_NAME "${{ steps.archive.outputs.name }}.zip" --clobber

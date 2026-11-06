@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../core/library.dart';
 import '../core/player.dart';
 import '../core/settings.dart';
+import '../core/paths.dart';
 import '../core/strings.dart';
 import '../physics.dart';
 import 'click.dart';
@@ -464,24 +465,29 @@ class IpodNav extends ChangeNotifier {
 
   // --- Bibliothèque : choisir le dossier de musique ---------------------------
 
-  static String _folderName(String path) {
-    final parts = path.split('/').where((p) => p.isNotEmpty);
-    return parts.isEmpty ? '/' : parts.last;
-  }
+  static String _folderName(String path) => lastSegment(path);
 
   /// Points de départ : le dossier actuel, le dossier personnel, les disques
-  /// branchés, la racine.
-  MenuPage _places() => MenuPage(tr('Bibliothèque'), live: true, () {
-        final env = Platform.environment;
-        final home = env['HOME'] ?? '/';
-        final user = env['USER'] ?? '';
+  /// branchés, la racine (sous Windows : les lecteurs C:, D:…). Cherchés une
+  /// fois à l'ouverture de la page, pas à chaque image.
+  MenuPage _places() => MenuPage(tr('Bibliothèque'), () {
+        final user = Platform.environment['USER'] ?? '';
         return [
           MenuEntry(tr('Dossier actuel'), value: () => _folderName(player.musicDir), open: () => _folder(player.musicDir)),
-          MenuEntry(tr('Dossier personnel'), open: () => _folder(home)),
-          for (final (label, path) in [(tr('Disques'), '/run/media/$user'), (tr('Disques'), '/media/$user'), ('/mnt', '/mnt')])
-            if (user.isNotEmpty || !path.endsWith('/')) // pas de « /media/ » sans nom
-              if (Directory(path).existsSync()) MenuEntry(label, open: () => _folder(path)),
-          MenuEntry(tr('Racine'), open: () => _folder('/')),
+          MenuEntry(tr('Dossier personnel'), open: () => _folder(homeDir())),
+          if (Platform.isWindows)
+            for (final drive in windowsDrives()) MenuEntry(drive, open: () => _folder(drive))
+          else ...[
+            for (final (label, path) in [
+              (tr('Disques'), '/run/media/$user'),
+              (tr('Disques'), '/media/$user'),
+              (tr('Disques'), '/Volumes'),
+              ('/mnt', '/mnt'),
+            ])
+              if (user.isNotEmpty || !path.endsWith('/')) // pas de « /media/ » sans nom
+                if (Directory(path).existsSync()) MenuEntry(label, open: () => _folder(path)),
+            MenuEntry(tr('Racine'), open: () => _folder('/')),
+          ],
         ];
       });
 

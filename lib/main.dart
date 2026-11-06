@@ -19,7 +19,17 @@ Future<void> main() async {
       ..titleBarStyle = TitleBarStyle.hidden
       ..setSize(IpodStage.savedModel.windowSize.toNative(), false)
       ..backgroundColor = Colors.transparent.toNative()
-      ..title = 'Lecteur'
+      ..title = 'Lecteur';
+    if (Platform.isWindows) {
+      // Windows dessine une ombre rectangulaire autour de chaque fenêtre :
+      // autour d'une fenêtre transparente, elle trahirait le cadre. Et la
+      // fenêtre s'ouvre au milieu de l'écran (sous Linux, le gestionnaire de
+      // fenêtres la place lui-même).
+      window
+        ..hasShadow = false
+        ..center();
+    }
+    window
       ..show()
       ..focus();
   }
