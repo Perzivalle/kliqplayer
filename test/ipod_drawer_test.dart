@@ -344,9 +344,26 @@ void main() {
       if (r.center.dy > view().top && r.center.dy < view().bottom) seenStowing = true;
     }
     expect(seenStowing, isTrue, reason: 'l\'emplacement vide est revenu dans le tiroir');
+    // Rangé tout en bas : le tiroir remonte jusqu'à la 1re génération avant
+    // qu'elle s'en envole.
+    final gen1Label = find.text('1RE GÉNÉRATION', skipOffstage: false);
+    bool gen1Visible() {
+      final r = tester.getRect(gen1Label);
+      return r.top >= view().top && r.bottom <= view().bottom;
+    }
+    expect(gen1Visible(), isFalse, reason: 'le tiroir a défilé vers le bas pour le rangement');
+    // Il doit y être avant le vol (≈ 1 s) : plus tard, il ne ferait que
+    // suivre l'appareil déjà sorti.
+    int? seenAt;
     for (var i = 0; i < 400; i++) {
       await tester.pump(const Duration(milliseconds: 16));
+      // (Une fois branché, le tiroir se referme et disparaît.)
+      if (seenAt == null && find.byType(Scrollable).evaluate().isNotEmpty && gen1Label.evaluate().isNotEmpty) {
+        if (gen1Visible()) seenAt = i;
+      }
     }
+    expect(seenAt, isNotNull, reason: 'le tiroir est remonté jusqu\'à l\'emplacement du nouvel appareil');
+    expect(seenAt, lessThan(40), reason: 'avant que le nouvel appareil s\'envole');
   });
 
   testWidgets('la musique se coupe quand on débranche, et reprend au branchement', (tester) async {
@@ -378,5 +395,44 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
     }
     expect(player.playing, isTrue, reason: 'rebranchée');
+  });
+
+  testWidgets('un shuffle joue toujours au hasard, sans toucher au réglage Lecture aléatoire', (tester) async {
+    final player = PlayerController.preview();
+    tester.view
+      ..physicalSize = _window
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          type: MaterialType.transparency,
+          child: IpodStage(player: player, initial: const ClassicModel()),
+        ),
+      ),
+    );
+    await _settle(tester);
+    expect(player.shuffling, isFalse);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await _settle(tester);
+    final shuffle1Slot = find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'shuffle1');
+    await tester.ensureVisible(shuffle1Slot);
+    await _settle(tester);
+    await tester.tap(shuffle1Slot, kind: PointerDeviceKind.mouse);
+    for (var i = 0; i < 400; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(player.shuffling, isTrue, reason: 'shuffle en main');
+    expect(player.shuffle, isFalse, reason: 'le réglage, lui, ne change pas');
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await _settle(tester);
+    final classicSlot = find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'classic');
+    await tester.ensureVisible(classicSlot);
+    await _settle(tester);
+    await tester.tap(classicSlot, kind: PointerDeviceKind.mouse);
+    for (var i = 0; i < 400; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(player.shuffling, isFalse, reason: 'de retour sur un appareil à écran');
   });
 }

@@ -7,6 +7,7 @@ import 'look.dart';
 import 'model.dart';
 import 'nav.dart';
 import 'wheel.dart';
+import '../core/strings.dart';
 
 /// Teintes du Classic : façade et molette assorties.
 enum ClassicColor {
@@ -399,8 +400,8 @@ class ClassicLook extends ScreenLook {
   CustomPainter scrollbar(double start, double extent) => _ScrollbarPainter(start, extent);
 
   @override
-  Widget empty() => const Center(
-        child: Text('Aucun élément', style: TextStyle(color: Color(0xFF8A8F95))),
+  Widget empty() => Center(
+        child: Text(tr('Aucun élément'), style: const TextStyle(color: Color(0xFF8A8F95))),
       );
 
   @override
@@ -618,13 +619,13 @@ class _NowPlaying extends StatelessWidget {
   Widget build(BuildContext context) {
     final track = player.current;
     if (track == null) {
-      return const Center(child: Text('Aucun morceau'));
+      return Center(child: Text(tr('Aucun morceau')));
     }
     final albumIndex = player.currentAlbum;
     final album = albumIndex >= 0 ? player.albums[albumIndex] : null;
     final position = album == null
-        ? '${player.index + 1} sur ${player.queue.length}'
-        : '${player.index - album.firstIndex + 1} sur ${album.trackCount}';
+        ? trOf(player.index + 1, player.queue.length)
+        : trOf(player.index - album.firstIndex + 1, album.trackCount);
 
     const art = 116.0;
     return Stack(
@@ -682,9 +683,9 @@ class _NowPlayingPortrait extends StatelessWidget {
   Widget build(BuildContext context) {
     final track = player.current;
     if (track == null) {
-      return const ColoredBox(
-        color: Color(0xFF0E0F12),
-        child: Center(child: Text('Aucun morceau', style: TextStyle(color: _white))),
+      return ColoredBox(
+        color: const Color(0xFF0E0F12),
+        child: Center(child: Text(tr('Aucun morceau'), style: const TextStyle(color: _white))),
       );
     }
     const art = 240.0;

@@ -108,7 +108,10 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
     for (final p in [nav.page, ?nav.leaving]) {
       if (p is CoverFlowPage) {
         p.pos.step(p.selected.toDouble(), dt);
-        busy |= !p.pos.isSettled;
+        p.flip.step(p.flipped ? 1 : 0, dt);
+        p.trackSpring.step(p.track.toDouble(), dt);
+        p.trackTopSpring.step(p.trackTop.toDouble(), dt);
+        busy |= !p.pos.isSettled || !p.flip.isSettled || !p.trackSpring.isSettled || !p.trackTopSpring.isSettled;
       }
     }
     if (nav.page is NowPlayingPage) {
@@ -127,7 +130,9 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
     return DefaultTextStyle(
       style: look.textStyle,
       child: _Backlight(lit: _lit, tint: look.unlit, child: ColoredBox(
-        color: look.background,
+        // Cover Flow est noir bord à bord : un fond clair dessous filtrerait
+        // en liseré le long des bords de l'écran (lissage des arêtes).
+        color: nav.page is CoverFlowPage && nav.leaving == null ? Colors.black : look.background,
         child: Column(
           children: [
             look.statusBar(

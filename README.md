@@ -3,18 +3,22 @@
 Lecteur de musique local pour Linux (Flutter + media_kit) en forme d'iPod à molette, qui flotte seul
 dans une fenêtre transparente. Quinze modèles, de la 1re génération (2001) au shuffle 4G (2010), dessinés
 d'après les vrais, avec des animations par ressorts façon iOS. Les shuffle n'ont pas d'écran : leur anneau
-règle le volume (+ −), change de morceau (⏮ ⏭) et lance la lecture (au centre).
+règle le volume (+ −), change de morceau (⏮ ⏭) et lance la lecture (au centre), et ils jouent
+toujours au hasard. Interface en français, anglais, espagnol ou allemand.
 
 ## Utilisation
 
 - **Molette** : glisser en cercle (ou molette de la souris) pour défiler ; MENU pour revenir, centre pour
   valider, ⏯ lecture/pause, ⏮ ⏭ morceau précédent/suivant (appui long : reculer/avancer dans le morceau).
 - **En lecture** : la molette règle le volume ; clic au centre pour avancer dans le morceau à la molette.
+- **Cover Flow** : valider retourne la pochette du milieu ; au dos, la liste de ses morceaux, qu'on
+  parcourt à la molette et qu'on lance d'un clic au centre. MENU la remet de face.
 - **Menus** : Musique (Cover Flow sur les écrans couleur, Listes de lecture, Artistes, Albums, Morceaux),
-  Réglages (Bibliothèque, Lecture aléatoire, Répéter, Rétroéclairage, Clic), Morceau au hasard, En lecture.
+  Réglages (Bibliothèque, Lecture aléatoire, Répéter, Rétroéclairage, Clic, Tonalité du clic, Langue), Morceau au hasard, En lecture.
 - **Tiroir** : approcher la souris d'un coin du haut de l'iPod fait apparaître une poignée ; un clic (ou la
   tirer) fait sortir le tiroir de ce côté. Un clic sur un appareil le débranche, le range et branche l'autre ;
   au survol, les pastilles montrent ses teintes et le teintent, un clic sur l'une le prend dans cette teinte.
+  Les teintes rangées dans le tiroir changent à chaque lancement.
 - **Déplacer** : attraper l'iPod n'importe où sauf sur la molette (et les boutons) déplace la fenêtre.
 
 Clavier : ↑ ↓ ou j k défiler, Entrée ou l valider, Retour arrière ou h MENU, ← → morceau (appui long :

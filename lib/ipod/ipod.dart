@@ -142,11 +142,16 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       ],
   ];
 
-  /// Teinte montrée dans l'emplacement de chaque famille.
-  late final Map<String, IpodModel> _shown = {
-    for (final f in _families) f.first.family: f.first,
-    _model.family: _model,
-  };
+  /// Teinte montrée dans l'emplacement de chaque famille : tirée au sort à
+  /// chaque lancement (la première dans les tests, pour des captures
+  /// stables) ; celle de l'appareil en main reste la sienne.
+  late final Map<String, IpodModel> _shown = () {
+    final rnd = math.Random();
+    return {
+      for (final f in _families) f.first.family: _remember ? f[rnd.nextInt(f.length)] : f.first,
+      _model.family: _model,
+    };
+  }();
 
   // --- Prise jack et changement d'appareil ------------------------------------
 
@@ -185,6 +190,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   @override
   void initState() {
     super.initState();
+    widget.player.setForcedShuffle(!_model.hasScreen);
     if (_remember) {
       // Au lancement, la prise vient se brancher.
       _plug.value = JackGeometry.away;
@@ -293,9 +299,14 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _kick();
   }
 
+  /// Le tiroir défile vers l'emplacement d'où va sortir le nouvel appareil :
+  /// il attend d'y être pour s'envoler.
+  bool _revealing = false;
+
   /// Fait défiler le tiroir jusqu'à l'emplacement de [family] s'il n'est pas
-  /// entièrement visible : l'appareil va s'y ranger, il doit le voir.
-  void _revealSlot(String family) {
+  /// entièrement visible : l'appareil va s'y ranger (ou en sortir), on doit
+  /// le voir.
+  Future<void> _revealSlot(String family) async {
     final context = _slotKeys[family]?.currentContext;
     if (context == null) return;
     final scrollable = Scrollable.maybeOf(context);
@@ -305,7 +316,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     if (scrollable == null || slot == null || viewport is! RenderBox || stage is! RenderBox) return;
     final view = MatrixUtils.transformRect(viewport.getTransformTo(stage), Offset.zero & viewport.size);
     if (slot.top >= view.top && slot.bottom <= view.bottom) return;
-    Scrollable.ensureVisible(
+    await Scrollable.ensureVisible(
       context,
       alignment: 0.5,
       duration: const Duration(milliseconds: 320),
@@ -362,8 +373,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
         if (_fly.value > 0.995 && _fly.velocity.abs() < 0.2) _landStowed();
       case _Swap.unstowing:
         if (_flyFrom == null) {
-          // L'appareil vient d'être construit (invisible) : on mesure.
-          _beginFlight(stowing: false);
+          // L'appareil vient d'être construit (invisible) : on mesure, une
+          // fois le tiroir arrivé sur son emplacement.
+          if (!_revealing) _beginFlight(stowing: false);
         } else {
           _fly.step(1, dt);
           if (_fly.value > 0.995 && _fly.velocity.abs() < 0.2) _landOut();
@@ -415,7 +427,10 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   }
 
   void _landStowed() {
-    _choose(_incoming!);
+    final incoming = _incoming!;
+    _revealing = true;
+    _revealSlot(incoming.family).whenComplete(() => _revealing = false);
+    _choose(incoming);
     // Le nouveau est construit au centre mais caché, le temps de le mesurer.
     _hideDevice = true;
     _flyFrom = null;
@@ -591,6 +606,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   void _choose(IpodModel m) {
     _nav.fitLook(m.look);
+    widget.player.setForcedShuffle(!m.hasScreen);
     if (m.size != _model.size && _geoShown != null) {
       _geoFrom = _geoShown;
       _morph
@@ -667,7 +683,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       }
       // Impeller ne garde rien d'une image à l'autre : pendant que le tiroir
       // glisse, on fait glisser une photo de lui, prise une fois, au lieu de
-      // tout repeindre (feutrine, grain, ombres floues, miniatures).
+      // tout repeindre (mousse, grain, ombres floues, miniatures).
       _drawerCache = SnapshotWidget(
         controller: _drawerSnap,
         mode: SnapshotMode.permissive,
@@ -677,7 +693,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
           child: MouseRegion(
             onEnter: (_) => _drawerHover(true),
             onExit: (_) => _drawerHover(false),
-            // On l'attrape n'importe où : façade, coque ou feutrine.
+            // On l'attrape n'importe où : façade, coque ou mousse.
             child: GestureDetector(
               // Compte depuis le point d'appui : le tiroir colle au pointeur.
               dragStartBehavior: DragStartBehavior.down,

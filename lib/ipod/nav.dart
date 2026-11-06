@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../core/library.dart';
 import '../core/player.dart';
 import '../core/settings.dart';
+import '../core/strings.dart';
 import '../physics.dart';
 import 'click.dart';
 import 'look.dart';
@@ -68,6 +69,24 @@ class CoverFlowPage extends IpodPage {
 
   /// Position animée, en albums.
   final Spring pos;
+
+  // --- Pochette retournée : la liste des morceaux de l'album au dos -----------
+
+  /// Lignes de morceaux visibles au dos.
+  static const backRows = 6;
+
+  /// L'album du milieu est retourné (valider le retourne, MENU le remet).
+  bool flipped = false;
+
+  /// Retournement animé : 0 de face, 1 de dos.
+  final flip = Spring(0, stiffness: 120, damping: 0.86);
+
+  /// Morceau sélectionné au dos (rang dans l'album) et première ligne
+  /// visible.
+  int track = 0;
+  int trackTop = 0;
+  final trackSpring = Spring(0, stiffness: 1400, damping: 1);
+  final trackTopSpring = Spring(0, stiffness: 900, damping: 1);
 }
 
 enum NowPlayingMode { progress, volume, scrub }
@@ -75,11 +94,11 @@ enum NowPlayingMode { progress, volume, scrub }
 /// Durées possibles du rétroéclairage, en secondes (0 : toujours allumé).
 const backlightChoices = [0, 2, 5, 10, 15, 20, 30];
 
-String backlightLabel(int seconds) => seconds == 0 ? 'Toujours allumé' : '$seconds secondes';
+String backlightLabel(int seconds) => seconds == 0 ? tr('Toujours allumé') : trSeconds(seconds);
 
 class NowPlayingPage extends IpodPage {
   @override
-  String get title => 'En lecture';
+  String get title => tr('En lecture');
 }
 
 /// Navigation dans les menus, pilotée par la molette et le clavier.
@@ -91,6 +110,8 @@ class IpodNav extends ChangeNotifier {
     stack = [_root()];
     backlight = int.tryParse(Settings.getString('ipod.backlight') ?? '') ?? 10;
     WheelClick.instance.enabled = Settings.getString('ipod.clicker') != 'off';
+    WheelClick.instance.pitch =
+        (int.tryParse(Settings.getString('ipod.clickPitch') ?? '') ?? 2).clamp(0, WheelClick.pitches.length - 1);
   }
 
   final PlayerController player;
@@ -182,6 +203,13 @@ class IpodNav extends ChangeNotifier {
   /// Renvoie false si rien n'a bougé (bout de liste) : pas de clic.
   bool scroll(int delta) {
     switch (page) {
+      case final CoverFlowPage p when p.flipped:
+        final count = player.albums[p.selected].trackCount;
+        final t = (p.track + delta).clamp(0, count - 1);
+        if (t == p.track) return false;
+        p.track = t;
+        if (t < p.trackTop) p.trackTop = t;
+        if (t >= p.trackTop + CoverFlowPage.backRows) p.trackTop = t - CoverFlowPage.backRows + 1;
       case final CoverFlowPage p:
         final sel = (p.selected + delta).clamp(0, math.max(0, player.albums.length - 1)).toInt();
         if (sel == p.selected) return false;
@@ -207,6 +235,7 @@ class IpodNav extends ChangeNotifier {
           _setMode(NowPlayingMode.volume, const Duration(milliseconds: 1600));
         }
     }
+    _syncPreview();
     notifyListeners();
     return true;
   }
@@ -222,8 +251,28 @@ class IpodNav extends ChangeNotifier {
           e.action?.call();
           notifyListeners(); // une valeur a pu changer (Réglages)
         }
+      case final CoverFlowPage p when p.flipped:
+        // On joue le morceau sans quitter le dos de la pochette.
+        final first = player.albums[p.selected].firstIndex;
+        player.jumpTo(first + p.track).then((_) => player.play());
+        notifyListeners();
       case final CoverFlowPage p:
-        if (player.albums.isNotEmpty) _push(_album(p.selected));
+        if (player.albums.isEmpty) return;
+        // La pochette se retourne, sur le morceau en cours s'il est de cet
+        // album.
+        final album = player.albums[p.selected];
+        final playing = player.index - album.firstIndex;
+        p
+          ..flipped = true
+          ..track = playing >= 0 && playing < album.trackCount ? playing : 0
+          ..trackTop = math.max(0, p.track - CoverFlowPage.backRows + 1);
+        p.trackSpring
+          ..value = p.track.toDouble()
+          ..velocity = 0;
+        p.trackTopSpring
+          ..value = p.trackTop.toDouble()
+          ..velocity = 0;
+        notifyListeners();
       case NowPlayingPage():
         _setMode(
           mode == NowPlayingMode.scrub ? NowPlayingMode.progress : NowPlayingMode.scrub,
@@ -234,11 +283,17 @@ class IpodNav extends ChangeNotifier {
   }
 
   void menu() {
+    if (page case final CoverFlowPage p when p.flipped) {
+      p.flipped = false; // la pochette se remet de face
+      notifyListeners();
+      return;
+    }
     if (stack.length < 2) return;
     leaving = stack.removeLast();
     direction = -1;
     transition++;
     mode = NowPlayingMode.progress;
+    _syncPreview();
     notifyListeners();
   }
 
@@ -248,6 +303,7 @@ class IpodNav extends ChangeNotifier {
     direction = 1;
     transition++;
     mode = NowPlayingMode.progress;
+    _syncPreview();
     notifyListeners();
   }
 
@@ -261,68 +317,139 @@ class IpodNav extends ChangeNotifier {
 
   // --- Menus ---------------------------------------------------------------
 
-  MenuPage _root() => MenuPage('Lecteur', live: true, () => [
-        MenuEntry('Musique', open: _music),
-        MenuEntry('Réglages', open: _settings),
-        MenuEntry('Morceau au hasard', action: () {
+  MenuPage _root() => MenuPage(tr('Lecteur'), live: true, () => [
+        MenuEntry(tr('Musique'), open: _music),
+        MenuEntry(tr('Réglages'), open: _settings),
+        MenuEntry(tr('Morceau au hasard'), action: () {
           if (player.queue.isEmpty) return;
           _play(math.Random().nextInt(player.queue.length));
         }),
-        if (player.current != null) MenuEntry('En lecture', open: NowPlayingPage.new),
+        if (player.current != null) MenuEntry(tr('En lecture'), open: NowPlayingPage.new),
       ]);
 
-  MenuPage _music() => MenuPage('Musique', live: true, () => [
+  MenuPage _music() => MenuPage(tr('Musique'), live: true, () => [
         if (coverFlow && player.albums.isNotEmpty)
           MenuEntry('Cover Flow', open: () => CoverFlowPage(math.max(0, player.currentAlbum))),
-        MenuEntry('Listes de lecture', open: _playlists),
-        MenuEntry('Artistes', open: _artists),
-        MenuEntry('Albums', open: () => _albumList('Albums', _sortedAlbums(null))),
-        MenuEntry('Morceaux', open: _songs),
+        MenuEntry(tr('Listes de lecture'), open: _playlists),
+        MenuEntry(tr('Artistes'), open: _artists),
+        MenuEntry(tr('Albums'), open: () => _albumList(tr('Albums'), _sortedAlbums(null))),
+        MenuEntry(tr('Morceaux'), open: _songs),
       ]);
 
-  MenuPage _playlists() => MenuPage('Listes de lecture', () => [
-        MenuEntry('Ajouts récents', open: () => _tracks('Ajouts récents', player.recentlyAdded(25))),
-        MenuEntry('Les plus écoutés', open: () => _tracks('Les plus écoutés', player.mostPlayed(25))),
+  MenuPage _playlists() => MenuPage(tr('Listes de lecture'), () => [
+        MenuEntry(tr('Ajouts récents'), open: () => _tracks(tr('Ajouts récents'), player.recentlyAdded(25))),
+        MenuEntry(tr('Les plus écoutés'), open: () => _tracks(tr('Les plus écoutés'), player.mostPlayed(25))),
         for (final l in player.playlists) MenuEntry(l.name, open: () => _tracks(l.name, l.tracks)),
       ]);
 
   // --- Réglages ------------------------------------------------------------
 
-  MenuPage _settings() => MenuPage('Réglages', live: true, () => [
-        MenuEntry('À propos', open: _about),
+  MenuPage _settings() => MenuPage(tr('Réglages'), live: true, () => [
+        MenuEntry(tr('À propos'), open: _about),
         MenuEntry(
-          'Bibliothèque',
-          value: () => player.loading ? 'Lecture…' : _folderName(player.musicDir),
+          tr('Bibliothèque'),
+          value: () => player.loading ? tr('Lecture…') : _folderName(player.musicDir),
           open: _places,
         ),
         MenuEntry(
-          'Lecture aléatoire',
-          value: () => player.shuffle ? 'Morceaux' : 'Non',
+          tr('Lecture aléatoire'),
+          value: () => player.shuffle ? tr('Morceaux') : tr('Non'),
           action: () => player.setShuffle(!player.shuffle),
         ),
         MenuEntry(
-          'Répéter',
+          tr('Répéter'),
           value: () => switch (player.repeat) {
-            RepeatMode.off => 'Non',
-            RepeatMode.one => 'Un',
-            RepeatMode.all => 'Tous',
+            RepeatMode.off => tr('Non'),
+            RepeatMode.one => tr('Un'),
+            RepeatMode.all => tr('Tous'),
           },
           action: () => player.setRepeat(RepeatMode.values[(player.repeat.index + 1) % RepeatMode.values.length]),
         ),
-        MenuEntry('Rétroéclairage', value: () => backlight == 0 ? 'Allumé' : '$backlight s', open: _backlightMenu),
+        MenuEntry(tr('Rétroéclairage'), value: () => backlight == 0 ? tr('Allumé') : '$backlight s', open: _backlightMenu),
         MenuEntry(
-          'Clic',
-          value: () => WheelClick.instance.enabled ? 'Haut-parleur' : 'Non',
+          tr('Clic'),
+          value: () => WheelClick.instance.enabled ? tr('Haut-parleur') : tr('Non'),
           action: () {
             final on = !WheelClick.instance.enabled;
             WheelClick.instance.enabled = on;
             Settings.setString('ipod.clicker', on ? 'on' : 'off');
           },
         ),
+        MenuEntry(
+          tr('Tonalité du clic'),
+          value: () => tr(WheelClick.pitchNames[WheelClick.instance.pitch]),
+          open: _pitchMenu,
+        ),
+        MenuEntry(tr('Langue'), value: () => Lang.current.nativeName, open: _languageMenu),
       ]);
 
+  /// Page Tonalité du clic : parcourir la liste fait entendre chaque
+  /// tonalité ; valider la garde (on reste là pour comparer).
+  MenuPage? _pitchPage;
+
+  MenuPage _pitchMenu() {
+    final click = WheelClick.instance;
+    final page = _pitchPage = MenuPage(tr('Tonalité du clic'), live: true, () => [
+          for (var i = 0; i < WheelClick.pitches.length; i++)
+            MenuEntry(tr(WheelClick.pitchNames[i]), checked: () => i == click.pitch, action: () {
+              click.pitch = i;
+              Settings.setString('ipod.clickPitch', '$i');
+            }),
+        ]);
+    _focus(page, click.pitch);
+    return page;
+  }
+
+  /// Le clic prend la tonalité survolée tant qu'on est dans son menu.
+  void _syncPreview() {
+    final p = page;
+    WheelClick.instance.preview = p is MenuPage && identical(p, _pitchPage) ? p.selected : null;
+  }
+
+  MenuPage _languageMenu() {
+    final page = MenuPage(tr('Langue'), live: true, () => [
+          for (final l in Lang.values)
+            MenuEntry(l.nativeName, checked: () => l == Lang.current, action: () {
+              if (l == Lang.current) return;
+              Lang.set(l);
+              _relabel();
+            }),
+        ]);
+    _focus(page, Lang.current.index);
+    return page;
+  }
+
+  /// Nouvelle langue : les pages ouvertes (Lecteur › Réglages › Langue)
+  /// sont reconstruites avec leurs titres traduits, à la même place.
+  void _relabel() {
+    final fresh = <MenuPage>[_root(), _settings(), _languageMenu()];
+    for (var i = 0; i < fresh.length && i < stack.length; i++) {
+      final old = stack[i], now = fresh[i];
+      if (old is! MenuPage) continue;
+      now
+        ..selected = old.selected
+        ..top = old.top;
+      now.selSpring.value = old.selSpring.value;
+      now.topSpring.value = old.topSpring.value;
+    }
+    stack
+      ..clear()
+      ..addAll(fresh);
+    leaving = null;
+  }
+
+  /// Ouvre [page] sur la ligne [at] (le choix en cours).
+  void _focus(MenuPage page, int at) {
+    at = math.max(0, at);
+    page
+      ..selected = at
+      ..top = math.max(0, at - visibleRows + 1);
+    page.selSpring.value = at.toDouble();
+    page.topSpring.value = page.top.toDouble();
+  }
+
   MenuPage _backlightMenu() {
-    final page = MenuPage('Rétroéclairage', live: true, () => [
+    final page = MenuPage(tr('Rétroéclairage'), live: true, () => [
           for (final s in backlightChoices)
             MenuEntry(backlightLabel(s), checked: () => s == backlight, action: () {
               backlight = s;
@@ -331,12 +458,7 @@ class IpodNav extends ChangeNotifier {
             }),
         ]);
     // On arrive sur le choix en cours.
-    final at = math.max(0, backlightChoices.indexOf(backlight));
-    page
-      ..selected = at
-      ..top = math.max(0, at - visibleRows + 1);
-    page.selSpring.value = at.toDouble();
-    page.topSpring.value = page.top.toDouble();
+    _focus(page, backlightChoices.indexOf(backlight));
     return page;
   }
 
@@ -349,17 +471,17 @@ class IpodNav extends ChangeNotifier {
 
   /// Points de départ : le dossier actuel, le dossier personnel, les disques
   /// branchés, la racine.
-  MenuPage _places() => MenuPage('Bibliothèque', live: true, () {
+  MenuPage _places() => MenuPage(tr('Bibliothèque'), live: true, () {
         final env = Platform.environment;
         final home = env['HOME'] ?? '/';
         final user = env['USER'] ?? '';
         return [
-          MenuEntry('Dossier actuel', value: () => _folderName(player.musicDir), open: () => _folder(player.musicDir)),
-          MenuEntry('Dossier personnel', open: () => _folder(home)),
-          for (final (label, path) in [('Disques', '/run/media/$user'), ('Disques', '/media/$user'), ('/mnt', '/mnt')])
+          MenuEntry(tr('Dossier actuel'), value: () => _folderName(player.musicDir), open: () => _folder(player.musicDir)),
+          MenuEntry(tr('Dossier personnel'), open: () => _folder(home)),
+          for (final (label, path) in [(tr('Disques'), '/run/media/$user'), (tr('Disques'), '/media/$user'), ('/mnt', '/mnt')])
             if (user.isNotEmpty || !path.endsWith('/')) // pas de « /media/ » sans nom
               if (Directory(path).existsSync()) MenuEntry(label, open: () => _folder(path)),
-          MenuEntry('Racine', open: () => _folder('/')),
+          MenuEntry(tr('Racine'), open: () => _folder('/')),
         ];
       });
 
@@ -377,9 +499,9 @@ class IpodNav extends ChangeNotifier {
           subs = const []; // illisible : on peut quand même le choisir
         }
         return [
-          MenuEntry('Utiliser ce dossier', checked: () => path == player.musicDir, action: () {
+          MenuEntry(tr('Utiliser ce dossier'), checked: () => path == player.musicDir, action: () {
             if (path != player.musicDir) player.setMusicDir(path);
-            _backTo('Réglages');
+            _backTo(tr('Réglages'));
           }),
           for (final d in subs) MenuEntry(_folderName(d.path), open: () => _folder(d.path)),
         ];
@@ -396,20 +518,20 @@ class IpodNav extends ChangeNotifier {
     notifyListeners();
   }
 
-  MenuPage _about() => MenuPage('À propos', () {
+  MenuPage _about() => MenuPage(tr('À propos'), () {
         final artists = {for (final a in player.albums) a.artist.toLowerCase()};
         return [
-          MenuEntry('Morceaux', value: () => '${player.queue.length}'),
-          MenuEntry('Albums', value: () => '${player.albums.length}'),
-          MenuEntry('Artistes', value: () => '${artists.length}'),
-          MenuEntry('Listes', value: () => '${player.playlists.length}'),
-          MenuEntry('Version', value: () => '0.2.0'),
+          MenuEntry(tr('Morceaux'), value: () => '${player.queue.length}'),
+          MenuEntry(tr('Albums'), value: () => '${player.albums.length}'),
+          MenuEntry(tr('Artistes'), value: () => '${artists.length}'),
+          MenuEntry(tr('Listes'), value: () => '${player.playlists.length}'),
+          MenuEntry('Version', value: () => '0.3.0'),
         ];
       });
 
   static int _cmp(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
 
-  MenuPage _artists() => MenuPage('Artistes', () {
+  MenuPage _artists() => MenuPage(tr('Artistes'), () {
         final names = <String, String>{};
         for (final a in player.albums) {
           names.putIfAbsent(a.artist.toLowerCase(), () => a.artist);
@@ -431,7 +553,7 @@ class IpodNav extends ChangeNotifier {
   MenuPage _artist(String artist) {
     final ids = _sortedAlbums(artist);
     return MenuPage(artist, () => [
-          MenuEntry('Tous', open: () => _tracks(artist, [for (final i in ids) ..._albumTracks(player.albums[i])])),
+          MenuEntry(tr('Tous'), open: () => _tracks(artist, [for (final i in ids) ..._albumTracks(player.albums[i])])),
           for (final i in ids) MenuEntry(player.albums[i].title, open: () => _album(i)),
         ]);
   }
@@ -443,7 +565,7 @@ class IpodNav extends ChangeNotifier {
 
   MenuPage _album(int i) => _tracks(player.albums[i].title, _albumTracks(player.albums[i]).toList());
 
-  MenuPage _songs() => MenuPage('Morceaux', () {
+  MenuPage _songs() => MenuPage(tr('Morceaux'), () {
         final ids = List.generate(player.queue.length, (i) => i)
           ..sort((a, b) => _cmp(player.queue[a].title, player.queue[b].title));
         return [for (final i in ids) MenuEntry(player.queue[i].title, action: () => _play(i))];

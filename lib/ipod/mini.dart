@@ -8,6 +8,7 @@ import 'look.dart';
 import 'model.dart';
 import 'nav.dart';
 import 'wheel.dart';
+import '../core/strings.dart';
 
 /// Teintes d'aluminium anodisé, avec la molette en plastique assortie.
 enum MiniColor {
@@ -406,7 +407,7 @@ class MiniLook extends ScreenLook {
   CustomPainter scrollbar(double start, double extent) => _ScrollbarPainter(start, extent);
 
   @override
-  Widget empty() => const Center(child: Text('Aucun élément'));
+  Widget empty() => Center(child: Text(tr('Aucun élément')));
 
   @override
   Widget nowPlaying(PlayerController player, NowPlayingMode mode) => _NowPlaying(player: player, mode: mode);
@@ -479,12 +480,12 @@ class _NowPlaying extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final track = player.current;
-    if (track == null) return const Center(child: Text('Aucun morceau'));
+    if (track == null) return Center(child: Text(tr('Aucun morceau')));
     final albumIndex = player.currentAlbum;
     final album = albumIndex >= 0 ? player.albums[albumIndex] : null;
     final position = album == null
-        ? '${player.index + 1} sur ${player.queue.length}'
-        : '${player.index - album.firstIndex + 1} sur ${album.trackCount}';
+        ? trOf(player.index + 1, player.queue.length)
+        : trOf(player.index - album.firstIndex + 1, album.trackCount);
 
     Widget line(String text, TextStyle style) => Center(child: Marquee(text, style: style));
 

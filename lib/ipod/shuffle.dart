@@ -229,10 +229,10 @@ class Shuffle4Model extends IpodModel {
   bool get hasScreen => false;
 
   @override
-  double get jackX => 172;
+  double get jackX => 160;
 
   @override
-  double? get led => 150;
+  double? get led => 136;
 
   /// L'interrupteur, à gauche sur la tranche du haut.
   @override

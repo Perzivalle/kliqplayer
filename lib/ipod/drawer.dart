@@ -8,12 +8,13 @@ import 'package:flutter/rendering.dart';
 import 'model.dart';
 import 'nav.dart';
 import 'wheel.dart';
+import '../core/strings.dart';
 
 /// Épaisseur de la façade du tiroir (celle où l'on glisse le doigt).
 const double drawerFront = 26;
 
 /// Le tiroir qui sort de derrière l'iPod : coque en aluminium, fond en
-/// feutrine, un emplacement par modèle avec ses teintes en pastilles.
+/// mousse noire, un emplacement par modèle avec ses teintes en pastilles.
 /// L'emplacement du modèle en main est vide.
 ///
 /// La façade est du côté extérieur ([frontOnRight] : il sort vers la
@@ -102,6 +103,9 @@ class IpodDrawer extends StatelessWidget {
         final fit = ((slots.width) / (maxW * minScale + 28)).floor();
         columns = fit.clamp(1, math.min(n, 4));
       }
+      // Le fond en vrai (la coque est dessinée façade à gauche puis
+      // retournée) : c'est sur lui que se cale le motif de la mousse.
+      final foam = frontOnRight ? Rect.fromLTRB(_wall, inner.top, w - drawerFront, inner.bottom) : inner;
       final rows = (n / columns).ceil();
       final cellW = slots.width / columns;
       final cellH = scrolls ? maxH * scale + below + 20 : slots.height / rows;
@@ -110,7 +114,20 @@ class IpodDrawer extends StatelessWidget {
         width: slots.width,
         height: cellH * rows,
         child: Stack(
+          clipBehavior: Clip.none,
           children: [
+            // Qui défile avec les emplacements, calé sur le fond immobile
+            // (au repos, aucun raccord) ; il déborde pour le rebond.
+            if (scrolls)
+              Positioned(
+                left: 0,
+                right: 0,
+                top: -120,
+                bottom: -120,
+                child: _Frozen(
+                  child: CustomPaint(painter: _FoamPainter(origin: foam.topLeft - slots.topLeft + const Offset(0, 120))),
+                ),
+              ),
             for (var i = 0; i < n; i++)
               Positioned(
                 left: (i % columns) * cellW,
@@ -141,8 +158,18 @@ class IpodDrawer extends StatelessWidget {
             ),
           ),
           Positioned.fromRect(
+            rect: foam,
+            child: _Frozen(child: CustomPaint(painter: _FoamPainter(radius: 4))),
+          ),
+          Positioned.fromRect(
             rect: slots,
             child: scrolls ? _ScrollingSlots(child: grid) : grid,
+          ),
+          Positioned.fromRect(
+            rect: foam,
+            child: IgnorePointer(
+              child: _Frozen(child: CustomPaint(painter: _WallShadowPainter(frontOnRight: frontOnRight))),
+            ),
           ),
           // Façade : clic pour ouvrir ou refermer.
           Positioned(
@@ -266,7 +293,7 @@ class _SlotState extends State<_Slot> {
                   clipBehavior: Clip.none,
                   children: [
                     Positioned.fill(
-                      child: _Frozen(overflow: 8, child: CustomPaint(painter: _ImprintPainter(radius))),
+                      child: _Frozen(overflow: 12, child: CustomPaint(painter: _ImprintPainter(radius))),
                     ),
                     if (!empty) Positioned.fill(child: device),
                     Positioned.fill(
@@ -284,7 +311,7 @@ class _SlotState extends State<_Slot> {
             ),
           ),
           const SizedBox(height: 14),
-          _Engraved(m.label),
+          _Engraved(tr(m.label)),
           const SizedBox(height: 10),
           // Pastilles, seulement au survol de l'emplacement : sur une ligne si
           // elles tiennent, sinon sur deux. Survolée, une teinte habille
@@ -332,7 +359,7 @@ class _SlotState extends State<_Slot> {
   }
 }
 
-/// Nom du modèle gravé dans la feutrine.
+/// Nom du modèle gravé dans la mousse.
 class _Engraved extends StatelessWidget {
   const _Engraved(this.text);
 
@@ -360,7 +387,7 @@ class _Engraved extends StatelessWidget {
         fontSize: 10,
         fontWeight: FontWeight.w700,
         letterSpacing: 3,
-        color: Colors.white.withValues(alpha: 0.32),
+        color: Colors.white.withValues(alpha: 0.5),
         shadows: const [Shadow(color: Color(0xAA000000), offset: Offset(0, -0.8))],
       ),
     );
@@ -387,7 +414,7 @@ class _SwatchState extends State<_Swatch> {
   Widget build(BuildContext context) {
     final c = widget.model.swatch;
     return Tooltip(
-      message: widget.model.variantName,
+      message: tr(widget.model.variantName),
       waitDuration: const Duration(milliseconds: 400),
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
@@ -436,7 +463,7 @@ class _SwatchState extends State<_Swatch> {
 
 /// Partie immobile du tiroir, peinte une fois en image puis réutilisée.
 /// Impeller redessine toute la scène à chaque image ; sans cela, la moindre
-/// animation (survol d'un appareil, titre qui défile) repeindrait feutrine,
+/// animation (survol d'un appareil, titre qui défile) repeindrait mousse,
 /// ombres floues et miniatures, bien trop lourd pour tenir 60 images/s.
 class _Frozen extends StatelessWidget {
   const _Frozen({super.key, this.overflow = 0, required this.child});
@@ -532,11 +559,11 @@ class IpodPreview extends StatelessWidget {
 
   final IpodModel model;
 
-  static final _entries = [
-    MenuEntry('Musique', open: NowPlayingPage.new),
-    const MenuEntry('Morceau au hasard'),
-    MenuEntry('En lecture', open: NowPlayingPage.new),
-  ];
+  static List<MenuEntry> get _entries => [
+        MenuEntry(tr('Musique'), open: NowPlayingPage.new),
+        MenuEntry(tr('Morceau au hasard')),
+        MenuEntry(tr('En lecture'), open: NowPlayingPage.new),
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -562,14 +589,14 @@ class IpodPreview extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          look.statusBar(title: 'Lecteur', playing: false, hasTrack: false),
-                          for (var i = 0; i < _entries.length; i++)
+                          look.statusBar(title: tr('Lecteur'), playing: false, hasTrack: false),
+                          for (final (i, entry) in _entries.indexed)
                             SizedBox(
                               height: look.rowHeight,
                               child: Stack(
                                 children: [
                                   if (i == 0) Positioned.fill(child: look.highlight()),
-                                  Positioned.fill(child: look.row(_entries[i], selected: i == 0)),
+                                  Positioned.fill(child: look.row(entry, selected: i == 0)),
                                 ],
                               ),
                             ),
@@ -597,7 +624,7 @@ class IpodPreview extends StatelessWidget {
   }
 }
 
-// --- Coque en aluminium et feutrine -----------------------------------------
+// --- Coque en aluminium et mousse -----------------------------------------
 
 class _TrayPainter extends CustomPainter {
   const _TrayPainter({required this.inner, this.mirrored = false});
@@ -706,32 +733,10 @@ class _TrayPainter extends CustomPainter {
         ),
     );
 
-    // Fond en feutrine, avec le chanfrein brillant du métal tout autour.
-    final felt = RRect.fromRectAndRadius(inner, const Radius.circular(4));
-    canvas.drawRRect(felt.inflate(1.5), Paint()..color = const Color(0xFFF2F4F5));
-    canvas.drawRRect(felt, Paint()..color = const Color(0xFF262A31));
-    canvas.save();
-    canvas.clipRRect(felt);
-    canvas.drawRawPoints(
-      ui.PointMode.points,
-      _grain(inner, 26, 9),
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.05)
-        ..strokeWidth = 1.2,
-    );
-    // Ombre intérieure le long des parois.
-    for (final (edge, from, to) in [
-      (Rect.fromLTWH(inner.left, inner.top, inner.width, 16), inner.topCenter, inner.topCenter + const Offset(0, 16)),
-      (Rect.fromLTWH(inner.left, inner.top, 16, inner.height), inner.centerLeft, inner.centerLeft + const Offset(16, 0)),
-      (Rect.fromLTWH(inner.left, inner.bottom - 8, inner.width, 8), inner.bottomCenter, inner.bottomCenter - const Offset(0, 8)),
-    ]) {
-      canvas.drawRect(
-        edge,
-        Paint()
-          ..shader = ui.Gradient.linear(from, to, [Colors.black.withValues(alpha: 0.5), Colors.black.withValues(alpha: 0)]),
-      );
-    }
-    canvas.restore();
+    // Fond en mousse, avec le chanfrein brillant du métal tout autour.
+    final foam = RRect.fromRectAndRadius(inner, const Radius.circular(4));
+    canvas.drawRRect(foam.inflate(1.5), Paint()..color = const Color(0xFFF2F4F5));
+    canvas.drawRRect(foam, Paint()..color = _Foam.base);
   }
 
   static final _grainCache = <(Rect, double, int), Float32List>{};
@@ -755,7 +760,138 @@ class _TrayPainter extends CustomPainter {
   bool shouldRepaint(covariant _TrayPainter old) => old.inner != inner || old.mirrored != mirrored;
 }
 
-/// Creux en forme d'appareil dans la feutrine.
+/// Mousse de calage noire, comme au fond des tiroirs de servante
+/// d'atelier : un charbon mat, granuleux comme du papier de verre, semé de
+/// petits grains clairs qui accrochent la lumière. En carreau qui se répète
+/// sans raccord visible ; généré une fois, puis posé en motif.
+class _Foam {
+  static const base = Color(0xFF1D1E20);
+  static const _tile = 256.0;
+  static const _res = 2.0; // net sur un écran HiDPI
+
+  static final ui.Image image = _make();
+
+  static ui.Image _make() {
+    final rec = ui.PictureRecorder();
+    final c = Canvas(rec)..scale(_res);
+    const t = _tile;
+    c.drawRect(const Rect.fromLTWH(0, 0, t, t), Paint()..color = base);
+    final rnd = math.Random(41);
+    // Ce qui déborde d'un côté du carreau revient de l'autre : le motif se
+    // raccorde.
+    void wrapped(Offset p, double margin, void Function(Offset p) draw) {
+      if (p.dx > margin && p.dy > margin && p.dx < t - margin && p.dy < t - margin) {
+        draw(p);
+        return;
+      }
+      for (final dx in const [-t, 0.0, t]) {
+        for (final dy in const [-t, 0.0, t]) {
+          draw(p + Offset(dx, dy));
+        }
+      }
+    }
+
+    // Très légères variations, à peine visibles : la mousse n'est pas
+    // parfaitement uniforme.
+    for (var i = 0; i < 16; i++) {
+      final p = Offset(rnd.nextDouble() * t, rnd.nextDouble() * t);
+      final r = 24 + rnd.nextDouble() * 40;
+      final paint = Paint()
+        ..color = rnd.nextBool() ? Colors.white.withValues(alpha: 0.018) : Colors.black.withValues(alpha: 0.12)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, r * 0.7);
+      wrapped(p, 200, (q) => c.drawCircle(q, r, paint));
+    }
+    // Creux entre les grains : un peu plus noirs.
+    final pit = Paint();
+    for (var i = 0; i < 4000; i++) {
+      final p = Offset(rnd.nextDouble() * t, rnd.nextDouble() * t);
+      final r = 0.4 + rnd.nextDouble() * 0.8;
+      pit.color = Colors.black.withValues(alpha: 0.15 + rnd.nextDouble() * 0.2);
+      wrapped(p, 3, (q) => c.drawCircle(q, r, pit));
+    }
+    // Grains : serrés, minuscules, gris clair, quelques-uns plus brillants.
+    final grain = Paint();
+    final shade = Paint();
+    for (var i = 0; i < 8000; i++) {
+      final p = Offset(rnd.nextDouble() * t, rnd.nextDouble() * t);
+      final u = rnd.nextDouble();
+      final r = 0.22 + u * u * 0.55;
+      final bright = rnd.nextInt(16) == 0;
+      grain.color = Colors.white.withValues(alpha: bright ? 0.3 + rnd.nextDouble() * 0.15 : 0.06 + rnd.nextDouble() * 0.1);
+      shade.color = Colors.black.withValues(alpha: 0.25);
+      wrapped(p, 3, (q) {
+        // Ombre du grain en bas à droite (la lumière vient d'en haut).
+        if (r > 0.45) c.drawCircle(q + Offset(r * 0.6, r * 0.7), r, shade);
+        c.drawCircle(q, r, grain);
+      });
+    }
+    final size = (_tile * _res).round();
+    return rec.endRecording().toImageSync(size, size);
+  }
+
+  /// Motif dont le carreau commence à [origin] (coordonnées locales).
+  static Paint paint(Offset origin) {
+    final m = Matrix4.identity()
+      ..translateByDouble(origin.dx, origin.dy, 0, 1)
+      ..scaleByDouble(1 / _res, 1 / _res, 1, 1);
+    return Paint()
+      ..shader = ImageShader(image, TileMode.repeated, TileMode.repeated, m.storage)
+      ..filterQuality = FilterQuality.medium;
+  }
+}
+
+/// La mousse, son motif calé sur [origin] : le même carreau sur le fond
+/// immobile et sous les emplacements qui défilent.
+class _FoamPainter extends CustomPainter {
+  const _FoamPainter({this.origin = Offset.zero, this.radius = 0});
+
+  final Offset origin;
+  final double radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius)),
+      _Foam.paint(origin),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _FoamPainter old) => old.origin != origin || old.radius != radius;
+}
+
+/// Ombre des parois sur la mousse, par-dessus les emplacements (les
+/// parois, elles, ne défilent pas). [frontOnRight] : façade à droite.
+class _WallShadowPainter extends CustomPainter {
+  const _WallShadowPainter({required this.frontOnRight});
+
+  final bool frontOnRight;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final inner = Offset.zero & size;
+    canvas.clipRRect(RRect.fromRectAndRadius(inner, const Radius.circular(4)));
+    final side = frontOnRight
+        ? (Rect.fromLTWH(inner.right - 16, inner.top, 16, inner.height), inner.centerRight, inner.centerRight - const Offset(16, 0))
+        : (Rect.fromLTWH(inner.left, inner.top, 16, inner.height), inner.centerLeft, inner.centerLeft + const Offset(16, 0));
+    for (final (edge, from, to) in [
+      (Rect.fromLTWH(inner.left, inner.top, inner.width, 16), inner.topCenter, inner.topCenter + const Offset(0, 16)),
+      side,
+      (Rect.fromLTWH(inner.left, inner.bottom - 8, inner.width, 8), inner.bottomCenter, inner.bottomCenter - const Offset(0, 8)),
+    ]) {
+      canvas.drawRect(
+        edge,
+        Paint()
+          ..shader = ui.Gradient.linear(from, to, [Colors.black.withValues(alpha: 0.5), Colors.black.withValues(alpha: 0)]),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WallShadowPainter old) => old.frontOnRight != frontOnRight;
+}
+
+/// Découpe en forme d'appareil dans la mousse.
 class _ImprintPainter extends CustomPainter {
   const _ImprintPainter(this.radius);
 
@@ -763,31 +899,37 @@ class _ImprintPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final r = RRect.fromRectAndRadius((Offset.zero & size).inflate(3), Radius.circular(radius + 3));
-    canvas.drawRRect(r, Paint()..color = const Color(0xFF1B1E23));
-    canvas.save();
-    canvas.clipRRect(r);
-    // Ombre en haut à gauche, lumière en bas à droite : c'est un creux.
+    final all = Offset.zero & size;
+    // La découpe, un peu plus large que l'appareil.
+    final hole = RRect.fromRectAndRadius(all.inflate(6), Radius.circular(radius + 6));
+    // Fond de la découpe, en retrait de l'épaisseur de la paroi.
+    final floor = RRect.fromRectAndRadius(all.inflate(3), Radius.circular(radius + 3));
+
+    // Paroi : la lumière vient d'en haut, la paroi du bas la reçoit, celle
+    // du haut reste dans l'ombre.
     canvas.drawRRect(
-      r.shift(const Offset(3, 4)),
+      hole,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          hole.outerRect.topCenter,
+          hole.outerRect.bottomCenter,
+          const [Color(0xFF050506), Color(0xFF1A1B1D), Color(0xFF3A3C40)],
+          const [0, 0.55, 1],
+        ),
+    );
+    canvas.drawRRect(floor, Paint()..color = const Color(0xFF0E0F10));
+    canvas.save();
+    canvas.clipRRect(floor);
+    // Ombre portée par la paroi du haut sur le fond.
+    canvas.drawRRect(
+      floor.shift(const Offset(2, 4)),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 6
-        ..color = Colors.black.withValues(alpha: 0.55)
+        ..strokeWidth = 7
+        ..color = Colors.black.withValues(alpha: 0.7)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
     );
     canvas.restore();
-    canvas.drawRRect(
-      r,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..shader = ui.Gradient.linear(
-          r.outerRect.topLeft,
-          r.outerRect.bottomRight,
-          [Colors.black.withValues(alpha: 0.5), Colors.white.withValues(alpha: 0.10)],
-        ),
-    );
   }
 
   @override
@@ -795,7 +937,7 @@ class _ImprintPainter extends CustomPainter {
 }
 
 /// Emplacements trop nombreux pour la hauteur de la fenêtre : ils défilent
-/// à la molette, avec un fin repère clair sur la feutrine.
+/// à la molette, avec un fin repère clair sur la mousse.
 class _ScrollingSlots extends StatefulWidget {
   const _ScrollingSlots({required this.child});
 

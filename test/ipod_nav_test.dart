@@ -4,6 +4,8 @@ import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/core/library.dart';
 import 'package:lecteur/core/player.dart';
+import 'package:lecteur/core/strings.dart';
+import 'package:lecteur/ipod/click.dart';
 import 'package:lecteur/ipod/classic.dart';
 import 'package:lecteur/ipod/mini.dart';
 import 'package:lecteur/ipod/nav.dart';
@@ -30,7 +32,7 @@ void _open(IpodNav nav, String label) {
 }
 
 void main() {
-  test('Cover Flow : part de l\'album en cours, la molette fait défiler, le bouton ouvre l\'album', () {
+  test('Cover Flow : part de l\'album en cours, la molette fait défiler, bute aux bouts', () {
     final nav = IpodNav(_player(), look: const ClassicLook());
     _open(nav, 'Musique');
     _open(nav, 'Cover Flow');
@@ -41,8 +43,31 @@ void main() {
     nav.scroll(10);
     expect(cf.selected, 4, reason: 'bute sur le dernier');
     expect(nav.scroll(1), isFalse);
+  });
+
+  test('Cover Flow : valider retourne la pochette, la molette parcourt ses morceaux, MENU la remet', () async {
+    final player = _player();
+    final nav = IpodNav(player, look: const ClassicLook());
+    _open(nav, 'Musique');
+    _open(nav, 'Cover Flow');
+    final cf = nav.page as CoverFlowPage;
     nav.select();
-    expect(nav.page.title, 'Album 4');
+    expect(cf.flipped, isTrue);
+    expect(nav.page, same(cf), reason: 'on reste dans Cover Flow');
+    expect(cf.track, 0, reason: 'le morceau 4 est le 1er du 3e album');
+    expect(nav.scroll(1), isTrue);
+    expect(cf.track, 1);
+    expect(cf.selected, 2, reason: "la molette ne change plus d'album");
+    expect(nav.scroll(1), isFalse, reason: 'deux morceaux par album');
+    nav.select();
+    await pumpEventQueue();
+    expect(player.playing, isTrue, reason: 'valider joue le morceau');
+    expect(cf.flipped, isTrue, reason: 'on reste au dos de la pochette');
+    nav.menu();
+    expect(cf.flipped, isFalse);
+    expect(nav.page, same(cf), reason: 'MENU remet la pochette, sans quitter Cover Flow');
+    nav.menu();
+    expect(nav.page.title, 'Musique');
   });
 
   test('pas de Cover Flow sur un écran monochrome ; on en ressort en changeant d\'appareil', () {
@@ -103,5 +128,36 @@ void main() {
     _open(nav, 'Utiliser ce dossier');
     expect(player.musicDir, '${root.path}/Rock');
     expect(nav.page.title, 'Réglages', reason: 'choisi : retour aux Réglages');
+  });
+
+  test('Tonalité du clic : on entend chaque tonalité en parcourant, valider la garde', () {
+    final click = WheelClick.instance;
+    final nav = IpodNav(_player(), look: const ClassicLook());
+    _open(nav, 'Réglages');
+    _open(nav, 'Tonalité du clic');
+    expect(click.preview, 2, reason: 'arrive sur la tonalité en cours');
+    nav.scroll(2);
+    expect(click.preview, 4);
+    expect(click.pitch, 2, reason: 'parcourir ne change rien');
+    nav.select();
+    expect(click.pitch, 4);
+    expect(nav.page.title, 'Tonalité du clic', reason: 'on reste pour comparer');
+    nav.menu();
+    expect(click.preview, isNull, reason: 'hors du menu, la tonalité choisie');
+    click.pitch = 2;
+  });
+
+  test('Langue : les menus ouverts se traduisent sur place', () {
+    addTearDown(() => Lang.set(Lang.fr));
+    final nav = IpodNav(_player(), look: const ClassicLook());
+    _open(nav, 'Réglages');
+    _open(nav, 'Langue');
+    _open(nav, 'English');
+    expect(nav.page.title, 'Language');
+    nav.menu();
+    expect(nav.page.title, 'Settings');
+    expect((nav.page as MenuPage).entries.map((e) => e.label), contains('Click Tone'));
+    nav.menu();
+    expect((nav.page as MenuPage).entries.first.label, 'Music');
   });
 }

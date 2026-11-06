@@ -147,13 +147,15 @@ class Nano2Model extends IpodModel {
 const nano4Colors = [
   Anodized('argent', 'Argent', base: Color(0xFFCDD0D3), light: Color(0xFFE9EBEC), dark: Color(0xFFA2A6AA)),
   Anodized('noir', 'Noir', base: Color(0xFF2B2C2F), light: Color(0xFF45464A), dark: Color(0xFF161719)),
-  Anodized('violet', 'Violet', base: Color(0xFF8F69B9), light: Color(0xFFAE8DD2), dark: Color(0xFF6A4891)),
-  Anodized('bleu', 'Bleu', base: Color(0xFF3E86D4), light: Color(0xFF6BA6E4), dark: Color(0xFF2A64A8)),
-  Anodized('vert', 'Vert', base: Color(0xFF79C24A), light: Color(0xFF9DD674), dark: Color(0xFF579A2F)),
-  Anodized('jaune', 'Jaune', base: Color(0xFFF0D232), light: Color(0xFFF7E37A), dark: Color(0xFFC7A714)),
-  Anodized('orange', 'Orange', base: Color(0xFFF08A2A), light: Color(0xFFF6AB62), dark: Color(0xFFC4661A)),
-  Anodized('rose', 'Rose', base: Color(0xFFEA6EA0), light: Color(0xFFF299BE), dark: Color(0xFFC04B7B)),
-  Anodized('rouge', 'Rouge', base: Color(0xFFC21F35), light: Color(0xFFDB4A5D), dark: Color(0xFF8C1424)),
+  // Les teintes « chromatiques » de 2008 sont très saturées : reflets
+  // encore vifs (pas pastel), ombres profondes mais pas grisées.
+  Anodized('violet', 'Violet', base: Color(0xFF8A3CC8), light: Color(0xFFA865E0), dark: Color(0xFF5E2096)),
+  Anodized('bleu', 'Bleu', base: Color(0xFF1A7FE0), light: Color(0xFF4AA0F0), dark: Color(0xFF0A55B0)),
+  Anodized('vert', 'Vert', base: Color(0xFF5CC31F), light: Color(0xFF82DA48), dark: Color(0xFF3A9410)),
+  Anodized('jaune', 'Jaune', base: Color(0xFFFFD60A), light: Color(0xFFFFE650), dark: Color(0xFFD9A800)),
+  Anodized('orange', 'Orange', base: Color(0xFFFF7A10), light: Color(0xFFFF9D45), dark: Color(0xFFD85400)),
+  Anodized('rose', 'Rose', base: Color(0xFFF2408C), light: Color(0xFFF873AE), dark: Color(0xFFC41C66)),
+  Anodized('rouge', 'Rouge', base: Color(0xFFD8102C), light: Color(0xFFEE3C52), dark: Color(0xFF9A0A1C)),
 ];
 
 /// Le nano de 4e génération : long, galbé (38,7 × 90,7 mm), écran

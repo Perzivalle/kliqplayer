@@ -12,8 +12,21 @@ class WheelClick {
 
   static final WheelClick instance = WheelClick._();
 
-  AudioSource? _source;
+  /// Tonalités proposées (Réglages › Tonalité du clic) : facteur appliqué
+  /// aux fréquences du claquement, de « Très grave » à « Très aiguë ».
+  static const pitches = [0.8, 0.9, 1.0, 1.12, 1.25];
+  static const pitchNames = ['Très grave', 'Grave', 'Normale', 'Aiguë', 'Très aiguë'];
+
+  /// Un son par tonalité, synthétisés d'un coup (quelques Ko chacun).
+  List<AudioSource>? _sources;
   Future<void>? _loading;
+
+  /// Tonalité choisie (index dans [pitches]).
+  int pitch = 2;
+
+  /// Tonalité écoutée en parcourant le menu Tonalité du clic, à la place
+  /// de [pitch] (null hors de ce menu).
+  int? preview;
 
   /// Volume du clic, de 0 à 1.
   double volume = 0.55;
@@ -27,7 +40,10 @@ class WheelClick {
       // Petit tampon : le clic doit partir sans délai perceptible.
       await soloud.init(bufferSize: 512);
     }
-    _source = await soloud.loadMem('wheel-click.wav', _synthesize());
+    _sources = [
+      for (var i = 0; i < pitches.length; i++)
+        await soloud.loadMem('wheel-click-$i.wav', _synthesize(pitches[i])),
+    ];
   }
 
   /// Joue le clic ; sans effet (et sans erreur) si l'audio n'est pas prêt.
@@ -35,14 +51,14 @@ class WheelClick {
   /// le clic de la molette est coupé.
   void play({bool force = false}) {
     if (!enabled && !force) return;
-    final source = _source;
-    if (source == null) {
+    final sources = _sources;
+    if (sources == null) {
       _loading ??= _load().catchError((Object e) {
         debugPrint('Clic de la molette indisponible : $e');
       });
       return;
     }
-    SoLoud.instance.play(source, volume: volume);
+    SoLoud.instance.play(sources[(preview ?? pitch).clamp(0, sources.length - 1)], volume: volume);
   }
 
   /// Précharge le son pour que le premier clic ne soit pas muet.
@@ -52,7 +68,8 @@ class WheelClick {
 
   /// WAV mono 16 bits : souffle très bref (le contact) suivi d'une petite
   /// résonance aiguë qui s'éteint en quelques millisecondes (le boîtier).
-  static Uint8List _synthesize() {
+  /// [pitch] décale les résonances (et raccourcit d'autant leur traîne).
+  static Uint8List _synthesize(double pitch) {
     const rate = 44100;
     const n = rate * 18 ~/ 1000; // 18 ms
     final rnd = math.Random(7);
@@ -63,8 +80,8 @@ class WheelClick {
       final noise = rnd.nextDouble() * 2 - 1;
       lp += (noise - lp) * 0.55; // adoucit un peu le souffle
       final contact = lp * math.exp(-t / 0.0006);
-      final ring = math.sin(2 * math.pi * 3100 * t) * math.exp(-t / 0.0016);
-      final body = math.sin(2 * math.pi * 1250 * t) * math.exp(-t / 0.0030);
+      final ring = math.sin(2 * math.pi * 3100 * pitch * t) * math.exp(-t * pitch / 0.0016);
+      final body = math.sin(2 * math.pi * 1250 * pitch * t) * math.exp(-t * pitch / 0.0030);
       final attack = math.min(1.0, i / 6); // évite un pop au tout début
       final v = attack * (0.75 * contact + 0.45 * ring + 0.22 * body);
       samples[i] = (v.clamp(-1.0, 1.0) * 32767).round();

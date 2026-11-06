@@ -86,6 +86,20 @@ class PlayerController extends ChangeNotifier {
   bool shuffle = false;
   RepeatMode repeat = RepeatMode.off;
 
+  /// Aléatoire imposé par l'appareil (les shuffle n'ont pas d'écran, ils
+  /// jouent toujours au hasard), sans toucher au réglage [shuffle].
+  bool forcedShuffle = false;
+
+  /// Lecture aléatoire en vigueur : le réglage, ou l'appareil qui l'impose.
+  bool get shuffling => shuffle || forcedShuffle;
+
+  Future<void> setForcedShuffle(bool on) async {
+    if (on == forcedShuffle) return;
+    final was = shuffling;
+    forcedShuffle = on;
+    if (shuffling != was) await _run((p) => p.setShuffle(shuffling));
+  }
+
   int index = -1;
   bool playing = false;
   Duration duration = Duration.zero;
@@ -159,7 +173,7 @@ class PlayerController extends ChangeNotifier {
         play: false,
       );
       await _player.setPlaylistMode(_modeFor(repeat));
-      if (shuffle) await _player.setShuffle(true);
+      if (shuffling) await _player.setShuffle(true);
     }
     notifyListeners();
   }
@@ -171,10 +185,11 @@ class PlayerController extends ChangeNotifier {
       };
 
   Future<void> setShuffle(bool on) async {
+    final was = shuffling;
     shuffle = on;
     Settings.setString('player.shuffle', on ? 'on' : 'off');
     notifyListeners();
-    await _run((p) => p.setShuffle(on));
+    if (shuffling != was) await _run((p) => p.setShuffle(shuffling));
   }
 
   Future<void> setRepeat(RepeatMode r) async {

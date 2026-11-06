@@ -97,8 +97,18 @@ Future<PlayerController> _coverPlayer(WidgetTester tester) async {
   final covers = <int, Uint8List?>{};
   for (var i = 0; i < hues.length; i++) {
     final title = 'Album ${String.fromCharCode(65 + i)}';
-    albums.add(Album(title: title, artist: 'Artiste ${i + 1}', firstIndex: tracks.length, trackCount: 1));
-    tracks.add(Track(path: '/x/$i.flac', title: 'Titre $i', artist: 'Artiste ${i + 1}', album: title));
+    // L'album du milieu (E) a plusieurs morceaux, pour le dos de sa pochette.
+    final n = i == 4 ? 8 : 1;
+    albums.add(Album(title: title, artist: 'Artiste ${i + 1}', firstIndex: tracks.length, trackCount: n));
+    for (var k = 0; k < n; k++) {
+      tracks.add(Track(
+        path: '/x/$i-$k.flac',
+        title: n == 1 ? 'Titre $i' : 'Morceau ${k + 1} de l\'album',
+        artist: 'Artiste ${i + 1}',
+        album: title,
+        duration: Duration(seconds: 150 + 37 * k),
+      ));
+    }
     covers[i] = await tester.runAsync(() async {
       final rec = ui.PictureRecorder();
       final c = Canvas(rec);
@@ -232,6 +242,30 @@ void main() {
       await _key(tester, LogicalKeyboardKey.arrowDown, 2);
       await _frames(tester, 3); // en plein glissement
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_coverflow_moving.png'));
+    });
+
+    testWidgets('Cover Flow retourné (Classic)', (tester) async {
+      final player = await _coverPlayer(tester);
+      await _show(tester, IpodStage(player: player, initial: const ClassicModel()));
+      await _key(tester, LogicalKeyboardKey.enter); // Musique
+      await _key(tester, LogicalKeyboardKey.enter); // Cover Flow
+      await _decode(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter); // retourne
+      await _frames(tester, 9); // en plein demi-tour
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_coverflow_flipping.png'));
+      await _frames(tester);
+      await _key(tester, LogicalKeyboardKey.arrowDown, 2);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_coverflow_flipped.png'));
+    });
+
+    testWidgets('Cover Flow retourné (nano 4G)', (tester) async {
+      final player = await _coverPlayer(tester);
+      await _show(tester, IpodStage(player: player, initial: Nano4Model(nano4Colors[3])));
+      await _key(tester, LogicalKeyboardKey.enter); // Musique
+      await _key(tester, LogicalKeyboardKey.enter); // Cover Flow
+      await _decode(tester);
+      await _key(tester, LogicalKeyboardKey.enter); // retourne
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/nano4_coverflow_flipped.png'));
     });
 
     testWidgets('Cover Flow (nano 4G, écran vertical)', (tester) async {
