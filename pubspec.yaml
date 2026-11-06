@@ -14,6 +14,8 @@ dependencies:
   media_kit_libs_audio: ^1.0.7
   audio_metadata_reader: ^1.8.1
   window_manager: ^0.6.0
+  # Écrans (taille, position) : la fenêtre s'étend jusqu'au bord de l'écran.
+  nativeapi: ^0.5.5
   flutter_soloud: ^5.2.3
   # Horloge que les tests peuvent faire avancer (volume, rétroéclairage).
   clock: ^1.1.2

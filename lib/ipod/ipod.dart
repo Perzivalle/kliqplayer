@@ -7,7 +7,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:window_manager/window_manager.dart' show WindowManager;
+import 'package:nativeapi/nativeapi.dart' show DisplayManager;
+import 'package:window_manager/window_manager.dart';
 
 import '../core/player.dart';
 import '../core/settings.dart';
@@ -50,6 +51,23 @@ final List<IpodModel> ipodModels = [
   for (final c in nano4Colors) Nano4Model(c), // 2008
   for (final c in shuffle4Colors) Shuffle4Model(c), // septembre 2010
 ];
+
+/// Limites de la fenêtre autour de l'appareil [model], posé en [device] sur
+/// l'écran [screen] (tout en coordonnées de l'écran) : la place de ses
+/// poignées et de son ombre sur les côtés, jusqu'au bord de l'écran du côté
+/// de son câble, et [drawerRoom] de plus du côté du tiroir ([drawerSide] :
+/// 1 à droite, -1 à gauche, 0 tiroir rentré).
+@visibleForTesting
+Rect windowFrameFor(IpodModel model, Rect device, Rect screen, {int drawerSide = 0, double drawerRoom = 0}) {
+  final margin = model.margin;
+  final side = math.max(margin.left, (model.windowSize.width - device.width) / 2);
+  var left = device.left - side, right = device.right + side;
+  if (drawerSide > 0) right += drawerRoom;
+  if (drawerSide < 0) left -= drawerRoom;
+  final top = model.jackOnTop ? math.min(screen.top, device.top - margin.top) : device.top - margin.top;
+  final bottom = model.jackOnTop ? device.bottom + margin.bottom : math.max(screen.bottom, device.bottom + margin.bottom);
+  return Rect.fromLTRB(left, top, right, bottom);
+}
 
 /// Étapes d'un changement d'appareil.
 enum _Swap {
@@ -192,6 +210,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   void initState() {
     super.initState();
     widget.player.setForcedShuffle(!_model.hasScreen);
+    if (_win != null) WidgetsBinding.instance.addPostFrameCallback((_) => _takeWindow());
     if (_remember) {
       // Au lancement, la prise vient se brancher.
       _plug.value = JackGeometry.away;
@@ -243,7 +262,14 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     if (!_dragging) {
       _open.step(_wantOpen ? 1 : 0, dt);
       _lift.step(0, dt);
-      if (_open.isSettled) _open.value = _wantOpen ? 1 : 0;
+      if (_open.isSettled) {
+        _open.value = _wantOpen ? 1 : 0;
+        // Rentré : la fenêtre reprend sa taille.
+        if (!_wantOpen && _frameDrawer && _phase == _Swap.none) {
+          _frameDrawer = false;
+          _applyFrame();
+        }
+      }
       if (_lift.isSettled) _lift.value = 0;
     }
     for (final (peek, side) in [(_peekL, -1), (_peekR, 1)]) {
@@ -275,6 +301,158 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     }
   }
 
+  // --- Fenêtre réglée par l'appli (Windows, macOS) ---------------------------
+  //
+  // Sous Windows et macOS, l'appli place et taille elle-même sa fenêtre
+  // autour de l'appareil, qui, lui, ne bouge pas à l'écran : elle va jusqu'au
+  // bord de l'écran du côté du câble (on le voit partir jusqu'au bout), et
+  // s'élargit du côté du tiroir quand il sort (l'appareil n'a plus à
+  // rétrécir). Sous Linux, c'est le gestionnaire de fenêtres qui décide
+  // (souvent en mosaïque) : on s'adapte à ce qu'il donne, comme avant.
+
+  late final Window? _win = _remember && (Platform.isWindows || Platform.isMacOS) ? _currentWindow() : null;
+
+  static Window? _currentWindow() {
+    try {
+      return WindowManager.instance.getCurrent();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// L'appareil à l'écran (coordonnées de l'écran), une fois la fenêtre
+  /// prise en main.
+  Rect? _anchor;
+
+  /// Limites de la fenêtre demandées en dernier, et les précédentes : tant
+  /// que Flutter n'a pas reçu la nouvelle taille, l'image se dessine encore
+  /// dans l'ancienne fenêtre.
+  Rect? _frame, _framePrev;
+
+  /// La fenêtre fait la place au tiroir (ouvert, ou en train de bouger).
+  bool _frameDrawer = false;
+
+  /// Déplacement de la fenêtre à la main : d'où elle part, et l'appareil à
+  /// ce moment-là ; on la réajuste quand elle ne bouge plus.
+  Offset? _dragFrom;
+  Rect? _dragAnchor;
+  Timer? _dragSettle;
+
+  Rect _windowRect() => _win!.contentBounds.toRect();
+
+  static bool _near(Rect a, Rect b) =>
+      (a.left - b.left).abs() < 0.5 && (a.top - b.top).abs() < 0.5 && (a.right - b.right).abs() < 0.5 && (a.bottom - b.bottom).abs() < 0.5;
+
+  /// Largeur du tiroir quand la fenêtre lui fait la place : à la mesure de
+  /// l'appareil, comme dans une grande fenêtre.
+  double _managedDrawerW(double deviceW) => (deviceW * 1.3).clamp(230.0, 460.0);
+
+  /// Ce que la fenêtre ajoute à côté de l'appareil pour le tiroir ouvert.
+  double _drawerRoom(double deviceW) => _managedDrawerW(deviceW) - _tuck + 18;
+
+  /// L'écran où est l'appareil.
+  Rect _screenOf(Rect r) {
+    Rect? best;
+    try {
+      for (final d in DisplayManager.instance.getAll()) {
+        final screen = d.position.toOffset() & d.size.toSize();
+        if (screen.contains(r.center)) return screen;
+        best ??= screen;
+      }
+    } catch (_) {}
+    return best ?? r.inflate(400);
+  }
+
+  /// Limites voulues pour la fenêtre, l'appareil [model] étant en [device]
+  /// à l'écran.
+  Rect _frameFor(IpodModel model, Rect device) => windowFrameFor(
+        model,
+        device,
+        _screenOf(device),
+        drawerSide: _frameDrawer ? _side : 0,
+        drawerRoom: _drawerRoom(device.width),
+      );
+
+  /// Ajuste la fenêtre : autour de l'appareil en main (et, pendant un
+  /// échange, aussi autour du nouveau, centré au même endroit).
+  void _applyFrame() {
+    final win = _win;
+    final anchor = _anchor;
+    if (win == null || anchor == null || _dragFrom != null) return;
+    var frame = _frameFor(_model, anchor);
+    final incoming = _incoming;
+    if (incoming != null) {
+      final other = Rect.fromCenter(center: anchor.center, width: incoming.size.width, height: incoming.size.height);
+      frame = frame.expandToInclude(_frameFor(incoming, other));
+    }
+    if (_frame != null && _near(_frame!, frame)) return;
+    _framePrev = _frame;
+    _frame = frame;
+    try {
+      win.contentBounds = frame.toNative();
+    } catch (_) {}
+    setState(() {});
+  }
+
+  /// Première image : on note où est l'appareil à l'écran, puis la fenêtre
+  /// se met à sa mesure autour de lui.
+  void _takeWindow() {
+    final win = _win;
+    if (win == null || _anchor != null) return;
+    final g = _geoShown;
+    if (g == null) return;
+    final origin = _windowRect().topLeft;
+    // À sa vraie taille : la fenêtre va se faire à sa mesure.
+    _anchor = Rect.fromCenter(center: g.device.center + origin, width: _model.size.width, height: _model.size.height);
+    win.addListener((e) {
+      if (e is WindowMovedEvent && _dragFrom != null && mounted) {
+        // L'appareil suit la fenêtre qu'on déplace.
+        // (La zone de contenu, comme [_dragFrom] : pas le cadre de la fenêtre.)
+        _anchor = _dragAnchor!.shift(_windowRect().topLeft - _dragFrom!);
+        _dragSettle?.cancel();
+        _dragSettle = Timer(const Duration(milliseconds: 250), _endWindowDrag);
+      }
+    });
+    _applyFrame();
+  }
+
+  /// On attrape l'appareil pour déplacer la fenêtre.
+  void _beginWindowDrag() {
+    if (_win == null || _anchor == null) return;
+    _dragFrom = _windowRect().topLeft;
+    _dragAnchor = _anchor;
+    _dragSettle?.cancel();
+    _dragSettle = Timer(const Duration(milliseconds: 600), _endWindowDrag);
+  }
+
+  /// Lâchée (elle ne bouge plus) : la fenêtre se réajuste à sa nouvelle place
+  /// (jusqu'au bord de l'écran, peut-être un autre).
+  void _endWindowDrag() {
+    if (!mounted || _dragFrom == null) return;
+    _dragFrom = null;
+    _dragAnchor = null;
+    _frame = null;
+    _applyFrame();
+  }
+
+  /// Marges de l'appareil dans une fenêtre réglée par l'appli : il est là où
+  /// il est à l'écran, à sa taille.
+  EdgeInsets? _managedPadding(double w, double h) {
+    final anchor = _anchor;
+    if (_win == null || anchor == null) return null;
+    final frame = _frame, prev = _framePrev;
+    final Offset origin;
+    if (_dragFrom != null || frame == null) {
+      origin = _windowRect().topLeft;
+    } else if (((frame.width - w).abs() < 1 && (frame.height - h).abs() < 1) || prev == null) {
+      origin = frame.topLeft;
+    } else {
+      origin = prev.topLeft; // la nouvelle taille n'est pas encore arrivée
+    }
+    final left = anchor.left - origin.dx, top = anchor.top - origin.dy;
+    return EdgeInsets.fromLTRB(left, top, w - left - anchor.width, h - top - anchor.height);
+  }
+
   // --- Changement d'appareil : débrancher, ranger, sortir, brancher ----------
 
   /// Rectangle d'un widget dans le repère de la scène (transformations comprises).
@@ -291,6 +469,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _resumeOnPlug = widget.player.playing;
     if (_resumeOnPlug) widget.player.pause();
     _incoming = to;
+    // La fenêtre fait la place aux deux, le temps de l'échange.
+    _applyFrame();
     _phase = _Swap.unplugging;
     _plugTarget = _popHeight;
     _plug
@@ -385,6 +565,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
         if (_plugClicked && _plug.isSettled) {
           _plug.value = 0;
           _phase = _Swap.none;
+          _applyFrame(); // à la mesure du nouveau
           _wantOpen = false; // le tiroir se referme une fois branché
         }
     }
@@ -529,7 +710,15 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _dragBegin(d);
   }
 
+  /// Avant que le tiroir sorte, la fenêtre s'élargit de son côté.
+  void _makeRoomForDrawer() {
+    if (_win == null || _frameDrawer) return;
+    _frameDrawer = true;
+    _applyFrame();
+  }
+
   void _dragBegin(DragStartDetails _) {
+    _makeRoomForDrawer();
     // Reprend le tiroir là où il est.
     _open.velocity = 0;
     _dragStart = _open.value;
@@ -571,6 +760,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   void _setOpen(bool open) {
     if (_wantOpen == open) return;
+    if (open) _makeRoomForDrawer();
     _wantOpen = open;
     WheelClick.instance.play();
     _kick();
@@ -616,6 +806,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   }
 
   void _choose(IpodModel m) {
+    // Le nouveau prend la place de l'ancien à l'écran, centré au même endroit.
+    final anchor = _anchor;
+    if (anchor != null) _anchor = Rect.fromCenter(center: anchor.center, width: m.size.width, height: m.size.height);
     _nav.fitLook(m.look);
     widget.player.setForcedShuffle(!m.hasScreen);
     if (m.size != _model.size && _geoShown != null) {
@@ -751,13 +944,25 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     // Comme la mise en page de l'appareil : centré, marges, réduit pour
     // tenir (jamais agrandi).
     final m = _model;
-    final pad = _devicePadding(h);
+    final pad = _devicePadding(w, h);
     final f = math.min(1.0, math.min((w - pad.horizontal) / m.size.width, (h - pad.vertical) / m.size.height));
     final size = m.size * f;
     final left = (w - size.width - pad.horizontal) / 2 + pad.left;
     final top = (h - size.height - pad.vertical) / 2 + pad.top;
     final device = Rect.fromLTWH(left, top, size.width, size.height);
 
+    if (_managedPadding(w, h) != null) {
+      // La fenêtre fait la place au tiroir : l'appareil ne bouge pas.
+      return (
+        device: device,
+        cornerRadius: m.cornerRadius * f,
+        drawerW: _managedDrawerW(device.width),
+        room: 1.0,
+        shiftRight: 0.0,
+        shiftLeft: 0.0,
+        drawerHeight: device.height * 0.9,
+      );
+    }
     // L'appareil (réduit jusqu'à 55 %) et le tiroir doivent tenir côte à
     // côte avec une petite marge.
     const margin = 14.0;
@@ -781,10 +986,13 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     );
   }
 
-  /// Marge autour de l'appareil : son ombre, et la place pour la prise.
-  EdgeInsets _devicePadding(double h) => _model.jackOnTop
-      ? _model.margin.copyWith(top: math.max(_model.margin.top, h * 0.2))
-      : _model.margin.copyWith(bottom: math.max(_model.margin.bottom, h * 0.2));
+  /// Marge autour de l'appareil : son ombre, et la place pour la prise (ou,
+  /// fenêtre réglée par l'appli, ce qui le met là où il est à l'écran).
+  EdgeInsets _devicePadding(double w, double h) =>
+      _managedPadding(w, h) ??
+      (_model.jackOnTop
+          ? _model.margin.copyWith(top: math.max(_model.margin.top, h * 0.2))
+          : _model.margin.copyWith(bottom: math.max(_model.margin.bottom, h * 0.2)));
 
   /// Poignée cachée derrière un coin du haut de l'appareil [dev] : quand la
   /// souris approche de ce coin, elle glisse dehors ; cliquée ou tirée, le
@@ -851,7 +1059,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
           final openC = open.clamp(0.0, 1.0);
           final right = _side > 0;
 
-          final deviceKey = (_model.id, box.maxHeight);
+          final devicePad = _devicePadding(w, h);
+          final deviceKey = (_model.id, devicePad);
           if (deviceKey != _deviceCacheKey) {
             _deviceCacheKey = deviceKey;
             _deviceCache = Center(
@@ -859,12 +1068,18 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
               child: Padding(
                 // Marge pour l'ombre portée, et de la place en haut pour la
                 // prise et le câble.
-                padding: _devicePadding(box.maxHeight),
+                padding: devicePad,
                 // Couche à part : pendant que le tiroir bouge, l'appareil
                 // n'est pas repeint, seulement déplacé.
                 child: RepaintBoundary(
                   child: FittedBox(
-                    child: IpodDevice(key: _deviceKey(_model), model: _model, player: widget.player, nav: _nav),
+                    child: IpodDevice(
+                        key: _deviceKey(_model),
+                        model: _model,
+                        player: widget.player,
+                        nav: _nav,
+                        onWindowDrag: _beginWindowDrag,
+                      ),
                   ),
                 ),
               ),
@@ -980,13 +1195,16 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 }
 
 class IpodDevice extends StatefulWidget {
-  const IpodDevice({super.key, required this.model, required this.player, required this.nav});
+  const IpodDevice({super.key, required this.model, required this.player, required this.nav, this.onWindowDrag});
 
   final IpodModel model;
   final PlayerController player;
 
   /// Navigation de la scène, passée d'un appareil à l'autre.
   final IpodNav nav;
+
+  /// On commence à déplacer la fenêtre en tenant l'appareil.
+  final VoidCallback? onWindowDrag;
 
   @override
   State<IpodDevice> createState() => _IpodDeviceState();
@@ -1066,6 +1284,7 @@ class _IpodDeviceState extends State<IpodDevice> {
   /// pointeur jusqu'au relâchement (sans effet sans vraie fenêtre, dans
   /// les tests).
   void _moveWindow() {
+    widget.onWindowDrag?.call();
     try {
       WindowManager.instance.getCurrent()?.startDragging();
     } catch (_) {}

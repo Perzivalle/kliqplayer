@@ -364,7 +364,7 @@ packages:
     source: hosted
     version: "0.19.5"
   nativeapi:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: nativeapi
       sha256: "793908e7b97ead5aa55b4a9e8c93edebe8fae81715d29dbd87a1a496fadd54a1"
