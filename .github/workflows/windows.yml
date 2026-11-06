@@ -40,6 +40,11 @@ jobs:
           $name = "lecteur-$version-windows-x64"
           New-Item -ItemType Directory -Path $name | Out-Null
           Copy-Item -Recurse build\windows\x64\runner\Release\* $name
+          # Le runtime Visual C++ voyage avec l'appli (redistribution permise) :
+          # un Windows tout neuf ne l'a pas toujours.
+          foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+            Copy-Item "$env:WINDIR\System32\$dll" $name
+          }
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           "name=$name" >> $env:GITHUB_OUTPUT
 
