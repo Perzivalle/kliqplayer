@@ -7,6 +7,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:window_manager/window_manager.dart' show WindowManager;
 
 import '../core/player.dart';
 import '../core/settings.dart';
@@ -932,14 +933,18 @@ class _IpodDeviceState extends State<IpodDevice> {
     }
     if (e is! KeyDownEvent && e is! KeyRepeatEvent) return KeyEventResult.ignored;
     switch (e.logicalKey) {
-      case LogicalKeyboardKey.arrowUp:
+      // Comme dans vim : j k pour descendre et monter, l pour entrer
+      // (valider), h pour revenir (MENU).
+      case LogicalKeyboardKey.arrowUp || LogicalKeyboardKey.keyK:
         _scroll(-1);
-      case LogicalKeyboardKey.arrowDown:
+      case LogicalKeyboardKey.arrowDown || LogicalKeyboardKey.keyJ:
         _scroll(1);
-      case LogicalKeyboardKey.enter || LogicalKeyboardKey.numpadEnter:
+      case LogicalKeyboardKey.enter || LogicalKeyboardKey.numpadEnter || LogicalKeyboardKey.keyL:
+        if (e is KeyRepeatEvent) return KeyEventResult.handled;
         WheelClick.instance.play();
         _press(WheelZone.center);
-      case LogicalKeyboardKey.backspace:
+      case LogicalKeyboardKey.backspace || LogicalKeyboardKey.keyH:
+        if (e is KeyRepeatEvent) return KeyEventResult.handled;
         WheelClick.instance.play();
         _press(WheelZone.menu);
       default:
@@ -947,6 +952,15 @@ class _IpodDeviceState extends State<IpodDevice> {
         return KeyEventResult.ignored;
     }
     return KeyEventResult.handled;
+  }
+
+  /// Le gestionnaire de fenêtres prend la main : la fenêtre suit le
+  /// pointeur jusqu'au relâchement (sans effet sans vraie fenêtre, dans
+  /// les tests).
+  void _moveWindow() {
+    try {
+      WindowManager.instance.getCurrent()?.startDragging();
+    } catch (_) {}
   }
 
   void _scroll(int delta) {
@@ -1047,10 +1061,19 @@ class _IpodDeviceState extends State<IpodDevice> {
           clipBehavior: Clip.none,
           children: [
             ?_hold(m),
-            Positioned.fill(child: CustomPaint(painter: m.body)),
+            // On attrape l'iPod n'importe où (sauf la molette et les boutons,
+            // posés par-dessus) pour déplacer la fenêtre.
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onPanStart: (_) => _moveWindow(),
+                child: CustomPaint(painter: m.body),
+              ),
+            ),
             Positioned.fromRect(
               rect: m.screen,
-              child: ClipRRect(
+              // L'écran laisse passer la main jusqu'au boîtier.
+              child: IgnorePointer(child: ClipRRect(
                 borderRadius: BorderRadius.circular(m.screenCornerRadius),
                 child: FittedBox(
                   child: SizedBox.fromSize(
@@ -1058,7 +1081,7 @@ class _IpodDeviceState extends State<IpodDevice> {
                     child: IpodScreen(nav: _nav, player: widget.player, look: m.look),
                   ),
                 ),
-              ),
+              )),
             ),
             if (glass != null)
               Positioned.fill(

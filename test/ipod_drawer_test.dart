@@ -246,6 +246,31 @@ void main() {
     expect(find.descendant(of: mini, matching: find.text('Morceau au hasard')), findsNothing);
   });
 
+  testWidgets('h j k l : naviguer dans les menus comme dans vim', (tester) async {
+    await _show(tester);
+    final device = find.byType(IpodDevice);
+    bool shows(String t) => find.descendant(of: device, matching: find.text(t)).evaluate().isNotEmpty;
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyJ); // Réglages
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyK); // Musique
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyL); // entre dans Musique
+    await _settle(tester);
+    expect(shows('Artistes'), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyH); // revient
+    await _settle(tester);
+    expect(shows('Artistes'), isFalse);
+    expect(shows('Réglages'), isTrue);
+  });
+
+  testWidgets('glisser le boîtier ne fait rien d\'autre (déplace la fenêtre)', (tester) async {
+    await _show(tester);
+    final d = _device(tester);
+    // Sous l'écran, sur le boîtier : ni tiroir, ni menu ne bougent.
+    await _drag(tester, Offset(d.center.dx, d.top + d.height * 0.47), const Offset(120, 40));
+    await _settle(tester);
+    expect(_stowed(tester), isTrue);
+    expect(_device(tester), d);
+  });
+
   testWidgets('la musique se coupe quand on débranche, et reprend au branchement', (tester) async {
     final player = PlayerController.preview(playing: true);
     tester.view

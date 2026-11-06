@@ -14,9 +14,10 @@ avec des animations par ressorts façon iOS.
 - **Tiroir** : approcher la souris d'un coin du haut de l'iPod fait apparaître une poignée ; un clic (ou la
   tirer) fait sortir le tiroir de ce côté. Un clic sur un appareil le débranche, le range et branche l'autre ;
   au survol, les pastilles montrent ses teintes et le teintent, un clic sur l'une le prend dans cette teinte.
+- **Déplacer** : attraper l'iPod n'importe où sauf sur la molette (et les boutons) déplace la fenêtre.
 
-Clavier : ↑ ↓ défiler, Entrée valider, Retour arrière MENU, ← → morceau (appui long : avancer/reculer),
-Espace lecture/pause, T tiroir, Échap / Q quitter.
+Clavier : ↑ ↓ ou j k défiler, Entrée ou l valider, Retour arrière ou h MENU, ← → morceau (appui long :
+avancer/reculer), Espace lecture/pause, T tiroir, Échap / Q quitter.
 
 La musique vient du dossier choisi dans Réglages › Bibliothèque (par défaut `~/Music/Musique Ipod` ;
 `$LECTEUR_MUSIC` a le dernier mot). Formats : mp3, flac, ogg, opus, m4a, aac, wav ; listes `.m3u`.
