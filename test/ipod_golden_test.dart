@@ -138,9 +138,9 @@ Future<void> _decode(WidgetTester tester) async {
 void main() {
   setUpAll(() async {
     await _loadFont('Noto Sans', [
-      '/usr/share/fonts/noto/NotoSans-Regular.ttf',
-      '/usr/share/fonts/noto/NotoSans-Medium.ttf',
-      '/usr/share/fonts/noto/NotoSans-Bold.ttf',
+      'assets/fonts/NotoSans-Regular.ttf',
+      'assets/fonts/NotoSans-Medium.ttf',
+      'assets/fonts/NotoSans-Bold.ttf',
     ]);
     final flutterRoot = Platform.environment['FLUTTER_ROOT'] ?? '${Platform.environment['HOME']}/development/flutter';
     await _loadFont('MaterialIcons', ['$flutterRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf']);
