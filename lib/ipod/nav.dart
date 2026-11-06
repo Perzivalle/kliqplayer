@@ -403,7 +403,7 @@ class IpodNav extends ChangeNotifier {
           MenuEntry('Albums', value: () => '${player.albums.length}'),
           MenuEntry('Artistes', value: () => '${artists.length}'),
           MenuEntry('Listes', value: () => '${player.playlists.length}'),
-          MenuEntry('Version', value: () => '0.1.0'),
+          MenuEntry('Version', value: () => '0.2.0'),
         ];
       });
 
