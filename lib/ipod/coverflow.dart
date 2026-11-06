@@ -41,8 +41,11 @@ class CoverFlowView extends StatelessWidget {
         final pos = page.pos.value;
 
         // Les plus éloignées d'abord : celle du milieu passe par-dessus.
-        final first = math.max(0, (pos - 9).floor());
-        final last = math.min(albums.length - 1, (pos + 9).ceil());
+        // Seulement celles qui se voient : la première de côté est à 0,95 s
+        // du milieu, les suivantes tous les 0,3 s.
+        final reach = (1 + (w / 2 + s / 2 - 0.95 * s) / (0.3 * s)).ceil().clamp(1, 9) + 1;
+        final first = math.max(0, (pos - reach).floor());
+        final last = math.min(albums.length - 1, (pos + reach).ceil());
         final order = [for (var i = first; i <= last; i++) i]
           ..sort((a, b) => (b - pos).abs().compareTo((a - pos).abs()));
 
@@ -133,30 +136,46 @@ class CoverFlowView extends StatelessWidget {
     );
   }
 
-  /// Reflet sur le sol noir, qui s'efface vers le bas. Fondu en
-  /// transparence (pas un voile noir par-dessus, dont le bord laisserait
-  /// filtrer un liseré de l'image).
+  /// Reflet sur le sol noir, qui s'efface vers le bas : l'image retournée
+  /// sous un voile noir dégradé. Le voile déborde d'un pixel sur les côtés
+  /// et en bas, pour que le bord lissé de l'image ne filtre pas en liseré.
+  /// (Pas de fondu en transparence : il faudrait une couche à part par
+  /// pochette, trop lourd à chaque image.)
   static Widget _reflected(Widget face, double s) => SizedBox(
-              width: s,
-              height: s * _reflection,
-              child: ShaderMask(
-                blendMode: BlendMode.dstIn,
-                shaderCallback: (r) => const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0x50FFFFFF), Color(0x00FFFFFF)],
-                  stops: [0, 0.85],
-                ).createShader(r),
-                child: ClipRect(
-                  child: OverflowBox(
-                    alignment: Alignment.topCenter,
-                    minHeight: s,
-                    maxHeight: s,
-                    child: Transform.flip(flipY: true, child: face),
+        width: s,
+        height: s * _reflection,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(
+              child: ClipRect(
+                child: OverflowBox(
+                  alignment: Alignment.topCenter,
+                  minHeight: s,
+                  maxHeight: s,
+                  child: Transform.flip(flipY: true, child: face),
+                ),
+              ),
+            ),
+            const Positioned(
+              left: -1,
+              right: -1,
+              top: 0,
+              bottom: -1,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xB0000000), Colors.black],
+                    stops: [0, 0.85],
                   ),
                 ),
               ),
-            );
+            ),
+          ],
+        ),
+      );
 
   /// L'album du milieu qui se retourne : il pivote d'un demi-tour en
   /// grandissant jusqu'au carré [big] au milieu de l'écran ; passé le

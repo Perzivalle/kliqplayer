@@ -31,6 +31,7 @@ class IpodDrawer extends StatelessWidget {
     required this.onFront,
     this.frontOnRight = false,
     this.slotKeys = const {},
+    this.layoutSize,
   });
 
   /// Sort vers la droite : façade à droite, prolongement à gauche.
@@ -60,93 +61,117 @@ class IpodDrawer extends StatelessWidget {
   /// s'en sert pour faire voler les appareils jusqu'à leur place.
   final Map<String, GlobalKey> slotKeys;
 
+  /// Taille pour laquelle les emplacements sont disposés (celle d'arrivée
+  /// quand le tiroir change de taille) : pendant la transition, seule la
+  /// coque suit la taille du moment, les emplacements ne bougent pas et
+  /// gardent leurs photos au lieu d'être redessinés à chaque image.
+  final Size? layoutSize;
+
   static const double _wall = 10;
+
+  /// Coque, fond et emplacements pour un tiroir de taille [size].
+  _Layout _layout(Size size) {
+    final w = size.width;
+    // Dessiné façade à gauche, puis retourné si elle est à droite.
+    final inner = Rect.fromLTRB(drawerFront, _wall, w - _wall, size.height - _wall);
+    final slots = frontOnRight
+        ? Rect.fromLTRB(w - contentWidth, inner.top, w - drawerFront, inner.bottom)
+        : Rect.fromLTRB(inner.left, inner.top, contentWidth, inner.bottom);
+    // Le fond en vrai (la coque est dessinée façade à gauche puis
+    // retournée) : c'est sur lui que se cale le motif de la mousse.
+    final foam = frontOnRight ? Rect.fromLTRB(_wall, inner.top, w - drawerFront, inner.bottom) : inner;
+    return (inner: inner, slots: slots, foam: foam);
+  }
+
+  /// Les emplacements, disposés dans [l].
+  ({Widget grid, bool scrolls}) _grid(_Layout l) {
+    final slots = l.slots;
+    const below = 58.0; // nom gravé + pastilles
+    // Même échelle pour tous : les tailles relatives sont celles des vrais.
+    final all = families.expand((f) => f);
+    final maxW = all.map((m) => m.size.width).reduce(math.max);
+    final maxH = all.map((m) => m.size.height).reduce(math.max);
+    final n = families.length;
+
+    // Le nombre de colonnes qui donne les plus grands appareils, selon la
+    // forme de la place disponible.
+    double scaleFor(int columns) {
+      final rows = (n / columns).ceil();
+      final cellW = slots.width / columns;
+      final cellH = slots.height / rows;
+      return math.min((cellW - 28) / maxW, (cellH - below - 20) / maxH);
+    }
+
+    var columns = 1;
+    for (var c = 2; c <= math.min(n, 4); c++) {
+      if (scaleFor(c) > scaleFor(columns)) columns = c;
+    }
+    var scale = scaleFor(columns);
+
+    // En dessous d'une taille où l'on vise encore facilement, on garde
+    // cette taille et les emplacements défilent.
+    const minDevice = 96.0; // hauteur du plus grand appareil, en pixels
+    final minScale = minDevice / maxH;
+    final scrolls = scale < minScale;
+    if (scrolls) {
+      scale = minScale;
+      final fit = ((slots.width) / (maxW * minScale + 28)).floor();
+      columns = fit.clamp(1, math.min(n, 4));
+    }
+    final rows = (n / columns).ceil();
+    final cellW = slots.width / columns;
+    final cellH = scrolls ? maxH * scale + below + 20 : slots.height / rows;
+
+    final grid = SizedBox(
+      width: slots.width,
+      height: cellH * rows,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // Qui défile avec les emplacements, calé sur le fond immobile
+          // (au repos, aucun raccord) ; il déborde pour le rebond.
+          if (scrolls)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: -120,
+              bottom: -120,
+              child: _Frozen(
+                child: CustomPaint(painter: _FoamPainter(origin: l.foam.topLeft - slots.topLeft + const Offset(0, 120))),
+              ),
+            ),
+          for (var i = 0; i < n; i++)
+            Positioned(
+              left: (i % columns) * cellW,
+              top: (i ~/ columns) * cellH,
+              width: cellW,
+              height: cellH,
+              child: _Slot(
+                shapeKey: slotKeys[families[i].first.family],
+                variants: families[i],
+                shown: shown[families[i].first.family] ?? families[i].first,
+                current: current,
+                scale: scale,
+                onPick: onPick,
+                onSwatch: onSwatch,
+              ),
+            ),
+        ],
+      ),
+    );
+    return (grid: grid, scrolls: scrolls);
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Construits une fois ici (hors du LayoutBuilder) : quand seule la
+    // taille du tiroir change, le LayoutBuilder rend le même widget et
+    // Flutter ne reconstruit pas les emplacements.
+    final fixed = layoutSize == null ? null : _grid(_layout(layoutSize!));
     return LayoutBuilder(builder: (context, box) {
-      final w = box.maxWidth;
-      // Dessiné façade à gauche, puis retourné si elle est à droite.
-      final inner = Rect.fromLTRB(drawerFront, _wall, w - _wall, box.maxHeight - _wall);
-      final slots = frontOnRight
-          ? Rect.fromLTRB(w - contentWidth, inner.top, w - drawerFront, inner.bottom)
-          : Rect.fromLTRB(inner.left, inner.top, contentWidth, inner.bottom);
-      const below = 58.0; // nom gravé + pastilles
-      // Même échelle pour tous : les tailles relatives sont celles des vrais.
-      final all = families.expand((f) => f);
-      final maxW = all.map((m) => m.size.width).reduce(math.max);
-      final maxH = all.map((m) => m.size.height).reduce(math.max);
-      final n = families.length;
-
-      // Le nombre de colonnes qui donne les plus grands appareils, selon la
-      // forme de la place disponible.
-      double scaleFor(int columns) {
-        final rows = (n / columns).ceil();
-        final cellW = slots.width / columns;
-        final cellH = slots.height / rows;
-        return math.min((cellW - 28) / maxW, (cellH - below - 20) / maxH);
-      }
-
-      var columns = 1;
-      for (var c = 2; c <= math.min(n, 4); c++) {
-        if (scaleFor(c) > scaleFor(columns)) columns = c;
-      }
-      var scale = scaleFor(columns);
-
-      // En dessous d'une taille où l'on vise encore facilement, on garde
-      // cette taille et les emplacements défilent.
-      const minDevice = 96.0; // hauteur du plus grand appareil, en pixels
-      final minScale = minDevice / maxH;
-      final scrolls = scale < minScale;
-      if (scrolls) {
-        scale = minScale;
-        final fit = ((slots.width) / (maxW * minScale + 28)).floor();
-        columns = fit.clamp(1, math.min(n, 4));
-      }
-      // Le fond en vrai (la coque est dessinée façade à gauche puis
-      // retournée) : c'est sur lui que se cale le motif de la mousse.
-      final foam = frontOnRight ? Rect.fromLTRB(_wall, inner.top, w - drawerFront, inner.bottom) : inner;
-      final rows = (n / columns).ceil();
-      final cellW = slots.width / columns;
-      final cellH = scrolls ? maxH * scale + below + 20 : slots.height / rows;
-
-      final grid = SizedBox(
-        width: slots.width,
-        height: cellH * rows,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            // Qui défile avec les emplacements, calé sur le fond immobile
-            // (au repos, aucun raccord) ; il déborde pour le rebond.
-            if (scrolls)
-              Positioned(
-                left: 0,
-                right: 0,
-                top: -120,
-                bottom: -120,
-                child: _Frozen(
-                  child: CustomPaint(painter: _FoamPainter(origin: foam.topLeft - slots.topLeft + const Offset(0, 120))),
-                ),
-              ),
-            for (var i = 0; i < n; i++)
-              Positioned(
-                left: (i % columns) * cellW,
-                top: (i ~/ columns) * cellH,
-                width: cellW,
-                height: cellH,
-                child: _Slot(
-                  shapeKey: slotKeys[families[i].first.family],
-                  variants: families[i],
-                  shown: shown[families[i].first.family] ?? families[i].first,
-                  current: current,
-                  scale: scale,
-                  onPick: onPick,
-                  onSwatch: onSwatch,
-                ),
-              ),
-          ],
-        ),
-      );
+      final l = _layout(box.biggest);
+      final (:grid, :scrolls) = fixed ?? _grid(l);
+      final inner = l.inner, slots = l.slots, foam = l.foam;
 
       return Stack(
         children: [
@@ -163,7 +188,12 @@ class IpodDrawer extends StatelessWidget {
           ),
           Positioned.fromRect(
             rect: slots,
-            child: scrolls ? _ScrollingSlots(child: grid) : grid,
+            // (Plus petit que la grille pendant que le tiroir grandit : coupé.)
+            child: ClipRect(child: scrolls ? _ScrollingSlots(child: grid) : OverflowBox(
+              alignment: Alignment.topLeft,
+              maxHeight: double.infinity,
+              child: grid,
+            )),
           ),
           Positioned.fromRect(
             rect: foam,
@@ -189,6 +219,8 @@ class IpodDrawer extends StatelessWidget {
     });
   }
 }
+
+typedef _Layout = ({Rect inner, Rect slots, Rect foam});
 
 class _Slot extends StatefulWidget {
   const _Slot({

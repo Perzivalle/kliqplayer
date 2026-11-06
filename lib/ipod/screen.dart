@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -64,6 +65,7 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    _progressTimer?.cancel();
     _backlightTimer?.cancel();
     nav.removeListener(_wake);
     widget.player.removeListener(_wake);
@@ -114,12 +116,37 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
         busy |= !p.pos.isSettled || !p.flip.isSettled || !p.trackSpring.isSettled || !p.trackTopSpring.isSettled;
       }
     }
+    var playing = false;
     if (nav.page is NowPlayingPage) {
       nav.expireMode();
-      busy |= widget.player.playing || nav.mode != NowPlayingMode.progress;
+      busy |= nav.mode != NowPlayingMode.progress;
+      playing = widget.player.playing;
     }
     setState(() {});
-    if (!busy) _ticker.stop();
+    if (!busy) {
+      _ticker.stop();
+      // En lecture, la barre n'avance que d'un pixel de temps en temps : on
+      // ne redessine que quand elle (ou le temps affiché) change, pas à
+      // chaque image.
+      if (playing) _scheduleProgress();
+    }
+  }
+
+  Timer? _progressTimer;
+
+  void _scheduleProgress() {
+    _progressTimer?.cancel();
+    final player = widget.player;
+    // La barre fait au plus ~300 points de large : un pas toutes les
+    // durée / 600, et au changement de seconde pour le temps écrit.
+    final step = (player.duration.inMicroseconds / 600).clamp(1e6 / 30, 5e5);
+    final toNextSecond = 1e6 - player.smoothPosition.inMicroseconds % 1000000;
+    final wait = Duration(microseconds: math.min(step, toNextSecond + 2000).round());
+    _progressTimer = Timer(wait, () {
+      if (!mounted || nav.page is! NowPlayingPage || !widget.player.playing || _ticker.isActive) return;
+      setState(() {});
+      _scheduleProgress();
+    });
   }
 
   @override

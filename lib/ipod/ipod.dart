@@ -11,6 +11,7 @@ import 'package:window_manager/window_manager.dart' show WindowManager;
 
 import '../core/player.dart';
 import '../core/settings.dart';
+import '../core/strings.dart';
 import '../physics.dart';
 import 'classic.dart';
 import 'click.dart';
@@ -267,7 +268,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
         _peekL.isSettled &&
         _peekR.isSettled &&
         _lift.isSettled &&
-        _sway.isSettled &&
+        _swaySettled &&
         _geoFrom == null &&
         _plug.isSettled) {
       _ticker.stop();
@@ -475,7 +476,17 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     }
     _lastSocketX = x;
     _sway.step(0, dt);
+    if (_swaySettled) {
+      _sway
+        ..value = 0
+        ..velocity = 0;
+    }
   }
+
+  /// Le câble ne bouge plus à l'œil (le ressort, très peu amorti, mettrait
+  /// sinon 3 à 4 s de plus à s'arrêter tout à fait, en redessinant toute la
+  /// scène à chaque image).
+  bool get _swaySettled => _sway.value.abs() < 0.05 && _sway.velocity.abs() < 0.5;
 
   /// Câble et prise, recalculés au moment de peindre (toujours collés à
   /// l'appareil, même quand il bouge).
@@ -673,8 +684,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   /// Le tiroir et tout ce qui l'entoure, construits une fois pour toutes
   /// (tant que rien ne change) : pendant qu'il glisse, seule sa position
   /// change, Flutter ne reconstruit rien d'autre.
-  Widget _drawer(double width, bool right) {
-    final key = (width, right, _model.id, _shown.values.map((m) => m.id).join(','));
+  Widget _drawer(double width, bool right, Size layoutSize) {
+    // (La langue aussi : noms des modèles et des teintes, mini-écrans.)
+    final key = (width, right, layoutSize, Lang.current, _model.id, _shown.values.map((m) => m.id).join(','));
     if (key != _drawerCacheKey) {
       _drawerCacheKey = key;
       if (_drawerSnap.allowSnapshotting) {
@@ -711,6 +723,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
           onSwatch: _swatch,
           onFront: () => _setOpen(!_wantOpen),
           slotKeys: _slotKeys,
+          layoutSize: layoutSize,
                 ),
               ),
             ),
@@ -914,11 +927,16 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             child: Stack(
               key: _stageKey,
               children: [
-                // Un clic à côté du tiroir le referme.
-                if (_wantOpen)
-                  Positioned.fill(
+                // Un clic à côté du tiroir le referme. Toujours là (inactif
+                // tiroir fermé) : l'ajouter ou l'enlever décalerait les
+                // enfants suivants, et Flutter reconstruirait tout le tiroir
+                // (et sa photo) à chaque ouverture et fermeture.
+                Positioned.fill(
+                  child: IgnorePointer(
+                    ignoring: !_wantOpen,
                     child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => _setOpen(false)),
                   ),
+                ),
                 // Les deux poignées, derrière les coins du haut.
                 for (final side in const [-1, 1]) _handle(side, dev, g.cornerRadius * scale, openC),
                 // Le tiroir, derrière l'appareil, d'où il émerge. Coupé au
@@ -936,7 +954,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                           // lecture ne le recompose pas à chaque image.
                           child: Offstage(
                             offstage: _drawerIdle,
-                            child: _drawer(drawerW - _tuck, right),
+                            // Disposé pour sa taille d'arrivée : pendant qu'il
+                            // change de taille, seule la coque suit.
+                            child: _drawer(target.drawerW - _tuck, right, Size(target.drawerW, target.drawerHeight)),
                           ),
                         ),
                       ],

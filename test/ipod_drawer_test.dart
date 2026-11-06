@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/core/library.dart';
 import 'package:lecteur/core/player.dart';
+import 'package:lecteur/core/strings.dart';
 import 'package:lecteur/ipod/classic.dart';
 import 'package:lecteur/ipod/drawer.dart';
 import 'package:lecteur/ipod/ipod.dart';
@@ -434,5 +435,65 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
     }
     expect(player.shuffling, isFalse, reason: 'de retour sur un appareil à écran');
+  });
+
+  testWidgets('changer de langue traduit aussi le tiroir', (tester) async {
+    addTearDown(() => Lang.set(Lang.fr));
+    await _show(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await _settle(tester);
+    expect(find.text('1RE GÉNÉRATION'), findsOneWidget);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await _settle(tester);
+    Lang.set(Lang.en);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await _settle(tester);
+    expect(find.text('1ST GENERATION'), findsOneWidget, reason: 'le tiroir gardé en cache doit suivre la langue');
+  });
+
+  testWidgets('En lecture : entre deux pas de la barre, plus aucune image n\'est dessinée', (tester) async {
+    final player = PlayerController.preview(
+      queue: const [Track(path: '/x/a.flac', title: 'Titre', artist: 'Artiste', album: 'Album')],
+      albums: const [Album(title: 'Album', artist: 'Artiste', firstIndex: 0, trackCount: 1)],
+      index: 0,
+      playing: true,
+      duration: const Duration(minutes: 3),
+    );
+    tester.view
+      ..physicalSize = _window
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Material(
+          type: MaterialType.transparency,
+          child: IpodStage(player: player, initial: const ClassicModel()),
+        ),
+      ),
+    );
+    await _settle(tester);
+    for (var i = 0; i < 3; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    }
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter); // En lecture
+    for (var i = 0; i < 120; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    var idle = 0;
+    for (var i = 0; i < 60; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      if (!tester.binding.hasScheduledFrame) idle++;
+    }
+    expect(idle, greaterThan(40), reason: 'la barre avance par pas, pas à chaque image');
+  });
+
+  testWidgets('ouvrir et fermer le tiroir ne le reconstruit pas (sa photo reste prête)', (tester) async {
+    await _show(tester);
+    final before = tester.element(find.byType(IpodDrawer, skipOffstage: false));
+    for (var i = 0; i < 2; i++) {
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+      await _settle(tester);
+    }
+    expect(tester.element(find.byType(IpodDrawer, skipOffstage: false)), same(before));
   });
 }
