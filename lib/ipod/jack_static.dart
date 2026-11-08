@@ -82,7 +82,7 @@ class JackStatic {
     final rnd = math.Random(seed);
     // Chaque prise a son caractère : plus ou moins longue, plus ou moins
     // de ronflette, de crépitements, de contacts.
-    final length = plugging ? 0.07 + 0.11 * rnd.nextDouble() : 0.10 + 0.16 * rnd.nextDouble();
+    final length = plugging ? 0.05 + 0.07 * rnd.nextDouble() : 0.07 + 0.10 * rnd.nextDouble();
     final humAmount = math.pow(rnd.nextDouble(), 1.6) * 0.16;
     final gritAmount = 0.10 + 0.14 * rnd.nextDouble();
     final sparks = 0.4 + 1.2 * rnd.nextDouble();

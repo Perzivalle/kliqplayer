@@ -4,6 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lecteur/core/settings.dart';
 import 'package:lecteur/core/library.dart';
 import 'package:lecteur/core/player.dart';
 import 'package:lecteur/core/strings.dart';
@@ -14,6 +15,7 @@ import 'package:lecteur/ipod/mini.dart';
 import 'package:lecteur/ipod/nanos.dart';
 import 'package:lecteur/ipod/screen.dart';
 import 'package:lecteur/ipod/shuffle.dart';
+import 'package:lecteur/ipod/vintage.dart';
 
 const _window = Size(460, 760);
 
@@ -191,23 +193,77 @@ void main() {
     final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
     addTearDown(mouse.removePointer);
     await mouse.addPointer(location: Offset.zero);
-    // Cachées tant qu'on ne survole pas l'emplacement.
+    // L'éventail ne s'ouvre qu'au survol de l'emplacement.
     // Le dernier « Violet » du tiroir : celui du nano 4G (le shuffle 2G en a un aussi).
-    final violet = find.byTooltip('Violet').last;
+    final violet = _swatch('Violet').last;
     final nano4 = find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'nano4');
     await tester.ensureVisible(nano4); // le tiroir défile jusqu'à lui
     await _settle(tester);
     await mouse.moveTo(tester.getCenter(nano4));
     await _settle(tester);
-    await mouse.moveTo(tester.getCenter(violet));
+    // Les cartes de l'éventail se chevauchent : on vise le coin du haut,
+    // celui qu'on voit.
+    final corner = tester.renderObject<RenderBox>(violet).localToGlobal(const Offset(8, 10));
+    await mouse.moveTo(corner);
     await _settle(tester);
     expect(find.byWidgetPredicate((w) => w is IpodPreview && w.model.id == Nano4Model(nano4Colors[2]).id), findsOneWidget,
-        reason: 'survolée, la teinte habille la miniature');
-    await tester.tap(violet, kind: PointerDeviceKind.mouse);
+        reason: 'l\'éventail montre la teinte');
+    await mouse.down(corner);
+    await mouse.up();
     for (var i = 0; i < 400; i++) {
       await tester.pump(const Duration(milliseconds: 16));
     }
     expect(find.byWidgetPredicate((w) => w is IpodDevice && w.model.id == Nano4Model(nano4Colors[2]).id), findsOneWidget);
+  });
+
+  testWidgets('un appareil d\'une seule teinte se soulève aussi au survol', (tester) async {
+    await _show(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await _settle(tester);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: Offset.zero);
+    final photo = find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == const PhotoModel().family);
+    await tester.ensureVisible(photo);
+    await _settle(tester);
+    final scale = find.ancestor(of: photo, matching: find.byType(AnimatedScale));
+    expect(tester.widget<AnimatedScale>(scale).scale, 1);
+    await mouse.moveTo(tester.getCenter(photo));
+    await _settle(tester);
+    expect(tester.widget<AnimatedScale>(scale).scale, greaterThan(1));
+  });
+
+  testWidgets('une teinte choisie : l\'éventail se range, même la souris dessus', (tester) async {
+    await _show(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+    await _settle(tester);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: Offset.zero);
+    // Le Classic est en main : son emplacement (vide) propose l'autre teinte.
+    final classic = find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'classic');
+    await tester.ensureVisible(classic.first);
+    await _settle(tester);
+    await mouse.moveTo(tester.getCenter(classic.first));
+    await _settle(tester);
+    final noir = _swatch('Noir');
+    expect(noir, findsOneWidget, reason: 'l\'éventail est ouvert');
+    final at = tester.getCenter(noir);
+    await mouse.moveTo(at);
+    await _settle(tester);
+    await mouse.down(at);
+    await mouse.up();
+    await _settle(tester);
+    expect(find.byWidgetPredicate((w) => w is IpodDevice && w.model.id == const ClassicModel(ClassicColor.noir).id), findsOneWidget);
+    // La souris n'a pas bougé : l'éventail est rangé et ne se rouvre pas.
+    expect(_swatch('Blanc'), findsNothing);
+    expect(_swatch('Noir'), findsNothing);
+    // Elle quitte l'appareil puis revient : il se rouvre.
+    await mouse.moveTo(Offset.zero);
+    await _settle(tester);
+    await mouse.moveTo(tester.getCenter(classic.first));
+    await _settle(tester);
+    expect(_swatch('Blanc'), findsOneWidget);
   });
 
   testWidgets('en changeant d\'iPod, on reste sur le même écran', (tester) async {
@@ -265,6 +321,25 @@ void main() {
     await _settle(tester);
     expect(shows('Artistes'), isFalse);
     expect(shows('Réglages'), isTrue);
+  });
+
+  testWidgets('Réglages › Touches : Z Q S D remplace h j k l', (tester) async {
+    Settings.setString('ipod.keys', 'zqsd');
+    addTearDown(() => Settings.setString('ipod.keys', 'hjkl'));
+    await _show(tester);
+    final device = find.byType(IpodDevice);
+    bool shows(String t) => find.descendant(of: device, matching: find.text(t)).evaluate().isNotEmpty;
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyS); // Réglages
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyZ); // Musique
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyD); // entre dans Musique
+    await _settle(tester);
+    expect(shows('Artistes'), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyL); // plus rien en Z Q S D
+    await _settle(tester);
+    expect(shows('Artistes'), isTrue);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyQ); // revient
+    await _settle(tester);
+    expect(shows('Artistes'), isFalse);
   });
 
   testWidgets('glisser le boîtier ne fait rien d\'autre (déplace la fenêtre)', (tester) async {
@@ -500,3 +575,6 @@ void main() {
     expect(tester.element(find.byType(IpodDrawer, skipOffstage: false)), same(before));
   });
 }
+
+/// Une pastille de l'éventail, par le nom de sa teinte.
+Finder _swatch(String name) => find.byWidgetPredicate((w) => w is Semantics && w.properties.label == name);

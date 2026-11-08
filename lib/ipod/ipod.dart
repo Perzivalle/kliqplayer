@@ -140,6 +140,57 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   int _hoverSide = 0;
   bool _wantOpen = false;
 
+  // --- Place de l'iPod dans la fenêtre : à gauche, au milieu, à droite -------
+
+  static const _placeKey = 'ipod.place';
+  static const _placeNames = {-1: 'gauche', 0: 'milieu', 1: 'droite'};
+
+  /// Où l'iPod se tient, tiroir fermé : -1 à gauche, 0 au milieu, 1 à droite
+  /// (retenu d'un lancement à l'autre).
+  late int _placeTarget = _remember
+      ? _placeNames.entries.firstWhere((e) => e.value == Settings.getString(_placeKey), orElse: () => const MapEntry(0, '')).key
+      : 0;
+
+  /// Position actuelle, en route vers [_placeTarget].
+  late final _place = Spring(_placeTarget.toDouble(), stiffness: 150, damping: 0.86);
+
+  /// Les boutons de déplacement, sous les poignées du tiroir : ils sortent
+  /// avec elles quand la souris approche d'un coin du haut (gauche, droite).
+  final _movePeekL = Spring(0, stiffness: 420, damping: 0.9);
+  final _movePeekR = Spring(0, stiffness: 420, damping: 0.9);
+  int _hoverMove = 0;
+
+  /// Course possible de l'iPod jusqu'au bord, à la dernière mise en page.
+  double _placeReach = 0;
+
+  /// Sous ce débattement, la fenêtre est trop étroite pour qu'on déplace
+  /// l'iPod (ou c'est l'appli qui règle la fenêtre autour de lui).
+  bool get _canPlace => _placeReach >= 40 && !_wantOpen && _phase == _Swap.none && ipodLanded.value;
+
+  /// Il reste de la place de ce côté (à gauche, on ne va pas plus à gauche).
+  bool _canMove(int side) => _canPlace && (_placeTarget + side).abs() <= 1;
+
+  void _setHoverMove(int side, bool inside) {
+    final next = inside ? side : (_hoverMove == side ? 0 : _hoverMove);
+    if (next == _hoverMove) return;
+    _hoverMove = next;
+    _kick();
+  }
+
+  /// D'un cran vers [side] : de droite au milieu, du milieu à gauche…
+  void _nudge(int side) {
+    if (!_canMove(side)) return;
+    _moveTo(_placeTarget + side);
+    WheelClick.instance.play();
+  }
+
+  void _moveTo(int place) {
+    if (!_canPlace || place == _placeTarget) return;
+    _placeTarget = place;
+    if (_remember) Settings.setString(_placeKey, _placeNames[place]!);
+    _kick();
+  }
+
   /// Décalage vertical du tiroir quand on le tire de travers : un ressort
   /// le ramène toujours dans l'axe.
   final _lift = Spring(0, stiffness: 420, damping: 0.8);
@@ -170,16 +221,12 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       ],
   ];
 
-  /// Teinte montrée dans l'emplacement de chaque famille : tirée au sort à
-  /// chaque lancement (la première dans les tests, pour des captures
-  /// stables) ; celle de l'appareil en main reste la sienne.
-  late final Map<String, IpodModel> _shown = () {
-    final rnd = math.Random();
-    return {
-      for (final f in _families) f.first.family: _remember ? f[rnd.nextInt(f.length)] : f.first,
-      _model.family: _model,
-    };
-  }();
+  /// Teinte montrée dans l'emplacement de chaque famille : la première ;
+  /// celle de l'appareil en main reste la sienne.
+  late final Map<String, IpodModel> _shown = {
+    for (final f in _families) f.first.family: f.first,
+    _model.family: _model,
+  };
 
   // --- Prise jack et changement d'appareil ------------------------------------
 
@@ -370,6 +417,28 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       });
     }
     await home();
+    // Souris qui approche d'un coin du haut : les poignées sortent, rentrent.
+    await run('poignées', () async {
+      for (final side in [1, -1, 1]) {
+        _setHoverSide(side, true);
+        await wait(600);
+        _setHoverSide(side, false);
+        await wait(600);
+      }
+    });
+    // L'iPod d'un bord à l'autre de la fenêtre, puis remis à sa place.
+    final place = _placeTarget;
+    if (_canPlace) {
+      await run('déplacer', () async {
+        for (final to in [-1, 1, 0]) {
+          stdout.writeln('[bench]   vers $to @${now() - t0}ms');
+          _moveTo(to);
+          await wait(900);
+        }
+      });
+      _moveTo(place);
+      await wait(900);
+    }
     await run('tiroir', () async {
       for (final open in [true, false, true, false]) {
         _setOpen(open);
@@ -451,8 +520,19 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       }
       if (_lift.isSettled) _lift.value = 0;
     }
+    _place.step(_placeTarget.toDouble(), dt);
+    if (_place.isSettled) _place.value = _placeTarget.toDouble();
     for (final (peek, side) in [(_peekL, -1), (_peekR, 1)]) {
-      final target = _hoverSide == side && !_wantOpen && !_dragging ? 1.0 : 0.0;
+      // Les deux boutons d'un coin sortent ensemble, quel que soit celui
+      // qu'on approche.
+      final near = _hoverSide == side || _hoverMove == side;
+      final target = near && !_wantOpen && !_dragging ? 1.0 : 0.0;
+      peek.step(target, dt);
+      if (peek.isSettled) peek.value = target;
+    }
+    for (final (peek, side) in [(_movePeekL, -1), (_movePeekR, 1)]) {
+      final near = _hoverSide == side || _hoverMove == side;
+      final target = near && _canMove(side) && !_dragging ? 1.0 : 0.0;
       peek.step(target, dt);
       if (peek.isSettled) peek.value = target;
     }
@@ -477,6 +557,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
         _peekL.isSettled &&
         _peekR.isSettled &&
         _lift.isSettled &&
+        _place.isSettled &&
+        _movePeekL.isSettled &&
+        _movePeekR.isSettled &&
         _swaySettled &&
         _geoFrom == null &&
         _plug.isSettled) {
@@ -720,13 +803,13 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       _plugCrackled = true;
       JackStatic.instance.plugIn();
     }
-    // La prise bute au fond de la prise femelle : petit rebond et clic.
+    // La prise bute au fond de la prise femelle : petit rebond (sans clic,
+    // le grésillement suffit).
     if (_plug.value < 0) {
       _plug.value = 0;
       if (_plug.velocity < 0) _plug.velocity = -_plug.velocity * 0.22;
       if (!_plugClicked) {
         _plugClicked = true;
-        WheelClick.instance.play(force: true);
         // Rebranchée : la musique reprend là où elle s'était arrêtée.
         if (_resumeOnPlug) {
           _resumeOnPlug = false;
@@ -908,13 +991,6 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   // --- Tirer le tiroir à la main ---------------------------------------------
 
-  /// Élastique façon iOS : plus on tire au-delà de la butée, plus ça résiste,
-  /// sans jamais dépasser [limit].
-  static double _rubber(double over, double limit) {
-    final x = over.abs();
-    return over.sign * (1 - 1 / (x * 0.55 / limit + 1)) * limit;
-  }
-
   /// On tire une poignée : le tiroir sortira de ce côté (s'il est rangé).
   void _dragBeginSide(int side, DragStartDetails d) {
     if (_open.value.abs() < 0.02 && !_wantOpen) _side = side;
@@ -942,8 +1018,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _drag += d.delta;
     // Tirer vers l'extérieur l'ouvre.
     final raw = _dragStart + _side * _drag.dx / _travel;
-    _open.value = raw <= 1 ? raw.clamp(0.0, 1.0) : 1 + _rubber(raw - 1, 0.35);
-    _lift.value = _rubber(_drag.dy, 12); // il bouge à peine en hauteur
+    _open.value = raw <= 1 ? raw.clamp(0.0, 1.0) : 1 + rubberBand(raw - 1, 0.35);
+    _lift.value = rubberBand(_drag.dy, 12); // il bouge à peine en hauteur
     setState(() {});
   }
 
@@ -991,7 +1067,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     // qu'une photo : débranché, en vol, rebranché. Impeller repeindrait
     // sinon à chaque image tout l'appareil, ombres floues comprises.
     final flying = _phase != _Swap.none && _phase != _Swap.poweringOff;
-    _deviceSnap.allowSnapshotting = ((_dragging || !_open.isSettled) && _phase == _Swap.none || flying) && !_hideDevice;
+    final moving = _dragging || !_open.isSettled || !_place.isSettled;
+    _deviceSnap.allowSnapshotting = (moving && _phase == _Swap.none || flying) && !_hideDevice;
   }
 
   void _drawerHover(bool inside) {
@@ -1215,15 +1292,17 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   Widget _handle(int side, Rect dev, double corner, double openC) {
     final peek = (side < 0 ? _peekL : _peekR).value;
     const width = 40.0, height = 46.0, reach = 22.0;
-    // Zone sensible juste au-delà du flanc, même quand on ne voit rien.
-    const zone = 30.0;
+    // Zone sensible bien au-delà du flanc, même quand on ne voit rien : au
+    // dessus de la poignée, et en dessous jusqu'à mi-chemin du bouton de
+    // déplacement (qui prend la suite, voir [_moveHandle]).
+    const zone = 60.0, above = 24.0, below = 4.0;
     final out = peek * reach;
     final top = dev.top + corner + 10;
     return Positioned(
       left: side > 0 ? dev.right - width : dev.left - zone,
-      top: top - 8,
+      top: top - above,
       width: width + zone,
-      height: height + 16,
+      height: above + height + below,
       child: IgnorePointer(
         ignoring: openC > 0.05,
         child: MouseRegion(
@@ -1241,7 +1320,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
               children: [
                 Positioned(
                   left: side > 0 ? out : zone - out,
-                  top: 8,
+                  top: above,
                   width: width,
                   height: height,
                   child: Opacity(
@@ -1255,6 +1334,81 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
         ),
       ),
     );
+  }
+
+  /// Bouton de déplacement, juste sous la poignée du tiroir, du même métal :
+  /// une flèche à la place de l'encoche. Cliqué, l'iPod va d'un cran de ce
+  /// côté de la fenêtre.
+  Widget _moveHandle(int side, Rect dev, double corner, double openC) {
+    final peek = (side < 0 ? _movePeekL : _movePeekR).value;
+    // Zone sensible : même largeur que celle de la poignée du tiroir, depuis
+    // la fin de la sienne (mi-écart) jusqu'un peu sous le bouton.
+    const width = 40.0, height = 30.0, reach = 22.0, zone = 60.0, above = 4.0, below = 20.0;
+    final out = peek * reach;
+    // Sous la poignée du tiroir (46 de haut), avec un petit écart.
+    final top = dev.top + corner + 10 + 46 + 8;
+    final active = _canMove(side) && openC < 0.05;
+    return Positioned(
+      left: side > 0 ? dev.right - width : dev.left - zone,
+      top: top - above,
+      width: width + zone,
+      height: above + height + below,
+      child: IgnorePointer(
+        ignoring: openC > 0.05,
+        child: MouseRegion(
+          cursor: active ? SystemMouseCursors.click : MouseCursor.defer,
+          onEnter: (_) => _setHoverMove(side, true),
+          onExit: (_) => _setHoverMove(side, false),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _nudge(side),
+            child: Stack(
+              children: [
+                Positioned(
+                  left: side > 0 ? out : zone - out,
+                  top: above,
+                  width: width,
+                  height: height,
+                  child: Opacity(
+                    opacity: (peek.clamp(0.0, 1.0) * (1 - openC)).toDouble(),
+                    child: CustomPaint(painter: _HandlePainter(side, arrow: true)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Sur la façade de l'appareil (qui est dessiné par-dessus les poignées),
+  /// le prolongement de leurs zones sensibles vers l'intérieur, jusqu'à mordre
+  /// un peu sur l'écran : la souris qui y passe fait sortir les poignées de
+  /// ce coin. Survol seulement, les clics vont toujours à l'iPod.
+  List<Widget> _hoverInside(int side, Rect dev, double corner, double openC) {
+    const inside = 72.0;
+    final top = dev.top + corner + 10;
+    Widget region(double from, double to, void Function(int, bool) hover) => Positioned(
+          left: side > 0 ? dev.right - inside : dev.left,
+          top: from,
+          width: inside,
+          height: to - from,
+          child: IgnorePointer(
+            ignoring: openC > 0.05,
+            child: MouseRegion(
+              opaque: false,
+              hitTestBehavior: HitTestBehavior.translucent,
+              onEnter: (_) => hover(side, true),
+              onExit: (_) => hover(side, false),
+            ),
+          ),
+        );
+    // Mêmes bornes verticales que [_handle] et [_moveHandle].
+    return [
+      region(top - 24, top + 50, _setHoverSide),
+      region(top + 50, top + 104, _setHoverMove),
+    ];
   }
 
   @override
@@ -1318,8 +1472,12 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
           // L'appareil s'écarte et rétrécit pour laisser la place au tiroir :
           // ensemble, ils restent centrés dans la fenêtre.
           final scale = 1 + (g.room - 1) * openC;
-          final shift = _deviceShift = (right ? g.shiftRight : g.shiftLeft) * open;
-          if (open != 0) {
+          // Sa place à gauche ou à droite : tiroir ouvert, il revient au
+          // milieu avec lui.
+          _placeReach = _managedPadding(w, h) != null ? 0 : math.max(0.0, g.device.left - 14);
+          final placed = _place.value * _placeReach;
+          final shift = (_deviceShift = (right ? g.shiftRight : g.shiftLeft) * open) + placed * (1 - openC);
+          if (shift != 0 || scale != 1) {
             device = Transform.translate(
               offset: Offset(shift, 0),
               child: Transform.scale(scale: scale, child: device),
@@ -1369,6 +1527,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                 ),
                 // Les deux poignées, derrière les coins du haut.
                 for (final side in const [-1, 1]) _handle(side, dev, g.cornerRadius * scale, openC),
+                // Et sous chacune, le bouton qui décale l'iPod de ce côté.
+                for (final side in const [-1, 1]) _moveHandle(side, dev, g.cornerRadius * scale, openC),
                 // Le tiroir, derrière l'appareil, d'où il émerge. Coupé au
                 // flanc opposé : au début de l'ouverture, son autre bout ne
                 // dépasse pas de l'autre côté.
@@ -1394,6 +1554,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                   ),
                 ),
                 deviceLayer,
+                for (final side in const [-1, 1]) ..._hoverInside(side, dev, g.cornerRadius * scale, openC),
                 // Le câble et la prise, par-dessus tout.
                 Positioned.fill(
                   child: IgnorePointer(
@@ -1462,18 +1623,24 @@ class _IpodDeviceState extends State<IpodDevice> {
       return KeyEventResult.handled;
     }
     if (e is! KeyDownEvent && e is! KeyRepeatEvent) return KeyEventResult.ignored;
-    switch (e.logicalKey) {
-      // Comme dans vim : j k pour descendre et monter, l pour entrer
-      // (valider), h pour revenir (MENU).
-      case LogicalKeyboardKey.arrowUp || LogicalKeyboardKey.keyK:
+    // Les lettres choisies dans Réglages › Touches (H J K L comme dans
+    // vim, W A S D ou Z Q S D) : monter, descendre, entrer, revenir (MENU).
+    final keys = _nav.keys;
+    final k = e.logicalKey;
+    switch (k) {
+      case LogicalKeyboardKey.arrowUp:
+      case _ when k == keys.up:
         _scroll(-1);
-      case LogicalKeyboardKey.arrowDown || LogicalKeyboardKey.keyJ:
+      case LogicalKeyboardKey.arrowDown:
+      case _ when k == keys.down:
         _scroll(1);
-      case LogicalKeyboardKey.enter || LogicalKeyboardKey.numpadEnter || LogicalKeyboardKey.keyL:
+      case LogicalKeyboardKey.enter || LogicalKeyboardKey.numpadEnter:
+      case _ when k == keys.enter:
         if (e is KeyRepeatEvent) return KeyEventResult.handled;
         WheelClick.instance.play();
         _press(WheelZone.center);
-      case LogicalKeyboardKey.backspace || LogicalKeyboardKey.keyH:
+      case LogicalKeyboardKey.backspace:
+      case _ when k == keys.back:
         if (e is KeyRepeatEvent) return KeyEventResult.handled;
         WheelClick.instance.play();
         _press(WheelZone.menu);
@@ -1883,10 +2050,14 @@ class _SideClip extends CustomClipper<Rect> {
 /// Poignée du tiroir : une languette d'aluminium microbillé, arrondie du
 /// côté qui dépasse, avec une encoche pour le doigt.
 class _HandlePainter extends CustomPainter {
-  const _HandlePainter(this.side);
+  const _HandlePainter(this.side, {this.arrow = false});
 
   /// 1 : elle dépasse à droite ; -1 : à gauche.
   final int side;
+
+  /// Une flèche gravée vers l'extérieur au lieu de l'encoche (bouton qui
+  /// déplace l'iPod).
+  final bool arrow;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1929,6 +2100,30 @@ class _HandlePainter extends CustomPainter {
           [Colors.white.withValues(alpha: 0.9), Colors.black.withValues(alpha: 0.2)],
         ),
     );
+    if (arrow) {
+      // Chevron gravé : un trait sombre, doublé d'un reflet en dessous.
+      final c = Offset(size.width - 11, size.height / 2);
+      final path = Path()
+        ..moveTo(c.dx - 3, c.dy - 5)
+        ..lineTo(c.dx + 2, c.dy)
+        ..lineTo(c.dx - 3, c.dy + 5);
+      Paint stroke() => Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      // Même teinte que l'encoche de l'autre poignée.
+      final ink = stroke()
+        ..shader = ui.Gradient.linear(
+          Offset(c.dx - 4, c.dy),
+          Offset(c.dx + 3, c.dy),
+          const [Color(0xFF7C8085), Color(0xFFD2D5D8)],
+        );
+      canvas
+        ..drawPath(path.shift(const Offset(0, 1)), stroke()..color = Colors.white.withValues(alpha: 0.7))
+        ..drawPath(path, ink);
+      return;
+    }
     // Encoche pour le doigt, près du bout.
     final notch = RRect.fromRectAndRadius(
       Rect.fromCenter(center: Offset(size.width - 8, size.height / 2), width: 4, height: size.height * 0.5),
@@ -1946,7 +2141,7 @@ class _HandlePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _HandlePainter old) => old.side != side;
+  bool shouldRepaint(covariant _HandlePainter old) => old.side != side || old.arrow != arrow;
 }
 
 /// Voyant d'état d'un shuffle, sur la tranche du haut : éteint, ou vert vif

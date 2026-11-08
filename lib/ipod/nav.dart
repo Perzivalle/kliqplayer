@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../core/library.dart';
 import '../core/player.dart';
@@ -97,6 +98,19 @@ const backlightChoices = [0, 2, 5, 10, 15, 20, 30];
 
 String backlightLabel(int seconds) => seconds == 0 ? tr('Toujours allumé') : trSeconds(seconds);
 
+/// Les lettres qui pilotent le baladeur, en plus des flèches : monter,
+/// descendre, entrer (valider) et revenir (MENU).
+enum KeyLayout {
+  hjkl('H J K L', up: LogicalKeyboardKey.keyK, down: LogicalKeyboardKey.keyJ, enter: LogicalKeyboardKey.keyL, back: LogicalKeyboardKey.keyH),
+  wasd('W A S D', up: LogicalKeyboardKey.keyW, down: LogicalKeyboardKey.keyS, enter: LogicalKeyboardKey.keyD, back: LogicalKeyboardKey.keyA),
+  zqsd('Z Q S D', up: LogicalKeyboardKey.keyZ, down: LogicalKeyboardKey.keyS, enter: LogicalKeyboardKey.keyD, back: LogicalKeyboardKey.keyQ);
+
+  const KeyLayout(this.label, {required this.up, required this.down, required this.enter, required this.back});
+
+  final String label;
+  final LogicalKeyboardKey up, down, enter, back;
+}
+
 class NowPlayingPage extends IpodPage {
   @override
   String get title => tr('En lecture');
@@ -110,6 +124,7 @@ class IpodNav extends ChangeNotifier {
         coverFlow = look.coverFlow {
     stack = [_root()];
     backlight = int.tryParse(Settings.getString('ipod.backlight') ?? '') ?? 10;
+    keys = KeyLayout.values.asNameMap()[Settings.getString('ipod.keys')] ?? KeyLayout.hjkl;
     WheelClick.instance.enabled = Settings.getString('ipod.clicker') != 'off';
     WheelClick.instance.pitch =
         (int.tryParse(Settings.getString('ipod.clickPitch') ?? '') ?? 2).clamp(0, WheelClick.pitches.length - 1);
@@ -381,8 +396,25 @@ class IpodNav extends ChangeNotifier {
           value: () => tr(WheelClick.pitchNames[WheelClick.instance.pitch]),
           open: _pitchMenu,
         ),
+        MenuEntry(tr('Touches'), value: () => keys.label, open: _keysMenu),
         MenuEntry(tr('Langue'), value: () => Lang.current.nativeName, open: _languageMenu),
       ]);
+
+  /// Les lettres de déplacement choisies (Réglages › Touches).
+  late KeyLayout keys;
+
+  MenuPage _keysMenu() {
+    final page = MenuPage(tr('Touches'), live: true, () => [
+          for (final k in KeyLayout.values)
+            MenuEntry(k.label, checked: () => k == keys, action: () {
+              keys = k;
+              Settings.setString('ipod.keys', k.name);
+              menu(); // choisi : on revient aux Réglages
+            }),
+        ]);
+    _focus(page, keys.index);
+    return page;
+  }
 
   /// Page Tonalité du clic : parcourir la liste fait entendre chaque
   /// tonalité ; valider la garde (on reste là pour comparer).
@@ -531,7 +563,7 @@ class IpodNav extends ChangeNotifier {
           MenuEntry(tr('Albums'), value: () => '${player.albums.length}'),
           MenuEntry(tr('Artistes'), value: () => '${artists.length}'),
           MenuEntry(tr('Listes'), value: () => '${player.playlists.length}'),
-          MenuEntry('Version', value: () => '0.4.0'),
+          MenuEntry('Version', value: () => '0.5.0'),
         ];
       });
 

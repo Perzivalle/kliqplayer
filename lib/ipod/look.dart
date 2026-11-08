@@ -24,6 +24,10 @@ abstract class ScreenLook {
   /// L'écran affiche Cover Flow (écrans couleur).
   bool get coverFlow => false;
 
+  /// Fond sous l'écran « En lecture ». Sombre si cet écran l'est bord à
+  /// bord : un fond clair dessous filtrerait en liseré sur les côtés.
+  Color get nowPlayingBackground => background;
+
   /// Voile posé sur l'écran quand le rétroéclairage s'éteint.
   Color get unlit => const Color(0xC8000000);
 

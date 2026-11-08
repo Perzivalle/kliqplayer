@@ -333,8 +333,8 @@ void main() {
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_handle_hover.png'));
     });
 
-    // Survol : les pastilles du nano 4G apparaissent, et l'appareil prend
-    // la teinte survolée.
+    // Survol : l'éventail des teintes du nano 4G s'ouvre, la carte survolée
+    // monte.
     testWidgets('survol d\'une pastille', (tester) async {
       await _show(tester, IpodStage(player: _player(index: 0), initial: const ClassicModel()));
       await _key(tester, LogicalKeyboardKey.keyT);
@@ -346,7 +346,8 @@ void main() {
       await _frames(tester);
       await mouse.moveTo(tester.getCenter(nano4));
       await tester.pumpAndSettle();
-      await mouse.moveTo(tester.getCenter(find.byTooltip('Violet').last));
+      final violet = _swatch('Violet').last;
+      await mouse.moveTo(tester.renderObject<RenderBox>(violet).localToGlobal(const Offset(8, 10)));
       await tester.pumpAndSettle();
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_swatch_preview.png'));
       await mouse.moveTo(Offset.zero);
@@ -418,3 +419,6 @@ void main() {
     }
   });
 }
+
+/// Une pastille de l'éventail, par le nom de sa teinte.
+Finder _swatch(String name) => find.byWidgetPredicate((w) => w is Semantics && w.properties.label == name);

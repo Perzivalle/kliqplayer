@@ -96,7 +96,9 @@ class _LecteurAppState extends State<LecteurApp> {
   }
 
   /// Raccourcis globaux. Le baladeur gère lui-même ↑ ↓ ← → Entrée,
-  /// Retour arrière et T ; ce qu'il n'utilise pas remonte jusqu'ici.
+  /// Retour arrière, T et les lettres de Réglages › Touches ; ce qu'il
+  /// n'utilise pas remonte jusqu'ici (en Z Q S D, Q sert à revenir : on
+  /// quitte avec Échap).
   KeyEventResult _onKey(FocusNode _, KeyEvent e) {
     if (e is! KeyDownEvent) return KeyEventResult.ignored;
     switch (e.logicalKey) {

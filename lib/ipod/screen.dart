@@ -170,9 +170,16 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
     return DefaultTextStyle(
       style: look.textStyle,
       child: _PowerOff(on: screenPower.value, look: look, child: _Backlight(lit: _lit, tint: look.unlit, child: ColoredBox(
-        // Cover Flow est noir bord à bord : un fond clair dessous filtrerait
-        // en liseré le long des bords de l'écran (lissage des arêtes).
-        color: nav.page is CoverFlowPage && nav.leaving == null ? Colors.black : look.background,
+        // Cover Flow et l'écran « En lecture » du nano 4G sont sombres bord à
+        // bord : un fond clair dessous filtrerait en liseré le long des bords
+        // de l'écran (lissage des arêtes).
+        color: nav.leaving != null
+            ? look.background
+            : switch (nav.page) {
+                CoverFlowPage() => Colors.black,
+                NowPlayingPage() => look.nowPlayingBackground,
+                _ => look.background,
+              },
         child: Column(
           children: [
             look.statusBar(

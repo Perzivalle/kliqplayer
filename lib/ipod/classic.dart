@@ -372,6 +372,9 @@ class ClassicLook extends ScreenLook {
   Color get background => Colors.white;
 
   @override
+  Color get nowPlayingBackground => portrait ? const Color(0xFF0E0F12) : background;
+
+  @override
   bool get coverFlow => true;
 
   @override

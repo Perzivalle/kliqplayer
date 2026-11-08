@@ -70,6 +70,7 @@ const _strings = <String, List<String>>{
   'Normale': ['Normal', 'Normal', 'Normal'],
   'Aiguë': ['High', 'Agudo', 'Hoch'],
   'Très aiguë': ['Very High', 'Muy agudo', 'Sehr hoch'],
+  'Touches': ['Keys', 'Teclas', 'Tasten'],
   'Langue': ['Language', 'Idioma', 'Sprache'],
   'Dossier actuel': ['Current Folder', 'Carpeta actual', 'Aktueller Ordner'],
   'Dossier personnel': ['Home Folder', 'Carpeta personal', 'Persönlicher Ordner'],

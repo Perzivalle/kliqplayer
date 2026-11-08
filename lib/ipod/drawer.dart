@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -152,6 +153,7 @@ class IpodDrawer extends StatelessWidget {
                 shown: shown[families[i].first.family] ?? families[i].first,
                 current: current,
                 scale: scale,
+                rowHeight: maxH * scale,
                 onPick: onPick,
                 onSwatch: onSwatch,
               ),
@@ -235,6 +237,7 @@ class _Slot extends StatefulWidget {
     required this.shown,
     required this.current,
     required this.scale,
+    required this.rowHeight,
     required this.onPick,
     required this.onSwatch,
   });
@@ -242,6 +245,11 @@ class _Slot extends StatefulWidget {
   final GlobalKey? shapeKey;
   final List<IpodModel> variants;
   final IpodModel shown;
+
+  /// Hauteur du plus grand appareil : chacun est centré dans cette
+  /// hauteur, pour que les appareils et les noms d'une même ligne soient
+  /// alignés.
+  final double rowHeight;
   final IpodModel current;
   final double scale;
   final ValueChanged<IpodModel> onPick;
@@ -251,30 +259,119 @@ class _Slot extends StatefulWidget {
   State<_Slot> createState() => _SlotState();
 }
 
-class _SlotState extends State<_Slot> {
+class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
   /// Pointeur sur l'appareil (il se soulève).
   bool _hover = false;
 
-  /// Pointeur dans l'emplacement : les pastilles apparaissent.
-  bool _inside = false;
+  /// Pointeur sur l'appareil de l'emplacement, ou sur l'éventail des teintes.
+  bool _inside = false, _inFan = false;
 
-  /// Teinte survolée : l'appareil la prend le temps du survol.
-  IpodModel? _preview, _ghostModel;
+  /// Teinte de l'éventail sous le pointeur.
+  String? _fanHover;
+
+  /// Une teinte vient d'être choisie : l'éventail se range et ne se
+  /// rouvre pas tant que le pointeur n'a pas quitté l'appareil.
+  bool _picked = false;
+
+  /// Ouverture de l'éventail (0 rangé derrière l'appareil, 1 déployé).
+  late final _fan = AnimationController(vsync: this, duration: const Duration(milliseconds: 520))
+    ..addListener(() => setState(() {}))
+    ..addStatusListener((s) {
+      if (s != AnimationStatus.dismissed) return;
+      _portal.hide();
+      // Retiré, l'éventail ne reçoit plus la sortie du pointeur.
+      _inFan = false;
+      if (!_inside) _picked = false;
+    });
+  final _portal = OverlayPortalController();
+  Timer? _closing, _opening;
+
+  /// La partie visible des emplacements, dans le repère de la fenêtre :
+  /// l'éventail, dessiné par-dessus toute la fenêtre pour pouvoir monter
+  /// au-dessus du tiroir, ne déborde pas sur les côtés et cache ce qui de
+  /// l'appareil est hors de vue.
+  Rect? _bounds;
+
+  void _measure() {
+    final clip = context.findAncestorRenderObjectOfType<RenderClipRect>();
+    final overlay = Overlay.maybeOf(context)?.context.findRenderObject();
+    if (clip == null || overlay == null || !clip.hasSize) return;
+    _bounds = MatrixUtils.transformRect(clip.getTransformTo(overlay), Offset.zero & clip.size);
+  }
 
   @override
-  Widget build(BuildContext context) {
-    final empty = widget.shown.family == widget.current.family;
-    final selected = empty ? widget.current : widget.shown;
-    // Vide, il garde la dernière teinte survolée pendant qu'elle s'efface.
-    if (empty && _preview != null) _ghostModel = _preview;
-    final m = empty ? (_preview ?? _ghostModel ?? widget.shown) : (_preview ?? widget.shown);
-    // L'emplacement vide montre la teinte survolée en transparence.
-    final ghost = empty && _preview != null && _preview!.id != widget.current.id;
-    final size = m.size * widget.scale;
-    final radius = m.cornerRadius * widget.scale;
-    final lifted = _hover && !empty;
+  void dispose() {
+    _closing?.cancel();
+    _opening?.cancel();
+    _fan.dispose();
+    super.dispose();
+  }
 
-    final device = AnimatedScale(
+  bool get _empty => widget.shown.family == widget.current.family;
+
+  /// Les autres teintes, celles de l'éventail (pas celle qu'on voit déjà).
+  List<IpodModel> get _others {
+    final front = _empty ? widget.current : widget.shown;
+    return [for (final v in widget.variants) if (v.id != front.id) v];
+  }
+
+  /// Le pointeur entre ou sort de l'appareil ou de l'éventail. Il ne
+  /// s'ouvre qu'après une demi-seconde sur l'appareil : en passant
+  /// simplement dessus, rien ne s'ouvre. En passant de l'appareil à
+  /// l'éventail, le pointeur sort de l'un avant d'entrer dans l'autre : on
+  /// attend un peu avant de replier.
+  void _pointer({bool? inside, bool? inFan}) {
+    _inside = inside ?? _inside;
+    _inFan = inFan ?? _inFan;
+    _closing?.cancel();
+    if (_inside || _inFan) {
+      // Pas d'éventail : l'appareil se soulève quand même.
+      if (_others.isEmpty || _picked) return setState(() {});
+      void open() {
+        if (!mounted || !(_inside || _inFan)) return;
+        if (!_portal.isShowing) _measure();
+        _portal.show();
+        _fan.forward();
+      }
+      // Déjà ouvert (ou en train de se replier) : on le garde.
+      if (_portal.isShowing) {
+        _opening?.cancel();
+        open();
+      } else {
+        _opening ??= Timer(const Duration(milliseconds: 500), () {
+          _opening = null;
+          open();
+        });
+      }
+    } else {
+      _picked = false;
+      _opening?.cancel();
+      _opening = null;
+      _closing = Timer(const Duration(milliseconds: 140), () {
+        if (!mounted) return;
+        _fanHover = null;
+        _hover = false;
+        _fan.reverse();
+      });
+    }
+    setState(() {});
+  }
+
+  /// Clic sur une teinte : l'éventail se range aussitôt, même si le
+  /// pointeur reste dessus.
+  void _pick() {
+    _picked = true;
+    _opening?.cancel();
+    _opening = null;
+    _closing?.cancel();
+    _fanHover = null;
+    _fan.reverse();
+    setState(() {});
+  }
+
+  /// L'appareil de l'emplacement : soulevé au survol.
+  Widget _device(IpodModel m, Size size, double radius, bool lifted) {
+    return AnimatedScale(
       scale: lifted ? 1.06 : 1,
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutBack,
@@ -295,51 +392,167 @@ class _SlotState extends State<_Slot> {
           borderRadius: BorderRadius.circular(radius),
           child: SizedBox.fromSize(
             size: size,
-            // Changement de teinte : fondu enchaîné.
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 260),
-              child: _Frozen(
-                key: ValueKey(m.id),
-                child: FittedBox(child: IpodPreview(model: m)),
-              ),
-            ),
+            child: _Frozen(key: ValueKey(m.id), child: FittedBox(child: IpodPreview(model: m))),
           ),
         ),
       ),
     );
+  }
 
-    final swatches = _inside && widget.variants.length > 1;
+  /// L'éventail des teintes, dessiné par-dessus tout le tiroir : les autres
+  /// teintes sortent de derrière l'appareil en main et s'ouvrent vers le
+  /// haut, comme des cartes. Survolée, une carte monte ; cliquée, c'est cet
+  /// appareil, dans cette teinte, qui part en main.
+  Widget _fanLayer(BuildContext context, OverlayChildLayoutInfo info) {
+    final at = MatrixUtils.transformRect(info.childPaintTransform, Offset.zero & info.childSize);
+    final others = _others;
+    final k = others.length;
+    final t = _fan.value;
+    final front = _empty ? null : widget.shown;
+    final w = at.width, h = at.height;
+    final card = Size(w, h) * 0.78;
+    final radius = (front ?? widget.current).cornerRadius * widget.scale * 0.78;
+    final bounds = _bounds ?? Offset.zero & info.overlaySize;
+    // Déployées, elles se posent au-dessus de l'appareil, quitte à sortir
+    // du tiroir par le haut (pas de la fenêtre). La carte survolée monte
+    // encore un peu.
+    final lift = h * 0.06;
+    final rise = math.max(
+      0.0,
+      math.min(h / 2 + card.height / 2 + 14, at.center.dy - card.height / 2 - lift - 4),
+    );
+    // Les cartes tournent autour d'un point loin sous l'appareil : un arc
+    // plat, qui reste au-dessus de lui au lieu de retomber sur les côtés.
+    final pivot = at.center + Offset(0, h * 2.2);
+    final reach = h * 2.2 + rise;
+    // Chacune décalée d'une demi-carte sur la précédente (un peu moins
+    // quand elles sont nombreuses).
+    final step = card.width * (k > 5 ? 0.4 : 0.5);
+    final spread = k < 2 ? 0.0 : (k - 1) * math.asin((step / reach).clamp(0.0, 1.0));
+    // Près d'un bord du tiroir, l'éventail s'ouvre surtout de l'autre côté.
+    double room(double px) => math.asin(((px - card.width / 2 - 6) / reach).clamp(0.0, 1.0));
+    final left = at.center.dx - bounds.left, right = bounds.right - at.center.dx;
+    var aL = math.min(spread / 2, room(left));
+    var aR = math.min(spread / 2, room(right));
+    aL = math.min(room(left), aL + (spread / 2 - aR));
+    aR = math.min(room(right), aR + (spread / 2 - aL));
+
+    // Où se pose la carte i, avancée de [p] (0 rangée, 1 déployée).
+    (Rect, Matrix4) place(int i, double p, {double extra = 0}) {
+      final angle = (k == 1 ? 0.0 : -aL + (aL + aR) * i / (k - 1)) * p;
+      final rect = Rect.fromCenter(center: at.center, width: card.width, height: card.height);
+      // (Dans le repère de la carte.)
+      final pv = pivot - rect.topLeft;
+      final m = Matrix4.identity()
+        ..translateByDouble(pv.dx, pv.dy, 0, 1)
+        ..rotateZ(angle)
+        ..translateByDouble(-pv.dx, -pv.dy - rise * p - extra, 0, 1);
+      return (rect, m);
+    }
+
+    double progress(int i) {
+      // Chacune part un peu après sa voisine de gauche : elles se
+      // déploient de gauche à droite. Au rangement (l'animation à
+      // l'envers), la plus à droite rentre la première : de droite à gauche.
+      final from = k == 1 ? 0.0 : i / (k - 1) * 0.4;
+      return Curves.easeOutCubic.transform(((t - from) / (1 - from)).clamp(0.0, 1.0));
+    }
+
+    // Ce qu'on voit : la carte survolée monte un peu et grossit.
+    Widget cardFor(int i, IpodModel v) {
+      final hovered = _fanHover == v.id;
+      final p = progress(i);
+      final (rect, m) = place(i, p, extra: hovered ? lift : 0);
+      // Emplacement vide (l'appareil est en main) : rien pour les cacher en
+      // rentrant, alors chacune s'efface en approchant de l'emplacement.
+      var opacity = (t * 4).clamp(0.0, 1.0);
+      if (front == null) opacity = math.min(opacity, Curves.easeIn.transform(((p - 0.1) / 0.5).clamp(0.0, 1.0)));
+      return Positioned.fromRect(
+        key: ValueKey(v.id),
+        rect: rect,
+        child: Transform(
+          transform: m,
+          child: Opacity(
+            opacity: opacity,
+            child: _FanCard(model: v, size: card, radius: radius, raised: hovered),
+          ),
+        ),
+      );
+    }
+
+    // Où l'on vise : la place de la carte au repos, dans un ordre fixe. Si
+    // elle suivait la carte qui monte et passe devant, le pointeur, à la
+    // jonction de deux cartes, sauterait de l'une à l'autre sans arrêt.
+    Widget targetFor(int i, IpodModel v) {
+      final (rect, m) = place(i, progress(i));
+      return Positioned.fromRect(
+        key: ValueKey(('cible', v.id)),
+        rect: rect,
+        child: Transform(
+          transform: m,
+          child: Semantics(
+            label: tr(v.variantName),
+            button: true,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              onEnter: (_) => setState(() => _fanHover = v.id),
+              onExit: (_) => setState(() {
+                if (_fanHover == v.id) _fanHover = null;
+              }),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  _pick();
+                  widget.onSwatch(v);
+                },
+                child: SizedBox.fromSize(size: card),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // La carte survolée passe devant ses voisines.
+    final order = [for (var i = 0; i < k; i++) i];
+    final hi = others.indexWhere((v) => v.id == _fanHover);
+    if (hi >= 0) {
+      order
+        ..remove(hi)
+        ..add(hi);
+    }
+
     return MouseRegion(
-      onEnter: (_) => setState(() => _inside = true),
-      onExit: (_) => setState(() {
-        _inside = false;
-        _preview = null;
-      }),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      // Seulement sur les cartes : le reste du tiroir reste cliquable.
+      hitTestBehavior: HitTestBehavior.deferToChild,
+      onEnter: (_) => _pointer(inFan: true),
+      onExit: (_) => _pointer(inFan: false),
+      child: Stack(
         children: [
-          MouseRegion(
-            cursor: empty ? MouseCursor.defer : SystemMouseCursors.click,
-            onEnter: (_) => setState(() => _hover = true),
-            onExit: (_) => setState(() => _hover = false),
-            child: GestureDetector(
-              onTap: empty ? null : () => widget.onPick(m),
-              child: SizedBox.fromSize(
-                key: widget.shapeKey,
-                size: size,
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Stack(children: [for (final i in order) cardFor(i, others[i])]),
+            ),
+          ),
+          for (var i = 0; i < k; i++) targetFor(i, others[i]),
+          // Devant : l'appareil de l'emplacement, comme en dessous (coupé
+          // comme lui s'il est en partie hors de vue).
+          if (front != null)
+            Positioned.fromRect(
+              rect: bounds,
+              child: ClipRect(
                 child: Stack(
                   clipBehavior: Clip.none,
                   children: [
-                    Positioned.fill(
-                      child: _Frozen(overflow: 12, child: CustomPaint(painter: _ImprintPainter(radius))),
-                    ),
-                    if (!empty) Positioned.fill(child: device),
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: AnimatedOpacity(
-                          opacity: ghost ? 0.55 : 0,
-                          duration: const Duration(milliseconds: 200),
-                          child: ghost || empty ? device : null,
+                    Positioned.fromRect(
+                      rect: at.shift(-bounds.topLeft),
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        onEnter: (_) => setState(() => _hover = true),
+                        onExit: (_) => setState(() => _hover = false),
+                        child: GestureDetector(
+                          onTap: () => widget.onPick(front),
+                          child: _device(front, at.size, front.cornerRadius * widget.scale, _hover),
                         ),
                       ),
                     ),
@@ -347,51 +560,107 @@ class _SlotState extends State<_Slot> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final empty = _empty;
+    final m = widget.shown;
+    final size = m.size * widget.scale;
+    final radius = m.cornerRadius * widget.scale;
+    final lifted = _hover && !empty;
+
+    return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Centré dans une hauteur commune : appareils et noms alignés sur
+          // la ligne.
+          SizedBox(
+            height: widget.rowHeight,
+            child: Align(
+              alignment: Alignment.center,
+              // L'éventail s'ouvre au survol de l'appareil seulement.
+              child: MouseRegion(
+            cursor: empty ? MouseCursor.defer : SystemMouseCursors.click,
+            onEnter: (_) {
+              _hover = true;
+              _pointer(inside: true);
+            },
+            onExit: (_) {
+              _hover = false;
+              _pointer(inside: false);
+            },
+            child: GestureDetector(
+              onTap: empty ? null : () => widget.onPick(m),
+              child: OverlayPortal.overlayChildLayoutBuilder(
+                controller: _portal,
+                overlayChildBuilder: _fanLayer,
+                child: SizedBox.fromSize(
+                  key: widget.shapeKey,
+                  size: size,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned.fill(
+                        child: _Frozen(overflow: 12, child: CustomPaint(painter: _ImprintPainter(radius))),
+                      ),
+                      if (!empty) Positioned.fill(child: _device(m, size, radius, lifted)),
+                      // Vide : l'appareil en main, invisible (rien n'est
+                      // peint), marque encore l'emplacement de sa famille.
+                      if (empty)
+                        Positioned.fill(
+                          child: Opacity(opacity: 0, child: FittedBox(child: IpodPreview(model: widget.current))),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+            ),
           ),
           const SizedBox(height: 14),
           _Engraved(tr(m.label)),
-          const SizedBox(height: 10),
-          // Pastilles, seulement au survol de l'emplacement : sur une ligne si
-          // elles tiennent, sinon sur deux. Survolée, une teinte habille
-          // l'appareil ; cliquée, elle le prend en main.
-          ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 18),
-            child: widget.variants.length < 2
-                ? null
-                : IgnorePointer(
-                    ignoring: !swatches,
-                    child: AnimatedOpacity(
-                      opacity: swatches ? 1 : 0,
-                      duration: const Duration(milliseconds: 180),
-                      child: AnimatedSlide(
-                        offset: swatches ? Offset.zero : const Offset(0, -0.25),
-                        duration: const Duration(milliseconds: 240),
-                        curve: Curves.easeOutCubic,
-                        child: Wrap(
-                          alignment: WrapAlignment.center,
-                          spacing: 6,
-                          runSpacing: 5,
-                          children: [
-                            for (final v in widget.variants)
-                              _Swatch(
-                                model: v,
-                                selected: v.id == (_preview ?? selected).id,
-                                onTap: () => widget.onSwatch(v),
-                                onHover: (on) => setState(() {
-                                  if (on) {
-                                    _preview = v;
-                                  } else if (_preview?.id == v.id) {
-                                    _preview = null;
-                                  }
-                                }),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-          ),
+          // (Là où étaient les pastilles : la grille garde sa disposition.)
+          const SizedBox(height: 28),
         ],
+    );
+  }
+}
+
+/// Une teinte dans l'éventail : la miniature, avec son ombre.
+class _FanCard extends StatelessWidget {
+  const _FanCard({required this.model, required this.size, required this.radius, required this.raised});
+
+  final IpodModel model;
+  final Size size;
+  final double radius;
+  final bool raised;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedScale(
+      scale: raised ? 1.07 : 1,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutBack,
+      // Photo : pendant que l'éventail s'ouvre, les cartes ne font que
+      // tourner, rien n'est redessiné.
+      child: _Frozen(
+        key: ValueKey((model.id, size)),
+        overflow: 16,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(radius),
+            boxShadow: const [BoxShadow(color: Color(0x80000000), blurRadius: 10, offset: Offset(0, 5))],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(radius),
+            child: SizedBox.fromSize(size: size, child: FittedBox(child: IpodPreview(model: model))),
+          ),
+        ),
       ),
     );
   }
@@ -433,72 +702,6 @@ class _Engraved extends StatelessWidget {
 }
 
 /// Pastille de teinte : petit disque d'aluminium anodisé.
-class _Swatch extends StatefulWidget {
-  const _Swatch({required this.model, required this.selected, required this.onTap, required this.onHover});
-
-  final IpodModel model;
-  final bool selected;
-  final VoidCallback onTap;
-  final ValueChanged<bool> onHover;
-
-  @override
-  State<_Swatch> createState() => _SwatchState();
-}
-
-class _SwatchState extends State<_Swatch> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = widget.model.swatch;
-    return Tooltip(
-      message: tr(widget.model.variantName),
-      waitDuration: const Duration(milliseconds: 400),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) {
-          setState(() => _hover = true);
-          widget.onHover(true);
-        },
-        onExit: (_) {
-          setState(() => _hover = false);
-          widget.onHover(false);
-        },
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedScale(
-            scale: _hover ? 1.18 : 1,
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutBack,
-            child: _Frozen(
-              key: ValueKey(widget.selected),
-              overflow: 6,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                width: 14,
-                height: 14,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color.lerp(c, Colors.white, 0.45)!, c, Color.lerp(c, Colors.black, 0.2)!],
-                  ),
-                  border: Border.all(
-                    color: widget.selected ? Colors.white.withValues(alpha: 0.9) : Colors.black.withValues(alpha: 0.35),
-                    width: widget.selected ? 2 : 1,
-                  ),
-                  boxShadow: const [BoxShadow(color: Color(0x88000000), blurRadius: 3, offset: Offset(0, 1.5))],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Partie immobile du tiroir, peinte une fois en image puis réutilisée.
 /// Impeller redessine toute la scène à chaque image ; sans cela, la moindre
 /// animation (survol d'un appareil, titre qui défile) repeindrait mousse,
@@ -825,11 +1028,11 @@ class _Foam {
     // Grains : serrés, minuscules, gris clair, quelques-uns plus brillants.
     final grain = Paint();
     final shade = Paint();
-    for (var i = 0; i < 8000; i++) {
+    for (var i = 0; i < 5000; i++) {
       final p = Offset(rnd.nextDouble() * t, rnd.nextDouble() * t);
       final u = rnd.nextDouble();
       final r = 0.22 + u * u * 0.55;
-      final bright = rnd.nextInt(16) == 0;
+      final bright = rnd.nextInt(30) == 0;
       grain.color = Colors.white.withValues(alpha: bright ? 0.3 + rnd.nextDouble() * 0.15 : 0.06 + rnd.nextDouble() * 0.1);
       shade.color = Colors.black.withValues(alpha: 0.25);
       wrapped(p, 3, (q) {
@@ -973,11 +1176,100 @@ class _ScrollingSlotsState extends State<_ScrollingSlots> {
   Widget build(BuildContext context) {
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false, overscroll: false),
-      child: SingleChildScrollView(
-        controller: _controller,
-        physics: const BouncingScrollPhysics(),
-        child: widget.child,
+      // Même butée élastique que quand on tire le tiroir au-delà de sa sortie :
+      // 0,35 × sa course, avec la même courbe.
+      child: LayoutBuilder(
+        builder: (context, box) => SingleChildScrollView(
+          controller: _controller,
+          physics: _RubberScrollPhysics(limit: 0.35 * box.maxWidth),
+          child: widget.child,
+        ),
       ),
     );
   }
+}
+
+/// Élastique façon iOS : plus on tire au-delà de la butée, plus ça résiste,
+/// sans jamais dépasser [limit]. Partagé par le tiroir et son défilement.
+double rubberBand(double over, double limit) {
+  final x = over.abs();
+  return over.sign * (1 - 1 / (x * 0.55 / limit + 1)) * limit;
+}
+
+/// Comme [BouncingScrollPhysics], mais le dépassement suit [rubberBand] :
+/// il plafonne à [limit] pixels au lieu de s'étirer sans fin.
+class _RubberScrollPhysics extends BouncingScrollPhysics {
+  const _RubberScrollPhysics({required this.limit, super.parent});
+
+  final double limit;
+
+  @override
+  _RubberScrollPhysics applyTo(ScrollPhysics? ancestor) =>
+      _RubberScrollPhysics(limit: limit, parent: buildParent(ancestor));
+
+  /// Distance tirée par le doigt qui donne ce dépassement (inverse de [rubberBand]).
+  double _pulled(double over) {
+    final o = over.clamp(0.0, limit * 0.999);
+    return limit / 0.55 * (1 / (1 - o / limit) - 1);
+  }
+
+  @override
+  double applyPhysicsToUserOffset(ScrollMetrics position, double offset) {
+    final before = math.max(position.minScrollExtent - position.pixels, 0.0);
+    final after = math.max(position.pixels - position.maxScrollExtent, 0.0);
+    final over = math.max(before, after);
+    // offset > 0 : le contenu descend (on tire vers le haut de la liste).
+    final outward = (before > 0 || position.pixels <= position.minScrollExtent) && offset > 0 ||
+        (after > 0 || position.pixels >= position.maxScrollExtent) && offset < 0;
+    // On revient vers la butée (ou on défile normalement) : 1 pour 1.
+    if (!outward) return offset;
+    final now = rubberBand(_pulled(over), limit);
+    final next = rubberBand(_pulled(over) + offset.abs(), limit);
+    return offset.sign * (next - now);
+  }
+
+  /// L'élan après un lancer passe par le même élastique : le rebond ne
+  /// dépasse jamais [limit], quelle que soit la vitesse.
+  @override
+  Simulation? createBallisticSimulation(ScrollMetrics position, double velocity) {
+    final min = position.minScrollExtent, max = position.maxScrollExtent;
+    // Si on est déjà au-delà, on repart de la distance « tirée » équivalente
+    // pour que le premier pas ne saute pas.
+    var start = position.pixels;
+    if (start < min) start = min - _pulled(min - start);
+    if (start > max) start = max + _pulled(start - max);
+    final inner = super.createBallisticSimulation(position.copyWith(pixels: start), velocity);
+    if (inner == null) return null;
+    return _RubberSimulation(inner, min, max, limit, tolerance: inner.tolerance);
+  }
+}
+
+/// Passe le dépassement d'une simulation par [rubberBand].
+class _RubberSimulation extends Simulation {
+  _RubberSimulation(this.inner, this.min, this.max, this.limit, {super.tolerance});
+
+  final Simulation inner;
+  final double min, max, limit;
+
+  double _slope(double over) => 0.55 / math.pow(over * 0.55 / limit + 1, 2);
+
+  @override
+  double x(double time) {
+    final v = inner.x(time);
+    if (v < min) return min - rubberBand(min - v, limit);
+    if (v > max) return max + rubberBand(v - max, limit);
+    return v;
+  }
+
+  @override
+  double dx(double time) {
+    final v = inner.x(time);
+    final d = inner.dx(time);
+    if (v < min) return d * _slope(min - v);
+    if (v > max) return d * _slope(v - max);
+    return d;
+  }
+
+  @override
+  bool isDone(double time) => inner.isDone(time);
 }
