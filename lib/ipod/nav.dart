@@ -531,7 +531,7 @@ class IpodNav extends ChangeNotifier {
           MenuEntry(tr('Albums'), value: () => '${player.albums.length}'),
           MenuEntry(tr('Artistes'), value: () => '${artists.length}'),
           MenuEntry(tr('Listes'), value: () => '${player.playlists.length}'),
-          MenuEntry('Version', value: () => '0.3.1'),
+          MenuEntry('Version', value: () => '0.4.0'),
         ];
       });
 

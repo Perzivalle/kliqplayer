@@ -310,6 +310,18 @@ void main() {
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_open_left.png'));
     });
 
+    testWidgets('ouvert à gauche après avoir été ouvert à droite : façade à gauche', (tester) async {
+      await _show(tester, IpodStage(player: _player(index: 0), initial: Nano4Model(nano4Colors[4])));
+      final d = tester.getRect(find.byType(IpodDevice));
+      await tester.tapAt(Offset(d.right + 6, d.top + 30));
+      await _frames(tester, 120);
+      await _key(tester, LogicalKeyboardKey.escape);
+      await _frames(tester, 120);
+      await tester.tapAt(Offset(d.left - 6, d.top + 30));
+      await _frames(tester, 120);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/drawer_open_left_after_right.png'));
+    });
+
     testWidgets('poignée survolée', (tester) async {
       await _show(tester, IpodStage(player: _player(index: 0), initial: const MiniModel(MiniColor.bleu)));
       final d = tester.getRect(find.byType(IpodDevice));

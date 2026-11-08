@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import 'model.dart';
-import 'nav.dart';
+import 'screen.dart';
 import 'wheel.dart';
 import '../core/strings.dart';
 
@@ -177,14 +177,17 @@ class IpodDrawer extends StatelessWidget {
         children: [
           Positioned.fill(
             // L'ombre du tiroir déborde à gauche.
+            // Clé par côté : la photo n'est jamais refaite quand le dessin
+            // change (voir [_Frozen]), il faut un nouveau [_Frozen].
             child: _Frozen(
+              key: ValueKey(('coque', frontOnRight)),
               overflow: 64,
               child: CustomPaint(painter: _TrayPainter(inner: inner, mirrored: frontOnRight)),
             ),
           ),
           Positioned.fromRect(
             rect: foam,
-            child: _Frozen(child: CustomPaint(painter: _FoamPainter(radius: 4))),
+            child: _Frozen(key: ValueKey(('mousse', frontOnRight)), child: CustomPaint(painter: _FoamPainter(radius: 4))),
           ),
           Positioned.fromRect(
             rect: slots,
@@ -198,7 +201,10 @@ class IpodDrawer extends StatelessWidget {
           Positioned.fromRect(
             rect: foam,
             child: IgnorePointer(
-              child: _Frozen(child: CustomPaint(painter: _WallShadowPainter(frontOnRight: frontOnRight))),
+              child: _Frozen(
+                key: ValueKey(('parois', frontOnRight)),
+                child: CustomPaint(painter: _WallShadowPainter(frontOnRight: frontOnRight)),
+              ),
             ),
           ),
           // Façade : clic pour ouvrir ou refermer.
@@ -497,6 +503,8 @@ class _SwatchState extends State<_Swatch> {
 /// Impeller redessine toute la scène à chaque image ; sans cela, la moindre
 /// animation (survol d'un appareil, titre qui défile) repeindrait mousse,
 /// ombres floues et miniatures, bien trop lourd pour tenir 60 images/s.
+/// La photo n'est refaite que si la taille change : quand le dessin change
+/// (tiroir passé de l'autre côté), il faut une autre clé.
 class _Frozen extends StatelessWidget {
   const _Frozen({super.key, this.overflow = 0, required this.child});
 
@@ -585,17 +593,11 @@ class _RenderBleed extends RenderShiftedBox {
   double computeMaxIntrinsicHeight(double width) => _shrink(super.computeMaxIntrinsicHeight(width + _margin * 2));
 }
 
-/// L'appareil en miniature, figé sur son menu principal.
+/// L'appareil en miniature, rangé écran éteint.
 class IpodPreview extends StatelessWidget {
   const IpodPreview({super.key, required this.model});
 
   final IpodModel model;
-
-  static List<MenuEntry> get _entries => [
-        MenuEntry(tr('Musique'), open: NowPlayingPage.new),
-        MenuEntry(tr('Morceau au hasard')),
-        MenuEntry(tr('En lecture'), open: NowPlayingPage.new),
-      ];
 
   @override
   Widget build(BuildContext context) {
@@ -614,28 +616,7 @@ class IpodPreview extends StatelessWidget {
               child: FittedBox(
                 child: SizedBox.fromSize(
                   size: look.size,
-                  child: DefaultTextStyle(
-                    style: look.textStyle,
-                    child: ColoredBox(
-                      color: look.background,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          look.statusBar(title: tr('Lecteur'), playing: false, hasTrack: false),
-                          for (final (i, entry) in _entries.indexed)
-                            SizedBox(
-                              height: look.rowHeight,
-                              child: Stack(
-                                children: [
-                                  if (i == 0) Positioned.fill(child: look.highlight()),
-                                  Positioned.fill(child: look.row(entry, selected: i == 0)),
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
+                  child: ScreenOff(look: look),
                 ),
               ),
             ),
@@ -969,7 +950,7 @@ class _ImprintPainter extends CustomPainter {
 }
 
 /// Emplacements trop nombreux pour la hauteur de la fenêtre : ils défilent
-/// à la molette, avec un fin repère clair sur la mousse.
+/// à la molette (sans barre de défilement).
 class _ScrollingSlots extends StatefulWidget {
   const _ScrollingSlots({required this.child});
 
@@ -992,17 +973,10 @@ class _ScrollingSlotsState extends State<_ScrollingSlots> {
   Widget build(BuildContext context) {
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false, overscroll: false),
-      child: RawScrollbar(
+      child: SingleChildScrollView(
         controller: _controller,
-        thumbColor: Colors.white.withValues(alpha: 0.22),
-        radius: const Radius.circular(3),
-        thickness: 4,
-        crossAxisMargin: 3,
-        child: SingleChildScrollView(
-          controller: _controller,
-          physics: const BouncingScrollPhysics(),
-          child: widget.child,
-        ),
+        physics: const BouncingScrollPhysics(),
+        child: widget.child,
       ),
     );
   }

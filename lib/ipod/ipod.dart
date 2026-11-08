@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' show Timeline;
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -16,6 +17,7 @@ import '../core/strings.dart';
 import '../physics.dart';
 import 'classic.dart';
 import 'click.dart';
+import 'jack_static.dart';
 import 'drawer.dart';
 import 'jack.dart';
 import 'mini.dart';
@@ -69,9 +71,16 @@ Rect windowFrameFor(IpodModel model, Rect device, Rect screen, {int drawerSide =
   return Rect.fromLTRB(left, top, right, bottom);
 }
 
+/// Faux tant que l'iPod monte à l'ouverture de l'appli (main.dart) : la
+/// prise attend qu'il soit arrivé pour se brancher.
+final ipodLanded = ValueNotifier(true);
+
 /// Étapes d'un changement d'appareil.
 enum _Swap {
   none,
+
+  /// L'écran s'éteint d'abord.
+  poweringOff,
 
   /// La prise sort d'un coup sec, puis remonte hors de la fenêtre.
   unplugging,
@@ -133,7 +142,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   /// Décalage vertical du tiroir quand on le tire de travers : un ressort
   /// le ramène toujours dans l'axe.
-  final _lift = Spring(0, stiffness: 320, damping: 0.55);
+  final _lift = Spring(0, stiffness: 420, damping: 0.8);
 
   // Tiroir tenu à la main.
   bool _dragging = false;
@@ -183,6 +192,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   double _plugHold = 0;
   bool _plugClicked = false;
 
+  /// Le grésillement de la pointe qui entre a déjà été joué.
+  bool _plugCrackled = false;
+
   /// La musique jouait quand on a débranché : elle reprendra au branchement.
   bool _resumeOnPlug = false;
 
@@ -212,26 +224,193 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     widget.player.setForcedShuffle(!_model.hasScreen);
     if (_win != null) WidgetsBinding.instance.addPostFrameCallback((_) => _takeWindow());
     if (_remember) {
-      // Au lancement, la prise vient se brancher.
+      // Au lancement, la prise vient se brancher, une fois l'iPod arrivé
+      // (voir main.dart) ; l'écran s'allume au branchement.
       _plug.value = JackGeometry.away;
-      _startPlugging();
+      if (ipodLanded.value) {
+        _startPlugging();
+      } else {
+        ipodLanded.addListener(_landed);
+      }
     }
     if (Platform.environment['LECTEUR_BENCH'] != null) _bench();
   }
 
-  /// LECTEUR_BENCH=1 : ouvre et referme le tiroir plusieurs fois, puis quitte
-  /// (avec LECTEUR_FPS=1 pour lire les temps d'image).
+  void _landed() {
+    if (!ipodLanded.value) return;
+    ipodLanded.removeListener(_landed);
+    if (mounted) _startPlugging();
+  }
+
+  /// LECTEUR_BENCH=1 : joue chaque animation l'une après l'autre (menus,
+  /// Cover Flow, En lecture, tiroir, teintes, échanges) et affiche pour
+  /// chacune les temps d'image (construction ui, rendu raster), puis quitte.
+  /// Le son est coupé le temps du banc ; le modèle en main est remis à la fin.
   Future<void> _bench() async {
-    await Future<void>.delayed(const Duration(seconds: 3));
-    for (var i = 0; i < 4; i++) {
-      for (final open in [true, false]) {
-        _wantOpen = open;
-        _kick();
-        await Future<void>.delayed(const Duration(milliseconds: 1300));
+    final only = Platform.environment['LECTEUR_BENCH']!;
+    final build = <double>[], raster = <double>[], at = <int>[];
+    var recording = false;
+    var t0 = 0;
+    SchedulerBinding.instance.addTimingsCallback((timings) {
+      if (!recording) return;
+      for (final t in timings) {
+        build.add(t.buildDuration.inMicroseconds / 1000);
+        raster.add(t.rasterDuration.inMicroseconds / 1000);
+        at.add(t.timestampInMicroseconds(ui.FramePhase.vsyncStart) ~/ 1000 - t0);
+      }
+    });
+    Future<void> wait(int ms) => Future<void>.delayed(Duration(milliseconds: ms));
+    Future<void> run(String name, Future<void> Function() body) async {
+      if (only != '1' && !only.split(',').contains(name)) return;
+      build.clear();
+      raster.clear();
+      at.clear();
+      t0 = now();
+      recording = true;
+      await body();
+      await wait(400); // les derniers temps arrivent par paquets
+      recording = false;
+      if (raster.isEmpty) {
+        stdout.writeln('[bench] ${name.padRight(14)} aucune image');
+        return;
+      }
+      String f(double v) => v.toStringAsFixed(1).padLeft(5);
+      final sorted = [...raster]..sort();
+      double avg(List<double> v) => v.reduce((a, b) => a + b) / v.length;
+      final slowAt = [for (var i = 0; i < build.length; i++) if (build[i] > 16.7 || raster[i] > 16.7) i];
+      final slow = '${slowAt.length} ${[for (final i in slowAt) '@${at[i]}ms:${raster[i].round()}']}';
+      stdout.writeln('[bench] ${name.padRight(14)} ${raster.length.toString().padLeft(4)} img · '
+          'raster moy${f(avg(raster))} p90${f(sorted[(sorted.length * 0.9).floor()])} max${f(sorted.last)} · '
+          'ui moy${f(avg(build))} max${f(build.reduce(math.max))} · lentes $slow');
+    }
+
+    void goTo(String label) {
+      final p = _nav.page;
+      if (p is! MenuPage) return;
+      final i = p.entries.indexWhere((e) => e.label == label);
+      if (i < 0) return;
+      _nav.scroll(i - p.selected);
+      _nav.select();
+    }
+
+    Future<void> home() async {
+      while (_nav.stack.length > 1) {
+        _nav.menu();
+        await wait(350);
       }
     }
+
+    final volume = widget.player.volume;
+    final start = _model;
+    widget.player.setVolume(0);
+    // Montée de l'iPod, puis la prise qui se branche et l'écran qui s'allume.
+    await run('démarrage', () async {
+      ipodLanded.addListener(() => stdout.writeln('[bench]   arrivé @${now() - t0}ms'));
+      screenPower.addListener(() => stdout.writeln('[bench]   écran ${screenPower.value} @${now() - t0}ms'));
+      await wait(3000);
+    });
+
+    await run('repos', () => wait(1500));
+    await run('menu-entrer', () async {
+      for (var i = 0; i < 3; i++) {
+        goTo(tr('Musique'));
+        await wait(450);
+        _nav.menu();
+        await wait(450);
+      }
+    });
+    goTo(tr('Musique'));
+    await wait(400);
+    goTo(tr('Morceaux'));
+    await wait(400);
+    await run('menu-défiler', () async {
+      for (var i = 0; i < 25; i++) {
+        _nav.scroll(1);
+        await wait(70);
+      }
+      for (var i = 0; i < 25; i++) {
+        _nav.scroll(-1);
+        await wait(70);
+      }
+      await wait(300);
+    });
+    _nav.select(); // joue le morceau, passe à En lecture
+    await wait(800);
+    await run('en-lecture', () async {
+      await wait(2000);
+      _nav.scroll(1); // volume
+      await wait(1800);
+    });
+    await home();
+    goTo(tr('Musique'));
+    await wait(400);
+    if (_nav.page case final MenuPage p when p.entries.any((e) => e.label == 'Cover Flow')) {
+      goTo('Cover Flow');
+      await wait(600);
+      await run('coverflow', () async {
+        for (var i = 0; i < 12; i++) {
+          _nav.scroll(1);
+          await wait(130);
+        }
+        await wait(500);
+      });
+      await run('coverflow-bis', () async {
+        // Mêmes pochettes, déjà chargées.
+        for (var i = 0; i < 12; i++) {
+          _nav.scroll(-1);
+          await wait(130);
+        }
+        await wait(500);
+      });
+      await run('pochette', () async {
+        _nav.select();
+        await wait(900);
+        _nav.menu();
+        await wait(900);
+      });
+    }
+    await home();
+    await run('tiroir', () async {
+      for (final open in [true, false, true, false]) {
+        _setOpen(open);
+        await wait(1100);
+      }
+    });
+    _setOpen(true);
+    await wait(1100);
+    final family = _families.firstWhere((f) => f.first.family == _model.family);
+    // Souris sur le tiroir, comme quand on clique une pastille.
+    _drawerHover(true);
+    await wait(500);
+    await run('teinte', () async {
+      for (final m in family.length > 1 ? [...family.skip(1), family.first] : <IpodModel>[]) {
+        stdout.writeln('[bench]   choix @${now() - t0}ms');
+        _choose(m);
+        await wait(700);
+      }
+    });
+    await run('quitte-tiroir', () async {
+      _drawerHover(false);
+      await wait(1200);
+    });
+    await run('échange', () async {
+      final other = start.family == 'mini' ? ipodModels.firstWhere((m) => m.family == 'nano4') : ipodModels.firstWhere((m) => m.family == 'mini');
+      _pick(other);
+      await wait(4500);
+      _setOpen(true);
+      await wait(1100);
+      _pick(start);
+      await wait(4500);
+    });
+    if (_model.id != start.id) _choose(start);
+    widget.player.setVolume(volume);
+    widget.player.pause();
+    await wait(300);
+    Settings.flush();
     exit(0);
   }
+
+  static int now() => Timeline.now ~/ 1000;
 
   static IpodModel _saved() {
     final id = Settings.getString(_settingsKey);
@@ -285,6 +464,10 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       }
     }
     _stepSwap(dt);
+    if (_powerOnPending && _phase == _Swap.none && !_dragging && _open.isSettled && _open.value == (_wantOpen ? 1 : 0)) {
+      _powerOnPending = false;
+      screenPower.value = true;
+    }
     _stepSway(dt);
     _updateDrawerSnap();
     setState(() {});
@@ -465,12 +648,25 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   void _startSwap(IpodModel to) {
     _revealSlot(_model.family);
-    // Prise arrachée : plus de son, comme avec de vrais écouteurs.
-    _resumeOnPlug = widget.player.playing;
-    if (_resumeOnPlug) widget.player.pause();
     _incoming = to;
     // La fenêtre fait la place aux deux, le temps de l'échange.
     _applyFrame();
+    // L'écran s'éteint, puis on débranche : l'appareil voyage éteint, en
+    // photo, sans redessiner son écran à chaque image.
+    screenPower.value = false;
+    _offHold = 0;
+    _phase = _Swap.poweringOff;
+    _kick();
+  }
+
+  double _offHold = 0;
+  bool _powerOnPending = false;
+
+  void _startUnplugging() {
+    // Prise arrachée : plus de son, comme avec de vrais écouteurs.
+    _resumeOnPlug = widget.player.playing;
+    if (_resumeOnPlug) widget.player.pause();
+    JackStatic.instance.unplug();
     _phase = _Swap.unplugging;
     _plugTarget = _popHeight;
     _plug
@@ -509,6 +705,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _phase = _Swap.plugging;
     _plugTarget = 0;
     _plugClicked = false;
+    _plugCrackled = false;
     _plug
       ..stiffness = 170
       ..damping = 0.9
@@ -518,6 +715,11 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   void _stepSwap(double dt) {
     _plug.step(_plugTarget, dt);
+    // La pointe touche les lamelles de la prise femelle : ça grésille.
+    if (_phase == _Swap.plugging && !_plugCrackled && _plug.value < JackGeometry.tipLength) {
+      _plugCrackled = true;
+      JackStatic.instance.plugIn();
+    }
     // La prise bute au fond de la prise femelle : petit rebond et clic.
     if (_plug.value < 0) {
       _plug.value = 0;
@@ -536,6 +738,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     switch (_phase) {
       case _Swap.none:
         break;
+      case _Swap.poweringOff:
+        _offHold += dt;
+        if (_offHold > 0.26) _startUnplugging();
       case _Swap.unplugging:
         if (_plugTarget == _popHeight) {
           // Arrachée : elle marque un temps, puis s'en va vers le haut.
@@ -565,6 +770,10 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
         if (_plugClicked && _plug.isSettled) {
           _plug.value = 0;
           _phase = _Swap.none;
+          // Branché : l'écran s'allumera une fois le tiroir rentré (pendant
+          // qu'il rentre, l'appareil n'est qu'une photo, qui figerait
+          // l'écran à moitié allumé).
+          _powerOnPending = true;
           _applyFrame(); // à la mesure du nouveau
           _wantOpen = false; // le tiroir se referme une fois branché
         }
@@ -677,7 +886,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     // Pendant le vol, la prise est partie hors de la fenêtre. On ne la dessine
     // pas : sa distance suit l'échelle de l'appareil, qui rétrécit en volant
     // vers le tiroir, et la ramènerait sinon au-dessus de lui.
-    final flying = _phase == _Swap.stowing || _phase == _Swap.unstowing;
+    // Au lancement, pas de prise tant que l'iPod monte : elle descendra
+    // une fois qu'il sera arrivé.
+    final flying = _phase == _Swap.stowing || _phase == _Swap.unstowing || !ipodLanded.value;
     if (flying || _hideDevice || box is! RenderBox || stage is! RenderBox || !box.hasSize) {
       return const JackPainter(socket: null, scale: 1, lift: 0, anchorX: 0, sway: 0);
     }
@@ -732,7 +943,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     // Tirer vers l'extérieur l'ouvre.
     final raw = _dragStart + _side * _drag.dx / _travel;
     _open.value = raw <= 1 ? raw.clamp(0.0, 1.0) : 1 + _rubber(raw - 1, 0.35);
-    _lift.value = _rubber(_drag.dy, 36);
+    _lift.value = _rubber(_drag.dy, 12); // il bouge à peine en hauteur
     setState(() {});
   }
 
@@ -748,7 +959,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     }
     // Le ressort repart avec la vitesse de la main : pas d'à-coup au lâcher.
     _open.velocity = vel;
-    _lift.velocity = v.dy.clamp(-1500.0, 1500.0) * 0.4;
+    _lift.velocity = v.dy.clamp(-1500.0, 1500.0) * 0.1;
     _kick();
   }
 
@@ -776,7 +987,11 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     // Vivant aussi pendant un échange : il défile, il change de taille.
     final busy = _drawerLive || _phase != _Swap.none || _geoFrom != null;
     _drawerSnap.allowSnapshotting = !(busy && still && _wantOpen);
-    _deviceSnap.allowSnapshotting = (_dragging || !_open.isSettled) && _phase == _Swap.none && !_hideDevice;
+    // Pendant l'échange (écran éteint, la prise à part), l'appareil n'est
+    // qu'une photo : débranché, en vol, rebranché. Impeller repeindrait
+    // sinon à chaque image tout l'appareil, ombres floues comprises.
+    final flying = _phase != _Swap.none && _phase != _Swap.poweringOff;
+    _deviceSnap.allowSnapshotting = ((_dragging || !_open.isSettled) && _phase == _Swap.none || flying) && !_hideDevice;
   }
 
   void _drawerHover(bool inside) {
@@ -1093,7 +1308,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             // La nouvelle teinte apparaît par-dessus l'ancienne, qui reste
             // opaque dessous : pas de transparence à mi-chemin.
             transitionBuilder: (child, anim) =>
-                child.key == ValueKey(_model.id) ? FadeTransition(opacity: anim, child: child) : child,
+                child.key == ValueKey(_model.id) ? FadeTransition(opacity: anim, child: _FadePhoto(anim, child)) : child,
             child: _deviceCache,
           );
           // Pendant que le tiroir glisse, l'appareil rétrécit : on fait
@@ -1221,6 +1436,7 @@ class _IpodDeviceState extends State<IpodDevice> {
       if (mounted) _focus.requestFocus();
     });
     WheelClick.instance.warmUp();
+    JackStatic.instance.warmUp();
   }
 
   @override
@@ -1436,7 +1652,9 @@ class _IpodDeviceState extends State<IpodDevice> {
                 child: FittedBox(
                   child: SizedBox.fromSize(
                     size: m.look.size,
-                    child: IpodScreen(nav: _nav, player: widget.player, look: m.look),
+                    // Couche à part : l'écran s'anime (menus, Cover Flow,
+                    // progression) sans faire repeindre la coque autour.
+                    child: RepaintBoundary(child: IpodScreen(nav: _nav, player: widget.player, look: m.look)),
                   ),
                 ),
               )),
@@ -1526,6 +1744,43 @@ class _HardButtonState extends State<_HardButton> {
       child: CustomPaint(painter: widget.paint(_pressed)),
     );
   }
+}
+
+/// Pendant le fondu d'un changement de teinte, l'appareil qui apparaît
+/// n'est qu'une photo : fondre l'appareil vivant (ombres floues, écran)
+/// obligerait à le repeindre entier dans une couche à part à chaque image.
+class _FadePhoto extends StatefulWidget {
+  const _FadePhoto(this.anim, this.child);
+
+  final Animation<double> anim;
+  final Widget child;
+
+  @override
+  State<_FadePhoto> createState() => _FadePhotoState();
+}
+
+class _FadePhotoState extends State<_FadePhoto> {
+  final _snap = SnapshotController();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.anim.addStatusListener(_status);
+    _status(widget.anim.status);
+  }
+
+  void _status(AnimationStatus s) => _snap.allowSnapshotting = s.isAnimating;
+
+  @override
+  void dispose() {
+    widget.anim.removeStatusListener(_status);
+    _snap.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      SnapshotWidget(controller: _snap, mode: SnapshotMode.permissive, autoresize: true, child: widget.child);
 }
 
 /// Peintre qui recalcule la prise au moment de peindre, une fois toute la

@@ -11,6 +11,10 @@ import 'coverflow.dart';
 import 'look.dart';
 import 'nav.dart';
 
+/// Écran sous tension. Au lancement, l'iPod monte écran éteint
+/// (voir main.dart) et ne s'allume qu'une fois arrivé.
+final screenPower = ValueNotifier(true);
+
 /// L'écran : barre de titre, puis la page courante qui
 /// glisse latéralement quand on entre ou sort d'un menu.
 class IpodScreen extends StatefulWidget {
@@ -42,7 +46,15 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
     _transition = nav.transition;
     nav.addListener(_wake);
     widget.player.addListener(_wake);
+    screenPower.addListener(_powerChanged);
     _wake();
+  }
+
+  void _powerChanged() {
+    if (!mounted) return;
+    // Allumé : rétroéclairage plein, et son délai repart de zéro.
+    if (screenPower.value) nav.touch();
+    setState(_scheduleBacklight);
   }
 
   // --- Rétroéclairage ----------------------------------------------------------
@@ -69,6 +81,7 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
     _backlightTimer?.cancel();
     nav.removeListener(_wake);
     widget.player.removeListener(_wake);
+    screenPower.removeListener(_powerChanged);
     _ticker.dispose();
     super.dispose();
   }
@@ -156,7 +169,7 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
     final offset = _slide.value * w * nav.direction;
     return DefaultTextStyle(
       style: look.textStyle,
-      child: _Backlight(lit: _lit, tint: look.unlit, child: ColoredBox(
+      child: _PowerOff(on: screenPower.value, look: look, child: _Backlight(lit: _lit, tint: look.unlit, child: ColoredBox(
         // Cover Flow est noir bord à bord : un fond clair dessous filtrerait
         // en liseré le long des bords de l'écran (lissage des arêtes).
         color: nav.page is CoverFlowPage && nav.leaving == null ? Colors.black : look.background,
@@ -185,7 +198,7 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
             ),
           ],
         ),
-      )),
+      ))),
     );
   }
 
@@ -224,6 +237,48 @@ class _Backlight extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Écran hors tension : vide, rétroéclairage éteint. À l'allumage, le
+/// contenu apparaît presque d'un coup.
+class _PowerOff extends StatelessWidget {
+  const _PowerOff({required this.on, required this.look, required this.child});
+
+  final bool on;
+  final ScreenLook look;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        child,
+        Positioned.fill(
+          child: IgnorePointer(
+            child: AnimatedOpacity(
+              opacity: on ? 0 : 1,
+              // S'allume d'un coup (comme le rétroéclairage), s'éteint en douceur.
+              duration: on ? const Duration(milliseconds: 90) : const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+              child: ScreenOff(look: look),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Un écran hors tension : vide, sans rétroéclairage.
+class ScreenOff extends StatelessWidget {
+  const ScreenOff({super.key, required this.look});
+
+  final ScreenLook look;
+
+  @override
+  Widget build(BuildContext context) =>
+      ColoredBox(color: look.background, child: ColoredBox(color: look.unlit));
 }
 
 // --- Menus ---------------------------------------------------------------------

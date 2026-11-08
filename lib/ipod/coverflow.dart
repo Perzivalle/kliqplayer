@@ -21,7 +21,7 @@ class CoverFlowView extends StatelessWidget {
   static const double _tilt = 40 * math.pi / 180;
 
   /// Hauteur du reflet, en fraction de la pochette.
-  static const double _reflection = 0.34;
+  static const double _reflection = 0.42;
 
   @override
   Widget build(BuildContext context) {
@@ -167,8 +167,8 @@ class CoverFlowView extends StatelessWidget {
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
-                    colors: [Color(0xB0000000), Colors.black],
-                    stops: [0, 0.85],
+                    colors: [Color(0x88000000), Colors.black],
+                    stops: [0, 0.95],
                   ),
                 ),
               ),
@@ -176,6 +176,8 @@ class CoverFlowView extends StatelessWidget {
           ],
         ),
       );
+
+  static final _flipSnap = SnapshotController();
 
   /// L'album du milieu qui se retourne : il pivote d'un demi-tour en
   /// grandissant jusqu'au carré [big] au milieu de l'écran ; passé le
@@ -195,6 +197,14 @@ class CoverFlowView extends StatelessWidget {
 
     final back = f > 0.5;
     final face = _Face(bytes: player.albumCover(i), size: big);
+    // Pendant qu'elle tourne, la pochette (et surtout son dos, plein de
+    // texte) n'est qu'une photo qu'on fait pivoter : redessiner le texte en
+    // perspective à chaque image coûte trop cher. Posée, elle redevient
+    // vivante (défilement des morceaux).
+    final turning = !page.flip.isSettled;
+    if (_flipSnap.allowSnapshotting != turning) _flipSnap.allowSnapshotting = turning;
+    Widget photo(Widget child) =>
+        SnapshotWidget(controller: _flipSnap, mode: SnapshotMode.permissive, autoresize: true, child: child);
     return Positioned(
       left: w / 2 - big / 2,
       top: y - big / 2,
@@ -208,9 +218,9 @@ class CoverFlowView extends StatelessWidget {
           children: [
             if (back)
               // Retournée : on redresse le dos, vu en miroir.
-              Transform.flip(flipX: true, child: _Back(album: i, page: page, player: player, size: big))
+              Transform.flip(flipX: true, child: photo(_Back(album: i, page: page, player: player, size: big)))
             else
-              face,
+              photo(face),
             // Le reflet s'efface dès que la pochette décolle.
             if (!back && f < 0.25)
               Opacity(opacity: 1 - f * 4, child: _reflected(face, big))

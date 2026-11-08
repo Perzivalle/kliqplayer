@@ -112,7 +112,11 @@ class JackPainter extends CustomPainter {
 
   void _cable(Canvas canvas, Offset from, Offset to) {
     final s = scale;
-    final h = (from.dy - to.dy).abs();
+    // Prise encore au-dessus de la sortie (elle arrive de loin, ou repart) :
+    // le câble est tout entier hors de la fenêtre. Tracée quand même, la
+    // courbe se retournerait et ferait une boucle qui pend dans la fenêtre.
+    if (from.dy <= to.dy) return;
+    final h = from.dy - to.dy;
     final cable = Path()
       ..moveTo(from.dx, from.dy)
       ..cubicTo(from.dx + sway, from.dy - h * 0.35, to.dx + sway * 0.4, to.dy + h * 0.45, to.dx, to.dy);

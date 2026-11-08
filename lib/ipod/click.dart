@@ -36,10 +36,7 @@ class WheelClick {
 
   Future<void> _load() async {
     final soloud = SoLoud.instance;
-    if (!soloud.isInitialized) {
-      // Petit tampon : le clic doit partir sans délai perceptible.
-      await soloud.init(bufferSize: 512);
-    }
+    await ensureSoloud();
     _sources = [
       for (var i = 0; i < pitches.length; i++)
         await soloud.loadMem('wheel-click-$i.wav', _synthesize(pitches[i])),
@@ -87,21 +84,36 @@ class WheelClick {
       samples[i] = (v.clamp(-1.0, 1.0) * 32767).round();
     }
 
-    final data = samples.buffer.asUint8List();
-    final header = ByteData(44)
-      ..setUint32(0, 0x52494646) // RIFF
-      ..setUint32(4, 36 + data.length, Endian.little)
-      ..setUint32(8, 0x57415645) // WAVE
-      ..setUint32(12, 0x666d7420) // fmt
-      ..setUint32(16, 16, Endian.little)
-      ..setUint16(20, 1, Endian.little) // PCM
-      ..setUint16(22, 1, Endian.little) // mono
-      ..setUint32(24, rate, Endian.little)
-      ..setUint32(28, rate * 2, Endian.little)
-      ..setUint16(32, 2, Endian.little)
-      ..setUint16(34, 16, Endian.little)
-      ..setUint32(36, 0x64617461) // data
-      ..setUint32(40, data.length, Endian.little);
-    return Uint8List.fromList([...header.buffer.asUint8List(), ...data]);
+    return wav(samples, rate);
   }
+}
+
+Future<void>? _soloudInit;
+
+/// Démarre le moteur audio des bruitages une seule fois, quel que soit le
+/// son qui le demande en premier.
+Future<void> ensureSoloud() => _soloudInit ??= () async {
+      final soloud = SoLoud.instance;
+      // Petit tampon : le clic doit partir sans délai perceptible.
+      if (!soloud.isInitialized) await soloud.init(bufferSize: 512);
+    }();
+
+/// Emballe des échantillons mono 16 bits dans un fichier WAV.
+Uint8List wav(Int16List samples, int rate) {
+  final data = samples.buffer.asUint8List();
+  final header = ByteData(44)
+    ..setUint32(0, 0x52494646) // RIFF
+    ..setUint32(4, 36 + data.length, Endian.little)
+    ..setUint32(8, 0x57415645) // WAVE
+    ..setUint32(12, 0x666d7420) // fmt
+    ..setUint32(16, 16, Endian.little)
+    ..setUint16(20, 1, Endian.little) // PCM
+    ..setUint16(22, 1, Endian.little) // mono
+    ..setUint32(24, rate, Endian.little)
+    ..setUint32(28, rate * 2, Endian.little)
+    ..setUint16(32, 2, Endian.little)
+    ..setUint16(34, 16, Endian.little)
+    ..setUint32(36, 0x64617461) // data
+    ..setUint32(40, data.length, Endian.little);
+  return Uint8List.fromList([...header.buffer.asUint8List(), ...data]);
 }

@@ -385,7 +385,10 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
     await _settle(tester);
     await tester.tap(find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == 'mini'));
-    await tester.pump(const Duration(milliseconds: 16));
+    // L'écran s'éteint d'abord, puis la prise est arrachée.
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
     expect(player.playing, isFalse, reason: 'prise arrachée');
     // Encore débranchée pendant que les appareils volent.
     for (var i = 0; i < 40; i++) {

@@ -2,7 +2,7 @@ name: lecteur
 description: "Lecteur de musique local pour Linux, en forme d'iPod à molette."
 publish_to: 'none'
 
-version: 0.3.1+4
+version: 0.4.0+5
 
 environment:
   sdk: ^3.13.7
