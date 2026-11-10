@@ -359,7 +359,13 @@ class _Snapshot {
 class SpotifySource extends MusicSource {
   /// [cache] : où garder la bibliothèque d'un lancement à l'autre (par
   /// défaut dans ~/.cache/lecteur ; nulle part sous `flutter test`).
-  SpotifySource(this.account, {File? cache}) : _cache = cache ?? cacheFile;
+  SpotifySource(this.account, {File? cache, this.refreshAfter = const Duration(hours: 1)}) : _cache = cache ?? cacheFile;
+
+  /// Âge à partir duquel la bibliothèque gardée est redemandée à Spotify au
+  /// lancement. Elle représente des dizaines de demandes : la reprendre à
+  /// chaque lancement suffit, à force, à dépasser la limite de Spotify.
+  /// (« Actualiser » la redemande quand on veut.)
+  final Duration refreshAfter;
 
   final SpotifyAccount account;
   SpotifyApi get _api => account.api;
@@ -395,7 +401,7 @@ class SpotifySource extends MusicSource {
       final text = await _readCache();
       final kept = text == null ? null : _decode(text);
       if (kept != null) {
-        _refresh(text!);
+        if (await _stale()) _refresh(text!);
         return _library(kept);
       }
     }
@@ -422,6 +428,17 @@ class SpotifySource extends MusicSource {
     }
   }
 
+  /// La bibliothèque gardée est assez vieille pour être redemandée.
+  Future<bool> _stale() async {
+    try {
+      final file = _cache;
+      if (file == null) return true;
+      return DateTime.now().difference(await file.lastModified()) >= refreshAfter;
+    } catch (_) {
+      return true;
+    }
+  }
+
   Future<void> _writeCache(String text) async {
     final file = _cache;
     if (file == null) return;
@@ -439,7 +456,14 @@ class SpotifySource extends MusicSource {
     try {
       final snapshot = await _fetch();
       final text = _encode(snapshot);
-      if (_disposed || text == kept) return;
+      if (_disposed) return;
+      if (text == kept) {
+        // Rien de neuf : elle est à jour, on ne la redemandera pas de sitôt.
+        try {
+          await _cache?.setLastModified(DateTime.now());
+        } catch (_) {}
+        return;
+      }
       await _writeCache(text);
       _fresh = snapshot;
       onChanged?.call();

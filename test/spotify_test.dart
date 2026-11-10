@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:lecteur/core/player.dart';
+import 'package:lecteur/sources/spotify/api.dart';
 import 'package:lecteur/sources/spotify/connect_engine.dart';
 import 'package:lecteur/sources/spotify/spotify_source.dart';
 
@@ -275,7 +276,8 @@ void cacheTests() {
     expect(file.existsSync(), isTrue);
 
     // Deuxième lancement, la même : servie sans attendre, rien à signaler.
-    final again = SpotifySource(_account(fake), cache: file);
+    // (Assez vieille pour être redemandée : ici, tout de suite.)
+    final again = SpotifySource(_account(fake), cache: file, refreshAfter: Duration.zero);
     var changed = 0;
     again.onChanged = () => changed++;
     fake.calls.clear();
@@ -291,12 +293,66 @@ void cacheTests() {
 
     // Troisième lancement, un titre liké en plus entre-temps.
     fake.extraLiked = true;
-    final later = SpotifySource(_account(fake), cache: file);
+    final later = SpotifySource(_account(fake), cache: file, refreshAfter: Duration.zero);
     later.onChanged = () => changed++;
     expect((await later.load()).tracks, hasLength(3), reason: 'd\'abord celle d\'avant');
     await until(() => changed == 1);
     expect(changed, 1);
     expect((await later.load()).tracks, hasLength(4));
+  });
+
+  test('Spotify demande d\'attendre longtemps : on ne lui demande plus rien d\'ici là', () async {
+    var sent = 0;
+    final account = SpotifyAccount(
+      clientId: 'test',
+      client: MockClient((req) async {
+        sent++;
+        return http.Response('{"error":{"status":429,"message":"API rate limit exceeded"}}', 429,
+            headers: {'retry-after': '600'});
+      }),
+    )..auth.debugUseTokens(access: 'a', refresh: 'r');
+
+    Object? first, second;
+    try {
+      await account.api.get('/me');
+    } catch (e) {
+      first = e;
+    }
+    expect(sent, 1);
+    expect(first, isA<SpotifyError>().having((e) => e.message, 'message', contains('10 min')));
+
+    // Tout de suite après : refusé ici même, sans rien envoyer.
+    try {
+      await account.api.get('/me/player');
+    } catch (e) {
+      second = e;
+    }
+    expect(sent, 1);
+    expect(second, isA<SpotifyError>().having((e) => e.status, 'status', 429));
+  });
+
+  test('bibliothèque gardée depuis peu : on ne la redemande pas à Spotify', () async {
+    final dir = Directory.systemTemp.createTempSync('lecteur-test');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}/spotify-library.json');
+    final fake = _FakeSpotify();
+    await SpotifySource(_account(fake), cache: file).load();
+    await pumpEventQueue();
+
+    // Relancé dans l'heure : celle qu'on a suffit, aucune demande.
+    fake.calls.clear();
+    final again = await SpotifySource(_account(fake), cache: file).load();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(again.tracks, hasLength(3));
+    expect(fake.calls.where((c) => c.startsWith('GET /me/')), isEmpty);
+
+    // Vieille d'un jour : on la redemande.
+    file.setLastModifiedSync(DateTime.now().subtract(const Duration(days: 1)));
+    await SpotifySource(_account(fake), cache: file).load();
+    await until(() => fake.calls.any((c) => c.startsWith('GET /me/playlists')));
+    // Inchangée : elle compte de nouveau comme récente.
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(DateTime.now().difference(file.lastModifiedSync()), lessThan(const Duration(minutes: 1)));
   });
 
   test('l\'appareil de ce PC est retenu : pas de liste d\'appareils à chaque lecture', () async {

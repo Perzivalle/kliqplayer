@@ -26,7 +26,12 @@ class SpotifyError implements NoticeException {
         (_, 'NO_ACTIVE_DEVICE') || (404, _) when reason != 'NOT_FOUND' => tr('Aucun appareil Spotify'),
         (_, 'PREMIUM_REQUIRED') => tr('Spotify Premium requis'),
         (403, _) => '${tr('Spotify : refusé')}${detail == null ? '' : ' ($detail)'}',
-        (429, _) => tr('Spotify : trop de demandes'),
+        // Avec le temps à attendre, quand Spotify le donne.
+        (429, _) => switch (retryAfter) {
+            final int s when s >= 90 => '${tr('Spotify : trop de demandes')} (${(s / 60).ceil()} min)',
+            final int s when s > 0 => '${tr('Spotify : trop de demandes')} ($s s)',
+            _ => tr('Spotify : trop de demandes'),
+          },
         _ => 'Spotify : $status${detail == null ? '' : ' $detail'}',
       };
 
@@ -46,6 +51,11 @@ class SpotifyApi {
   final http.Client _http;
 
   static const _base = 'https://api.spotify.com/v1';
+
+  /// Spotify a demandé d'attendre longtemps (429) : d'ici là, on ne lui
+  /// demande plus rien du tout. Insister ne ferait que prolonger la
+  /// pénitence.
+  DateTime _blockedUntil = DateTime(0);
 
   Uri _uri(String path, [Map<String, String>? query]) =>
       path.startsWith('http') ? Uri.parse(path) : Uri.parse('$_base$path').replace(queryParameters: query);
@@ -74,6 +84,10 @@ class SpotifyApi {
 
   Future<Map<String, Object?>?> _send(String method, Uri uri, {Object? body}) async {
     var renewed = false, force = false;
+    final blocked = _blockedUntil.difference(DateTime.now());
+    if (blocked > Duration.zero) {
+      throw SpotifyError(429, null, null, retryAfter: blocked.inSeconds + 1);
+    }
     for (var attempt = 0;; attempt++) {
       final token = await auth.accessToken(force: force);
       force = false;
@@ -105,6 +119,9 @@ class SpotifyApi {
           await Future<void>.delayed(Duration(seconds: wait));
           continue;
         }
+      }
+      if (res.statusCode == 429) {
+        _blockedUntil = DateTime.now().add(Duration(seconds: retryAfter ?? 30));
       }
       if (res.statusCode >= 400) {
         String? reason, detail;
