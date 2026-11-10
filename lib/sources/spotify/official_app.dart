@@ -29,10 +29,15 @@ class SpotifyApp {
       return null;
     }
     if (Platform.isWindows) {
-      final appData = Platform.environment['APPDATA'];
-      final exe = appData == null ? null : '$appData\\Spotify\\Spotify.exe';
-      if (exe != null && File(exe).existsSync()) return SpotifyApp._(exe, ['--minimized']);
-      return null;
+      final command = windowsCommand(
+        appData: Platform.environment['APPDATA'],
+        localAppData: Platform.environment['LOCALAPPDATA'],
+        // (Sans suivre le lien : le raccourci du Microsoft Store n'est pas
+        // un fichier ordinaire.)
+        exists: (path) => FileSystemEntity.typeSync(path, followLinks: false) != FileSystemEntityType.notFound,
+        protocolRegistered: _spotifyProtocol,
+      );
+      return command == null ? null : SpotifyApp._(command.first, command.sublist(1));
     }
     // Linux : le paquet officiel, spotify-launcher (Arch), ou Flatpak.
     for (final name in ['spotify', 'spotify-launcher']) {
@@ -46,6 +51,41 @@ class SpotifyApp {
       return SpotifyApp._(flatpak, ['run', 'com.spotify.Client']);
     }
     return null;
+  }
+
+  /// Comment lancer Spotify sous Windows, réduite (null : pas installée) :
+  /// - l'installeur classique de spotify.com la met dans %APPDATA% ;
+  /// - la version empaquetée (Microsoft Store, et l'installeur récent de
+  ///   spotify.com) n'y est pas : elle a un raccourci dans WindowsApps ;
+  /// - à défaut, le lien « spotify: », que toute installation enregistre.
+  /// Les deux dernières passent par « start », qui sait ouvrir un raccourci
+  /// d'appli comme un lien, et demande une fenêtre réduite.
+  static List<String>? windowsCommand({
+    required String? appData,
+    required String? localAppData,
+    required bool Function(String path) exists,
+    required bool Function() protocolRegistered,
+  }) {
+    if (appData != null) {
+      final exe = '$appData\\Spotify\\Spotify.exe';
+      if (exists(exe)) return [exe, '--minimized'];
+    }
+    if (localAppData != null) {
+      final alias = '$localAppData\\Microsoft\\WindowsApps\\Spotify.exe';
+      if (exists(alias)) return ['cmd', '/c', 'start', '', '/min', alias, '--minimized'];
+    }
+    if (protocolRegistered()) return const ['cmd', '/c', 'start', '', '/min', 'spotify:'];
+    return null;
+  }
+
+  /// Le lien « spotify: » est enregistré sur ce PC (une appli Spotify est
+  /// installée, d'où qu'elle vienne).
+  static bool _spotifyProtocol() {
+    try {
+      return Process.runSync('reg', ['query', r'HKCR\spotify', '/ve']).exitCode == 0;
+    } catch (_) {
+      return false;
+    }
   }
 
   static String? _which(String name) {

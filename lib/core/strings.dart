@@ -96,6 +96,7 @@ const _strings = <String, List<String>>{
   'Compte': ['Account', 'Cuenta', 'Konto'],
   'Aucun appareil Spotify': ['No Spotify Device', 'Ningún dispositivo Spotify', 'Kein Spotify-Gerät'],
   'Ouvrez Spotify sur un appareil': ['Open Spotify on a Device', 'Abre Spotify en un dispositivo', 'Spotify auf einem Gerät öffnen'],
+  'Appli Spotify introuvable': ['Spotify app not found', 'App de Spotify no encontrada', 'Spotify-App nicht gefunden'],
   'Spotify : non connecté': ['Spotify: Not Signed In', 'Spotify: sin sesión', 'Spotify: nicht angemeldet'],
   'Spotify : reconnectez-vous': ['Spotify: Sign In Again', 'Spotify: vuelve a iniciar sesión', 'Spotify: erneut anmelden'],
   'Spotify Premium requis': ['Spotify Premium Required', 'Se requiere Spotify Premium', 'Spotify Premium erforderlich'],

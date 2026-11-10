@@ -235,7 +235,9 @@ class SpotifyAccount extends RemoteAccount {
     if (here != null) return here.id;
     final launched = await _launchApp(list);
     if (launched != null) return launched.id;
-    throw NoticeException(tr('Ouvrez Spotify sur un appareil'));
+    // Deux échecs qu'on distingue au message : l'appli n'est pas installée
+    // (ou pas trouvée), ou elle a été lancée sans apparaître sur le compte.
+    throw NoticeException(tr(app == null ? 'Appli Spotify introuvable' : 'Ouvrez Spotify sur un appareil'));
   }
 
   /// Lance l'appli officielle et attend qu'elle apparaisse sur le compte
