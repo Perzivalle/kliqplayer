@@ -41,11 +41,11 @@ PlayerController _player({int index = -1, bool playing = false, Duration positio
   for (final (title, artist, songs) in albums) {
     list.add(Album(title: title, artist: artist, firstIndex: tracks.length, trackCount: songs.length));
     for (final s in songs) {
-      tracks.add(Track(path: '/x/$s.flac', title: s, artist: artist, album: title));
+      tracks.add(Track(id: '/x/$s.flac', title: s, artist: artist, album: title));
     }
   }
   return PlayerController.preview(
-    queue: tracks,
+    tracks: tracks,
     albums: list,
     index: index,
     playing: playing,
@@ -102,7 +102,7 @@ Future<PlayerController> _coverPlayer(WidgetTester tester) async {
     albums.add(Album(title: title, artist: 'Artiste ${i + 1}', firstIndex: tracks.length, trackCount: n));
     for (var k = 0; k < n; k++) {
       tracks.add(Track(
-        path: '/x/$i-$k.flac',
+        id: '/x/$i-$k.flac',
         title: n == 1 ? 'Titre $i' : 'Morceau ${k + 1} de l\'album',
         artist: 'Artiste ${i + 1}',
         album: title,
@@ -124,7 +124,7 @@ Future<PlayerController> _coverPlayer(WidgetTester tester) async {
       return data!.buffer.asUint8List();
     });
   }
-  return PlayerController.preview(queue: tracks, albums: albums, index: 4, albumCovers: covers);
+  return PlayerController.preview(tracks: tracks, albums: albums, index: 4, albumCovers: covers);
 }
 
 /// Laisse les images se décoder (en vrai temps), puis les affiche.

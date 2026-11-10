@@ -9,6 +9,11 @@ import 'package:window_manager/window_manager.dart';
 
 import 'core/player.dart';
 import 'core/settings.dart';
+import 'core/source.dart';
+import 'sources/local/local_source.dart';
+import 'sources/spotify/librespot.dart';
+import 'sources/spotify/official_app.dart';
+import 'sources/spotify/spotify_source.dart';
 import 'ipod/ipod.dart';
 import 'ipod/screen.dart';
 
@@ -39,9 +44,24 @@ Future<void> main() async {
 
   if (Platform.environment['LECTEUR_FPS'] != null) _logFrameTimings();
 
-  final player = PlayerController();
+  final player = _player();
   runApp(LecteurApp(player: player));
   player.loadLibrary();
+}
+
+/// Le lecteur, sur la source choisie dans Réglages › Bibliothèque.
+PlayerController _player() {
+  PlayerController? player;
+  final spotify = SpotifyAccount(installedLibrespot: Librespot.find(), app: SpotifyApp.find());
+  MusicSource sourceFor(String id) => switch (id) {
+        'spotify' when spotify.connected => SpotifySource(spotify),
+        _ => LocalSource(player?.musicDir ?? defaultMusicDirectory().path),
+      };
+  return player = PlayerController(
+    sourceFor(Settings.getString('library.source') ?? 'local'),
+    sourceFor: sourceFor,
+    accounts: [spotify],
+  );
 }
 
 /// La fenêtre de l'appli (null si le système ne la donne pas).
@@ -106,6 +126,9 @@ class _LecteurAppState extends State<LecteurApp> {
         widget.player.playPause();
       case LogicalKeyboardKey.escape || LogicalKeyboardKey.keyQ:
         widget.player.savePlays();
+        for (final a in widget.player.accounts) {
+          a.shutdown();
+        }
         Settings.flush();
         exit(0);
       default:

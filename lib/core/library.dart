@@ -1,41 +1,51 @@
-import 'dart:io';
-import 'dart:isolate';
-import 'dart:typed_data';
+import 'dart:async';
 
-import 'package:audio_metadata_reader/audio_metadata_reader.dart';
+/// Ce que les menus parcourent, d'où que vienne la musique (dossier,
+/// Spotify…) : des morceaux, rangés album par album, et des listes.
 
-import 'paths.dart';
-import 'settings.dart';
-
-/// Un morceau de la bibliothèque.
+/// Un morceau.
 class Track {
   const Track({
-    required this.path,
+    required this.id,
     required this.title,
     required this.artist,
     required this.album,
     this.trackNumber,
+    this.discNumber,
     this.duration,
     this.added,
+    this.artworkUrl,
   });
 
-  final String path;
+  /// Identifiant pour la source : chemin du fichier, ou « spotify:track:… ».
+  /// Sert aussi de clé aux écoutes (« Les plus écoutés »).
+  final String id;
   final String title;
   final String artist;
   final String album;
   final int? trackNumber;
+  final int? discNumber;
   final Duration? duration;
 
-  /// Date d'arrivée du fichier dans la bibliothèque (liste « Ajouts récents »).
+  /// Date d'arrivée dans la bibliothèque (liste « Ajouts récents »).
   final DateTime? added;
+
+  /// Pochette en ligne (les fichiers, eux, ont la leur dedans ou à côté).
+  final String? artworkUrl;
 
   @override
   String toString() => '$artist — $title';
 }
 
-/// Un album : une suite de morceaux consécutifs de la file de lecture.
+/// Un album : une suite de morceaux consécutifs de [Library.tracks].
 class Album {
-  const Album({required this.title, required this.artist, required this.firstIndex, required this.trackCount});
+  const Album({
+    required this.title,
+    required this.artist,
+    required this.firstIndex,
+    required this.trackCount,
+    this.uri,
+  });
 
   final String title;
   final String artist;
@@ -43,108 +53,94 @@ class Album {
   /// Position du premier morceau dans [Library.tracks].
   final int firstIndex;
   final int trackCount;
+
+  /// L'album entier pour la source, s'il en a un (« spotify:album:… ») : le
+  /// lancer joue l'album tel que la source le connaît.
+  final String? uri;
 }
 
-/// Liste de lecture : un nom et des morceaux (index dans la file).
+/// Liste de lecture. Ses morceaux sont là tout de suite (fichier .m3u), ou
+/// chargés à la première ouverture (Spotify).
 class SongList {
-  const SongList(this.name, this.tracks);
+  SongList(this.name, List<Track> tracks, {this.uri})
+      : _tracks = tracks,
+        _loader = null;
+
+  SongList.lazy(this.name, Future<List<Track>> Function() loader, {this.uri}) : _loader = loader;
 
   final String name;
-  final List<int> tracks;
+
+  /// La liste entière pour la source (« spotify:playlist:… »).
+  final String? uri;
+
+  final Future<List<Track>> Function()? _loader;
+  List<Track>? _tracks;
+  Future<List<Track>>? _loading;
+
+  /// Ses morceaux, s'ils sont déjà là.
+  List<Track>? get tracks => _tracks;
+
+  /// Le chargement a échoué (liste qu'on ne peut pas parcourir, réseau…).
+  Object? error;
+
+  /// Charge les morceaux (une seule fois) ; [onDone] est appelé à
+  /// l'arrivée, ou en cas d'échec.
+  Future<List<Track>> load({void Function()? onDone}) {
+    if (_tracks case final t?) return Future.value(t);
+    return _loading ??= _loader!().then((t) {
+      _tracks = t;
+      return t;
+    }, onError: (Object e) {
+      error = e;
+      _loading = null;
+      throw e;
+    }).whenComplete(() => onDone?.call());
+  }
 }
 
-/// Résultat du parcours : les morceaux, rangés album par album, et les
-/// listes .m3u trouvées dans le dossier.
+/// Toute la musique d'une source.
 class Library {
   const Library(this.tracks, this.albums, [this.playlists = const []]);
 
   final List<Track> tracks;
   final List<Album> albums;
   final List<SongList> playlists;
+
+  static const empty = Library([], []);
 }
 
-const _audioExtensions = {'.mp3', '.flac', '.ogg', '.opus', '.m4a', '.aac', '.wav'};
+int _cmp(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
 
-/// Dossier de musique : $LECTEUR_MUSIC s'il est donné, sinon celui choisi
-/// dans Réglages › Bibliothèque, sinon celui de MPD.
-Directory defaultMusicDirectory() {
-  final home = homeDir();
-  final override = Platform.environment['LECTEUR_MUSIC'];
-  if (override != null && override.isNotEmpty) return Directory(override);
-  final chosen = Settings.getString('library.folder');
-  if (chosen != null && chosen.isNotEmpty) return Directory(chosen);
-  return Directory(joinPath(home, joinPath('Music', 'Musique Ipod')));
-}
-
-/// Parcourt le dossier et lit les tags, dans un isolate séparé pour ne pas
-/// bloquer l'interface.
-Future<Library> scanLibrary(Directory root) {
-  final rootPath = root.path;
-  return Isolate.run(() => _scan(rootPath));
-}
-
-Library _scan(String rootPath) {
-  final tracks = <Track>[];
-  final m3u = <File>[];
-  final root = Directory(rootPath);
-  if (!root.existsSync()) return const Library([], []);
-
-  for (final entity in root.listSync(recursive: true, followLinks: false)) {
-    if (entity is! File) continue;
-    final lower = entity.path.toLowerCase();
-    final dot = lower.lastIndexOf('.');
-    if (dot < 0) continue;
-    final ext = lower.substring(dot);
-    if (ext == '.m3u' || ext == '.m3u8') m3u.add(entity);
-    if (!_audioExtensions.contains(ext)) continue;
-
-    final fallbackTitle = _basename(entity.path);
-    DateTime? added;
-    try {
-      added = entity.statSync().modified;
-    } catch (_) {}
-    try {
-      final meta = readMetadata(entity, getImage: false);
-      tracks.add(Track(
-        path: entity.path,
-        title: _orElse(meta.title, fallbackTitle),
-        artist: _orElse(meta.artist, 'Artiste inconnu'),
-        album: _orElse(meta.album, _basename(entity.parent.path)),
-        trackNumber: meta.trackNumber,
-        duration: meta.duration,
-        added: added,
-      ));
-    } catch (_) {
-      tracks.add(Track(
-        path: entity.path,
-        title: fallbackTitle,
-        artist: 'Artiste inconnu',
-        album: _basename(entity.parent.path),
-        added: added,
-      ));
-    }
-  }
-
-  // Regroupement par album (tag), puis ordre « bibliothèque » :
-  // artiste de l'album, titre de l'album, numéro de piste.
+/// Range des morceaux album par album, dans l'ordre « bibliothèque » :
+/// artiste de l'album, titre de l'album, disque, numéro de piste. [albumKey]
+/// regroupe (le tag, ou l'identifiant de l'album chez la source) ;
+/// [albumUri] donne l'album entier pour la source, s'il en a un.
+({List<Track> tracks, List<Album> albums}) groupByAlbum(
+  Iterable<Track> all, {
+  String Function(Track t)? albumKey,
+  String? Function(String key)? albumUri,
+}) {
+  final key = albumKey ?? (t) => t.album.toLowerCase();
   final groups = <String, List<Track>>{};
-  for (final t in tracks) {
-    groups.putIfAbsent(t.album.toLowerCase(), () => []).add(t);
+  for (final t in all) {
+    groups.putIfAbsent(key(t), () => []).add(t);
   }
   final sorted = [
-    for (final group in groups.values)
+    for (final MapEntry(key: k, value: group) in groups.entries)
       (
+        key: k,
         artist: _mostCommon(group.map((t) => t.artist)),
         tracks: group
           ..sort((a, b) {
+            final byDisc = (a.discNumber ?? 0).compareTo(b.discNumber ?? 0);
+            if (byDisc != 0) return byDisc;
             final byNumber = (a.trackNumber ?? 0).compareTo(b.trackNumber ?? 0);
-            return byNumber != 0 ? byNumber : a.path.compareTo(b.path);
+            return byNumber != 0 ? byNumber : a.id.compareTo(b.id);
           }),
       ),
   ]..sort((a, b) {
-      final byArtist = a.artist.toLowerCase().compareTo(b.artist.toLowerCase());
-      if (byArtist != 0) return byArtist;
-      return a.tracks.first.album.toLowerCase().compareTo(b.tracks.first.album.toLowerCase());
+      final byArtist = _cmp(a.artist, b.artist);
+      return byArtist != 0 ? byArtist : _cmp(a.tracks.first.album, b.tracks.first.album);
     });
 
   final ordered = <Track>[];
@@ -155,33 +151,11 @@ Library _scan(String rootPath) {
       artist: g.artist,
       firstIndex: ordered.length,
       trackCount: g.tracks.length,
+      uri: albumUri?.call(g.key),
     ));
     ordered.addAll(g.tracks);
   }
-  return Library(ordered, albums, _readPlaylists(m3u, ordered));
-}
-
-/// Listes .m3u : une ligne par fichier, chemin absolu ou relatif à la liste.
-List<SongList> _readPlaylists(List<File> files, List<Track> tracks) {
-  final byPath = {for (var i = 0; i < tracks.length; i++) normalizePath(tracks[i].path): i};
-  final lists = <SongList>[];
-  for (final f in files) {
-    try {
-      final ids = <int>[];
-      for (var line in f.readAsLinesSync()) {
-        line = line.trim();
-        if (line.isEmpty || line.startsWith('#')) continue;
-        final path = normalizePath(isAbsolutePath(line) ? line : joinPath(f.parent.path, line));
-        final i = byPath[normalizePath(File(path).absolute.path)] ?? byPath[path];
-        if (i != null) ids.add(i);
-      }
-      if (ids.isNotEmpty) {
-        lists.add(SongList(_basename(f.path), ids));
-      }
-    } catch (_) {}
-  }
-  lists.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-  return lists;
+  return (tracks: ordered, albums: albums);
 }
 
 String _mostCommon(Iterable<String> values) {
@@ -190,33 +164,4 @@ String _mostCommon(Iterable<String> values) {
     counts[v] = (counts[v] ?? 0) + 1;
   }
   return counts.entries.reduce((a, b) => b.value > a.value ? b : a).key;
-}
-
-/// Pochette du morceau : image intégrée au fichier, sinon cover.jpg /
-/// folder.jpg dans le dossier.
-Future<Uint8List?> loadCover(Track track) {
-  final path = track.path;
-  return Isolate.run(() {
-    try {
-      final meta = readMetadata(File(path), getImage: true);
-      if (meta.pictures.isNotEmpty) return meta.pictures.first.bytes;
-    } catch (_) {}
-    final dir = File(path).parent;
-    for (final name in const ['cover', 'folder', 'front', 'album', 'Cover', 'Folder', 'Front']) {
-      for (final ext in const ['jpg', 'jpeg', 'png']) {
-        final f = File('${dir.path}/$name.$ext');
-        if (f.existsSync()) return f.readAsBytesSync();
-      }
-    }
-    return null;
-  });
-}
-
-String _orElse(String? value, String fallback) =>
-    (value == null || value.trim().isEmpty) ? fallback : value.trim();
-
-String _basename(String path) {
-  final name = lastSegment(path);
-  final dot = name.lastIndexOf('.');
-  return dot > 0 ? name.substring(0, dot) : name;
 }

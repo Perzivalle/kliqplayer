@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'settings.dart';
+
 /// Chemins propres à chaque système (Linux, Windows, macOS). Les fonctions
 /// prennent [windows] pour pouvoir être essayées depuis n'importe quel
 /// système ; par défaut, c'est celui sur lequel on tourne.
@@ -50,3 +52,33 @@ List<String> windowsDrives() => [
       for (var c = 'C'.codeUnitAt(0); c <= 'Z'.codeUnitAt(0); c++)
         if (Directory('${String.fromCharCode(c)}:\\').existsSync()) '${String.fromCharCode(c)}:\\',
     ];
+
+/// Dossier de musique : $LECTEUR_MUSIC s'il est donné, sinon celui choisi
+/// dans Réglages › Bibliothèque, sinon celui de MPD.
+Directory defaultMusicDirectory() {
+  final home = homeDir();
+  final override = Platform.environment['LECTEUR_MUSIC'];
+  if (override != null && override.isNotEmpty) return Directory(override);
+  final chosen = Settings.getString('library.folder');
+  if (chosen != null && chosen.isNotEmpty) return Directory(chosen);
+  return Directory(joinPath(home, joinPath('Music', 'Musique Ipod')));
+}
+
+/// Dossier où garder ce qui peut se retélécharger (pochettes en ligne).
+String cacheDir() {
+  if (_isWindows) return _env['LOCALAPPDATA'] ?? '${homeDir()}\\AppData\\Local';
+  if (Platform.isMacOS) return '${homeDir()}/Library/Caches';
+  return _env['XDG_CACHE_HOME'] ?? '${homeDir()}/.cache';
+}
+
+/// Écrit [text] dans [file] lisible par l'utilisateur seul (jetons de
+/// connexion) : fichier temporaire restreint, puis renommage. Sous Windows,
+/// le dossier de l'utilisateur est déjà privé.
+Future<void> writePrivate(File file, String text) async {
+  await file.parent.create(recursive: true);
+  final tmp = File('${file.path}.tmp');
+  await tmp.writeAsString('');
+  if (!_isWindows) await Process.run('chmod', ['600', tmp.path]);
+  await tmp.writeAsString(text);
+  await tmp.rename(file.path);
+}

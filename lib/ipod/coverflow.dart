@@ -257,7 +257,7 @@ class _Back extends StatelessWidget {
     final top = page.trackTopSpring.value;
     final first = top.floor().clamp(0, a.trackCount);
     final last = (first + CoverFlowPage.backRows + 1).clamp(0, a.trackCount);
-    final current = player.index - a.firstIndex;
+    final current = player.currentIndex - a.firstIndex;
 
     return Container(
       width: size,
@@ -341,7 +341,7 @@ class _Back extends StatelessWidget {
   }
 
   Widget _row(int t, Album a, double rowH, double fs, {required bool selected, required bool playing}) {
-    final track = player.queue[a.firstIndex + t];
+    final track = player.tracks[a.firstIndex + t];
     final ink = selected ? Colors.white : Colors.black;
     final dim = selected ? Colors.white : const Color(0xFF6B7178);
     final d = track.duration;

@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import '../core/library.dart';
 import '../core/player.dart';
 import '../core/settings.dart';
+import '../core/source.dart';
 import '../core/paths.dart';
 import '../core/strings.dart';
 import '../physics.dart';
@@ -269,15 +270,14 @@ class IpodNav extends ChangeNotifier {
         }
       case final CoverFlowPage p when p.flipped:
         // On joue le morceau sans quitter le dos de la pochette.
-        final first = player.albums[p.selected].firstIndex;
-        player.jumpTo(first + p.track).then((_) => player.play());
+        player.playAlbum(p.selected, p.track);
         notifyListeners();
       case final CoverFlowPage p:
         if (player.albums.isEmpty) return;
         // La pochette se retourne, sur le morceau en cours s'il est de cet
         // album.
         final album = player.albums[p.selected];
-        final playing = player.index - album.firstIndex;
+        final playing = player.currentIndex - album.firstIndex;
         p
           ..flipped = true
           ..track = playing >= 0 && playing < album.trackCount ? playing : 0
@@ -325,20 +325,25 @@ class IpodNav extends ChangeNotifier {
 
   void transitionDone() => leaving = null;
 
-  Future<void> _play(int index) async {
-    await player.jumpTo(index);
-    await player.play();
+  /// Joue [list] depuis le morceau [index] et passe à En lecture.
+  void _play(List<Track> list, int index, {String? uri}) {
+    player.playTracks(list, index, uri: uri);
     _push(NowPlayingPage());
   }
 
   // --- Menus ---------------------------------------------------------------
 
   MenuPage _root() => MenuPage(tr('Lecteur'), live: true, () => [
+        // Ce qui n'a pas marché (pas d'appareil Spotify…) ; valider l'efface.
+        if (player.notice case final notice?)
+          MenuEntry(notice, action: () {
+            player.notice = null;
+          }),
         MenuEntry(tr('Musique'), open: _music),
         MenuEntry(tr('Réglages'), open: _settings),
         MenuEntry(tr('Morceau au hasard'), action: () {
-          if (player.queue.isEmpty) return;
-          _play(math.Random().nextInt(player.queue.length));
+          if (player.tracks.isEmpty) return;
+          _play(player.tracks, math.Random().nextInt(player.tracks.length));
         }),
         if (player.current != null) MenuEntry(tr('En lecture'), open: NowPlayingPage.new),
       ]);
@@ -355,8 +360,32 @@ class IpodNav extends ChangeNotifier {
   MenuPage _playlists() => MenuPage(tr('Listes de lecture'), () => [
         MenuEntry(tr('Ajouts récents'), open: () => _tracks(tr('Ajouts récents'), player.recentlyAdded(25))),
         MenuEntry(tr('Les plus écoutés'), open: () => _tracks(tr('Les plus écoutés'), player.mostPlayed(25))),
-        for (final l in player.playlists) MenuEntry(l.name, open: () => _tracks(l.name, l.tracks)),
+        for (final l in player.playlists) MenuEntry(l.name, open: () => _songList(l)),
       ]);
+
+  /// Une liste de lecture : ses morceaux, chargés à la première ouverture
+  /// si la source les donne à la demande (Spotify).
+  MenuPage _songList(SongList l) => MenuPage(l.name, live: true, () {
+        final tracks = l.tracks;
+        if (tracks != null) {
+          return [for (var i = 0; i < tracks.length; i++) MenuEntry(tracks[i].title, action: () => _play(tracks, i, uri: l.uri))];
+        }
+        // Pas parcourable (liste suivie, pas à soi) : on peut la jouer
+        // entière quand même.
+        if (l.error != null) {
+          return [
+            if (l.uri case final uri?)
+              MenuEntry(tr('Lire la liste'), action: () {
+                player.playUri(uri);
+                _push(NowPlayingPage());
+              })
+            else
+              MenuEntry(tr('Aucun élément')),
+          ];
+        }
+        l.load(onDone: notifyListeners).ignore();
+        return [MenuEntry(tr('Chargement…'))];
+      });
 
   // --- Réglages ------------------------------------------------------------
 
@@ -364,7 +393,7 @@ class IpodNav extends ChangeNotifier {
         MenuEntry(tr('À propos'), open: _about),
         MenuEntry(
           tr('Bibliothèque'),
-          value: () => player.loading ? tr('Lecture…') : _folderName(player.musicDir),
+          value: () => player.loading ? tr('Lecture…') : _sourceName(),
           open: _places,
         ),
         MenuEntry(
@@ -499,12 +528,25 @@ class IpodNav extends ChangeNotifier {
 
   static String _folderName(String path) => lastSegment(path);
 
+  /// On écoute la musique du dossier [path] (et pas un service en ligne).
+  bool _usingFolder(String path) => path == player.musicDir && player.source.id == 'local';
+
+  /// D'où vient la musique : le service en ligne, ou le nom du dossier.
+  String _sourceName() {
+    for (final a in player.accounts) {
+      if (a.sourceId == player.source.id) return a.label;
+    }
+    return _folderName(player.musicDir);
+  }
+
   /// Points de départ : le dossier actuel, le dossier personnel, les disques
   /// branchés, la racine (sous Windows : les lecteurs C:, D:…). Cherchés une
   /// fois à l'ouverture de la page, pas à chaque image.
   MenuPage _places() => MenuPage(tr('Bibliothèque'), () {
         final user = Platform.environment['USER'] ?? '';
         return [
+          // Les services en ligne d'abord (Spotify…), puis les dossiers.
+          for (final a in player.accounts) MenuEntry(a.label, open: () => _account(a)),
           MenuEntry(tr('Dossier actuel'), value: () => _folderName(player.musicDir), open: () => _folder(player.musicDir)),
           MenuEntry(tr('Dossier personnel'), open: () => _folder(homeDir())),
           if (Platform.isWindows)
@@ -514,12 +556,43 @@ class IpodNav extends ChangeNotifier {
               (tr('Disques'), '/run/media/$user'),
               (tr('Disques'), '/media/$user'),
               (tr('Disques'), '/Volumes'),
-              ('/mnt', '/mnt'),
             ])
               if (user.isNotEmpty || !path.endsWith('/')) // pas de « /media/ » sans nom
                 if (Directory(path).existsSync()) MenuEntry(label, open: () => _folder(path)),
             MenuEntry(tr('Racine'), open: () => _folder('/')),
           ],
+        ];
+      });
+
+  // --- Comptes en ligne (Spotify…) -------------------------------------------
+
+  /// Un service en ligne : se connecter, l'utiliser.
+  MenuPage _account(RemoteAccount a) => MenuPage(a.label, live: true, () {
+        if (a.connecting) return [MenuEntry(tr('Connexion…'), value: () => tr('navigateur'))];
+        if (!a.connected) {
+          return [
+            MenuEntry(tr('Se connecter'), action: () {
+              a.connect().then((_) {
+                if (a.connected) player.useSource(a.sourceId);
+              }, onError: (Object e) {
+                player.notice = '$e';
+              }).whenComplete(notifyListeners);
+              notifyListeners();
+            }),
+          ];
+        }
+        final inUse = player.source.id == a.sourceId;
+        return [
+          MenuEntry(tr('Utiliser %s').replaceFirst('%s', a.label), checked: () => inUse, action: () {
+            if (!inUse) player.useSource(a.sourceId);
+            _backTo(tr('Réglages'));
+          }),
+          MenuEntry(tr('Compte'), value: () => a.userName ?? ''),
+          MenuEntry(tr('Se déconnecter'), action: () {
+            a.disconnect();
+            if (inUse) player.useSource('local');
+            notifyListeners();
+          }),
         ];
       });
 
@@ -537,8 +610,10 @@ class IpodNav extends ChangeNotifier {
           subs = const []; // illisible : on peut quand même le choisir
         }
         return [
-          MenuEntry(tr('Utiliser ce dossier'), checked: () => path == player.musicDir, action: () {
-            if (path != player.musicDir) player.setMusicDir(path);
+          // (Coché seulement si c'est vraiment ce dossier qu'on écoute :
+          // depuis Spotify, choisir le même dossier y revient.)
+          MenuEntry(tr('Utiliser ce dossier'), checked: () => _usingFolder(path), action: () {
+            if (!_usingFolder(path)) player.setMusicDir(path);
             _backTo(tr('Réglages'));
           }),
           for (final d in subs) MenuEntry(_folderName(d.path), open: () => _folder(d.path)),
@@ -559,7 +634,7 @@ class IpodNav extends ChangeNotifier {
   MenuPage _about() => MenuPage(tr('À propos'), () {
         final artists = {for (final a in player.albums) a.artist.toLowerCase()};
         return [
-          MenuEntry(tr('Morceaux'), value: () => '${player.queue.length}'),
+          MenuEntry(tr('Morceaux'), value: () => '${player.tracks.length}'),
           MenuEntry(tr('Albums'), value: () => '${player.albums.length}'),
           MenuEntry(tr('Artistes'), value: () => '${artists.length}'),
           MenuEntry(tr('Listes'), value: () => '${player.playlists.length}'),
@@ -599,16 +674,23 @@ class IpodNav extends ChangeNotifier {
   MenuPage _albumList(String title, List<int> ids) =>
       MenuPage(title, () => [for (final i in ids) MenuEntry(player.albums[i].title, open: () => _album(i))]);
 
-  Iterable<int> _albumTracks(Album a) => Iterable.generate(a.trackCount, (k) => a.firstIndex + k);
+  List<Track> _albumTracks(Album a) => player.tracks.sublist(a.firstIndex, a.firstIndex + a.trackCount);
 
-  MenuPage _album(int i) => _tracks(player.albums[i].title, _albumTracks(player.albums[i]).toList());
+  /// Un album : le lancer joue cet album (l'album entier chez la source,
+  /// s'il en a un).
+  MenuPage _album(int i) {
+    final a = player.albums[i];
+    final list = _albumTracks(a);
+    return MenuPage(a.title, () => [
+          for (var k = 0; k < list.length; k++) MenuEntry(list[k].title, action: () => _play(list, k, uri: a.uri)),
+        ]);
+  }
 
   MenuPage _songs() => MenuPage(tr('Morceaux'), () {
-        final ids = List.generate(player.queue.length, (i) => i)
-          ..sort((a, b) => _cmp(player.queue[a].title, player.queue[b].title));
-        return [for (final i in ids) MenuEntry(player.queue[i].title, action: () => _play(i))];
+        final list = [...player.tracks]..sort((a, b) => _cmp(a.title, b.title));
+        return [for (var i = 0; i < list.length; i++) MenuEntry(list[i].title, action: () => _play(list, i))];
       });
 
-  MenuPage _tracks(String title, List<int> ids) =>
-      MenuPage(title, () => [for (final i in ids) MenuEntry(player.queue[i].title, action: () => _play(i))]);
+  MenuPage _tracks(String title, List<Track> list) =>
+      MenuPage(title, () => [for (var i = 0; i < list.length; i++) MenuEntry(list[i].title, action: () => _play(list, i))]);
 }

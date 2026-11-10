@@ -12,6 +12,7 @@ import 'package:lecteur/ipod/classic.dart';
 import 'package:lecteur/ipod/drawer.dart';
 import 'package:lecteur/ipod/ipod.dart';
 import 'package:lecteur/ipod/mini.dart';
+import 'package:lecteur/ipod/model.dart';
 import 'package:lecteur/ipod/nanos.dart';
 import 'package:lecteur/ipod/screen.dart';
 import 'package:lecteur/ipod/shuffle.dart';
@@ -208,12 +209,54 @@ void main() {
     await _settle(tester);
     expect(find.byWidgetPredicate((w) => w is IpodPreview && w.model.id == Nano4Model(nano4Colors[2]).id), findsOneWidget,
         reason: 'l\'éventail montre la teinte');
+    final violetNano = Nano4Model(nano4Colors[2]).id;
+    expect(screenPower.value, isTrue);
     await mouse.down(corner);
     await mouse.up();
+    // Chaque chose à son tour : l'emplacement prend la teinte et l'éventail
+    // se range ; on ne débranche qu'ensuite.
+    for (var i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(find.byWidgetPredicate((w) => w is IpodPreview && w.model.id == violetNano), findsWidgets,
+        reason: 'l\'emplacement a pris la teinte');
+    expect(screenPower.value, isTrue, reason: 'l\'éventail se range avant le débranchement');
+    expect(find.byWidgetPredicate((w) => w is IpodDevice && w.model is ClassicModel), findsOneWidget);
+    for (var i = 0; i < 40; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(screenPower.value, isFalse, reason: 'éventail rangé : on débranche');
     for (var i = 0; i < 400; i++) {
       await tester.pump(const Duration(milliseconds: 16));
     }
     expect(find.byWidgetPredicate((w) => w is IpodDevice && w.model.id == Nano4Model(nano4Colors[2]).id), findsOneWidget);
+  });
+
+  testWidgets('fenêtre minuscule : des pastilles au lieu de l\'éventail', (tester) async {
+    final (_, mouse) = await _hoverTopSlot(tester, const Size(340, 440), Shuffle4Model(shuffle4Colors.first), 'nano4');
+    await _settle(tester);
+    expect(_byType('_FanCard'), findsNothing);
+    final dots = _byType('_Swatch');
+    expect(dots, findsNWidgets(nano4Colors.length));
+    // Survolée, une pastille habille l'appareil.
+    await mouse.moveTo(tester.getCenter(dots.at(2)));
+    await _settle(tester);
+    expect(find.byWidgetPredicate((w) => w is IpodPreview && w.model.id == Nano4Model(nano4Colors[2]).id), findsOneWidget);
+  });
+
+  testWidgets('l\'éventail dépasserait du haut de la fenêtre : le tiroir descend l\'appareil', (tester) async {
+    final (slot, _) = await _hoverTopSlot(tester, const Size(360, 520), Nano4Model(nano4Colors.first), 'gen4');
+    final top = tester.getRect(find.ancestor(of: find.byType(SingleChildScrollView).last, matching: find.byType(ClipRect)).first).top;
+    final before = tester.getRect(slot);
+    expect(before.top - top, lessThan(before.height * 0.84 + 18), reason: 'l\'éventail ne tiendrait pas');
+    await _settle(tester);
+    final after = tester.getRect(slot);
+    expect(after.top, greaterThan(before.top + 10));
+    expect(_byType('_FanCard'), findsWidgets, reason: 'puis l\'éventail s\'ouvre');
+    for (final card in _byType('_FanCard').evaluate()) {
+      // Ni hors de la fenêtre, ni au-dessus du tiroir.
+      expect(tester.getRect(find.byWidget(card.widget)).top, greaterThanOrEqualTo(top - 0.5));
+    }
   });
 
   testWidgets('un appareil d\'une seule teinte se soulève aussi au survol', (tester) async {
@@ -268,7 +311,7 @@ void main() {
 
   testWidgets('en changeant d\'iPod, on reste sur le même écran', (tester) async {
     final player = PlayerController.preview(
-      queue: const [Track(path: '/x/a.flac', title: 'Néons', artist: 'Les Fréquences', album: 'Bleu nuit')],
+      tracks: const [Track(id: '/x/a.flac', title: 'Néons', artist: 'Les Fréquences', album: 'Bleu nuit')],
       index: 0,
       duration: const Duration(minutes: 3),
     );
@@ -531,7 +574,7 @@ void main() {
 
   testWidgets('En lecture : entre deux pas de la barre, plus aucune image n\'est dessinée', (tester) async {
     final player = PlayerController.preview(
-      queue: const [Track(path: '/x/a.flac', title: 'Titre', artist: 'Artiste', album: 'Album')],
+      tracks: const [Track(id: '/x/a.flac', title: 'Titre', artist: 'Artiste', album: 'Album')],
       albums: const [Album(title: 'Album', artist: 'Artiste', firstIndex: 0, trackCount: 1)],
       index: 0,
       playing: true,
@@ -578,3 +621,35 @@ void main() {
 
 /// Une pastille de l'éventail, par le nom de sa teinte.
 Finder _swatch(String name) => find.byWidgetPredicate((w) => w is Semantics && w.properties.label == name);
+
+Finder _byType(String name) => find.byWidgetPredicate((w) => w.runtimeType.toString() == name);
+
+/// Ouvre le tiroir dans une fenêtre [window] et survole l'emplacement
+/// [family], placé tout en haut de la partie visible du tiroir.
+Future<(Finder, TestGesture)> _hoverTopSlot(WidgetTester tester, Size window, IpodModel model, String family) async {
+  tester.view
+    ..physicalSize = window
+    ..devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  await tester.pumpWidget(MaterialApp(
+    home: Material(type: MaterialType.transparency, child: IpodStage(player: PlayerController.preview(), initial: model)),
+  ));
+  await _settle(tester);
+  await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+  await _settle(tester);
+  final slot = find.byWidgetPredicate((w) => w is IpodPreview && w.model.family == family).first;
+  await tester.ensureVisible(slot);
+  await _settle(tester);
+  final scrollable = find.byType(Scrollable);
+  if (scrollable.evaluate().isNotEmpty) {
+    final top = tester.getRect(find.byType(SingleChildScrollView)).top;
+    final pos = tester.state<ScrollableState>(scrollable.last).position;
+    pos.jumpTo((pos.pixels + tester.getRect(slot).top - top - 4).clamp(pos.minScrollExtent, pos.maxScrollExtent));
+    await _settle(tester);
+  }
+  final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+  addTearDown(mouse.removePointer);
+  await mouse.addPointer(location: Offset.zero);
+  await mouse.moveTo(tester.getCenter(slot));
+  return (slot, mouse);
+}

@@ -4,6 +4,7 @@ import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/core/library.dart';
 import 'package:lecteur/core/player.dart';
+import 'package:lecteur/core/source.dart';
 import 'package:lecteur/core/strings.dart';
 import 'package:lecteur/ipod/click.dart';
 import 'package:lecteur/ipod/classic.dart';
@@ -16,10 +17,10 @@ PlayerController _player() {
   for (var i = 0; i < 5; i++) {
     albums.add(Album(title: 'Album $i', artist: 'Artiste', firstIndex: tracks.length, trackCount: 2));
     for (var k = 0; k < 2; k++) {
-      tracks.add(Track(path: '/x/$i-$k.flac', title: 'Titre $i-$k', artist: 'Artiste', album: 'Album $i'));
+      tracks.add(Track(id: '/x/$i-$k.flac', title: 'Titre $i-$k', artist: 'Artiste', album: 'Album $i'));
     }
   }
-  return PlayerController.preview(queue: tracks, albums: albums, index: 4);
+  return PlayerController.preview(tracks: tracks, albums: albums, index: 4);
 }
 
 /// Ouvre l'entrée [label] de la page en cours.
@@ -130,6 +131,38 @@ void main() {
     expect(nav.page.title, 'Réglages', reason: 'choisi : retour aux Réglages');
   });
 
+  test('Bibliothèque : depuis Spotify, choisir le même dossier revient aux fichiers', () async {
+    final root = Directory.systemTemp.createTempSync('lecteur');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final made = <String>[];
+    final player = PlayerController(_NamedSource('spotify'), sourceFor: (id) {
+      made.add(id);
+      return _NamedSource(id);
+    })
+      ..musicDir = root.path;
+    addTearDown(player.dispose);
+    final nav = IpodNav(player, look: const ClassicLook());
+    _open(nav, 'Réglages');
+    _open(nav, 'Bibliothèque');
+    _open(nav, 'Dossier actuel');
+    final use = (nav.page as MenuPage).entries.first;
+    expect(use.checked!(), isFalse, reason: 'on écoute Spotify, pas ce dossier');
+    _open(nav, 'Utiliser ce dossier');
+    await pumpEventQueue();
+    expect(made, ['local']);
+    expect(player.source.id, 'local');
+  });
+
+  test('Bibliothèque : les services en ligne en haut, sans /mnt', () {
+    final player = PlayerController.preview(accounts: [_FakeAccount()]);
+    final nav = IpodNav(player, look: const ClassicLook());
+    _open(nav, 'Réglages');
+    _open(nav, 'Bibliothèque');
+    final labels = (nav.page as MenuPage).entries.map((e) => e.label).toList();
+    expect(labels.take(3), ['Spotify', 'Dossier actuel', 'Dossier personnel']);
+    expect(labels, isNot(contains('/mnt')));
+  });
+
   test('Tonalité du clic : on entend chaque tonalité en parcourant, valider la garde', () {
     final click = WheelClick.instance;
     final nav = IpodNav(_player(), look: const ClassicLook());
@@ -160,4 +193,31 @@ void main() {
     nav.menu();
     expect((nav.page as MenuPage).entries.first.label, 'Music');
   });
+}
+
+/// Source sans musique, d'identifiant choisi.
+class _NamedSource extends EmptySource {
+  _NamedSource(this.name);
+
+  final String name;
+
+  @override
+  String get id => name;
+}
+
+class _FakeAccount extends RemoteAccount {
+  @override
+  String get sourceId => 'spotify';
+  @override
+  String get label => 'Spotify';
+  @override
+  bool get connected => false;
+  @override
+  bool get connecting => false;
+  @override
+  String? get userName => null;
+  @override
+  Future<void> connect() async {}
+  @override
+  Future<void> disconnect() async {}
 }

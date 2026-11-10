@@ -20,6 +20,10 @@ const double drawerFront = 26;
 ///
 /// La façade est du côté extérieur ([frontOnRight] : il sort vers la
 /// droite) ; de l'autre côté, la coque se prolonge derrière l'iPod.
+/// Clic sur une teinte de l'éventail : [folded] se termine une fois les
+/// autres teintes rangées derrière l'appareil.
+typedef SwatchCallback = void Function(IpodModel model, Future<void> folded);
+
 class IpodDrawer extends StatelessWidget {
   const IpodDrawer({
     super.key,
@@ -53,7 +57,7 @@ class IpodDrawer extends StatelessWidget {
   final ValueChanged<IpodModel> onPick;
 
   /// Clic sur une pastille.
-  final ValueChanged<IpodModel> onSwatch;
+  final SwatchCallback onSwatch;
 
   /// Clic sur la façade (ouvrir / fermer).
   final VoidCallback onFront;
@@ -253,7 +257,7 @@ class _Slot extends StatefulWidget {
   final IpodModel current;
   final double scale;
   final ValueChanged<IpodModel> onPick;
-  final ValueChanged<IpodModel> onSwatch;
+  final SwatchCallback onSwatch;
 
   @override
   State<_Slot> createState() => _SlotState();
@@ -281,6 +285,8 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
       _portal.hide();
       // Retiré, l'éventail ne reçoit plus la sortie du pointeur.
       _inFan = false;
+      _folding = null;
+      _chosenId = null;
       if (!_inside) _picked = false;
     });
   final _portal = OverlayPortalController();
@@ -299,6 +305,57 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
     _bounds = MatrixUtils.transformRect(clip.getTransformTo(overlay), Offset.zero & clip.size);
   }
 
+  /// L'appareil de l'emplacement, dans le repère de la fenêtre.
+  final _anchorKey = GlobalKey();
+
+  Rect? _anchorRect() {
+    final box = _anchorKey.currentContext?.findRenderObject();
+    final overlay = Overlay.maybeOf(context)?.context.findRenderObject();
+    if (box is! RenderBox || overlay == null || !box.hasSize) return null;
+    return MatrixUtils.transformRect(box.getTransformTo(overlay), Offset.zero & box.size);
+  }
+
+  /// Place qu'il faut au-dessus d'un appareil haut de [h] pour y déployer
+  /// l'éventail (voir [_fanLayer] : cartes à 78 %, carte survolée qui monte
+  /// de 6 %, 14 + 4 px de marge).
+  static double _fanNeed(double h) => h * 0.84 + 18;
+
+  /// Fenêtre trop petite : l'éventail et l'appareil ne tiendraient pas
+  /// ensemble dans la partie visible du tiroir. Les teintes sont alors des
+  /// pastilles sous le nom, comme avant l'éventail.
+  bool _dots = false;
+
+  bool _tooSmall() {
+    _measure();
+    final b = _bounds;
+    if (b == null) return false;
+    final h = widget.rowHeight;
+    return b.height < h + _fanNeed(h);
+  }
+
+  /// Le tiroir défile pour descendre l'appareil : l'éventail dépasserait
+  /// sinon du haut de la partie visible du tiroir.
+  bool _scrolling = false;
+
+  /// De combien descendre l'appareil (autant que le défilement le permet).
+  double _shiftNeeded() {
+    _measure();
+    final at = _anchorRect();
+    final top = _bounds?.top ?? 0;
+    final pos = Scrollable.maybeOf(context)?.position;
+    if (at == null || pos == null || !pos.hasPixels) return 0;
+    final deficit = _fanNeed(at.height) - (at.top - top);
+    if (deficit <= 0) return 0;
+    return math.min(deficit, math.max(0.0, pos.pixels - pos.minScrollExtent));
+  }
+
+  /// Teinte survolée parmi les pastilles : l'appareil la prend le temps du
+  /// survol.
+  IpodModel? _preview;
+
+  /// Pointeur sur l'emplacement entier (appareil, nom, pastilles).
+  bool _inSlot = false;
+
   @override
   void dispose() {
     _closing?.cancel();
@@ -309,8 +366,16 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
 
   bool get _empty => widget.shown.family == widget.current.family;
 
+  /// Une teinte vient d'être choisie : les cartes se rangent telles
+  /// qu'elles étaient (sinon, l'appareil de devant changeant de teinte, elles
+  /// se réorganiseraient en pleine course), la carte choisie en moins : elle
+  /// est passée devant.
+  List<IpodModel>? _folding;
+  String? _chosenId;
+
   /// Les autres teintes, celles de l'éventail (pas celle qu'on voit déjà).
   List<IpodModel> get _others {
+    if (_folding case final folding?) return folding;
     final front = _empty ? widget.current : widget.shown;
     return [for (final v in widget.variants) if (v.id != front.id) v];
   }
@@ -323,13 +388,40 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
   void _pointer({bool? inside, bool? inFan}) {
     _inside = inside ?? _inside;
     _inFan = inFan ?? _inFan;
+    // Le tiroir défile sous le pointeur : on note seulement où il est, on
+    // décidera une fois arrivé.
+    if (_scrolling) return;
     _closing?.cancel();
     if (_inside || _inFan) {
       // Pas d'éventail : l'appareil se soulève quand même.
-      if (_others.isEmpty || _picked) return setState(() {});
+      if (_others.isEmpty || _picked || _dots) return setState(() {});
       void open() {
-        if (!mounted || !(_inside || _inFan)) return;
-        if (!_portal.isShowing) _measure();
+        if (!mounted || !(_inside || _inFan) || _dots) return;
+        if (!_portal.isShowing) {
+          final shift = _shiftNeeded();
+          if (shift > 0.5) {
+            // D'abord descendre l'appareil, puis ouvrir. Le pointeur, lui,
+            // n'a pas bougé : il est maintenant au-dessus de l'appareil, là
+            // où vont les cartes.
+            final pos = Scrollable.of(context).position;
+            _scrolling = true;
+            pos
+                .animateTo(pos.pixels - shift, duration: const Duration(milliseconds: 300), curve: Curves.easeInOutCubic)
+                .whenComplete(() {
+              _scrolling = false;
+              if (!mounted) return;
+              _measure();
+              _portal.show();
+              _fan.forward();
+              // Si le pointeur n'est sur rien (ni appareil ni carte), on replie.
+              Timer(const Duration(milliseconds: 250), () {
+                if (mounted && !_scrolling) _pointer();
+              });
+            });
+            return;
+          }
+          _measure();
+        }
         _portal.show();
         _fan.forward();
       }
@@ -358,15 +450,19 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
   }
 
   /// Clic sur une teinte : l'éventail se range aussitôt, même si le
-  /// pointeur reste dessus.
-  void _pick() {
+  /// pointeur reste dessus. Le résultat se termine une fois rangé.
+  Future<void> _pick(IpodModel chosen) {
+    _folding = _others;
+    _chosenId = chosen.id;
     _picked = true;
     _opening?.cancel();
     _opening = null;
     _closing?.cancel();
     _fanHover = null;
-    _fan.reverse();
+    final folded = Completer<void>();
+    _fan.reverse().whenCompleteOrCancel(folded.complete);
     setState(() {});
+    return folded.future;
   }
 
   /// L'appareil de l'emplacement : soulevé au survol.
@@ -460,6 +556,7 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
 
     // Ce qu'on voit : la carte survolée monte un peu et grossit.
     Widget cardFor(int i, IpodModel v) {
+      if (v.id == _chosenId) return const SizedBox.shrink();
       final hovered = _fanHover == v.id;
       final p = progress(i);
       final (rect, m) = place(i, p, extra: hovered ? lift : 0);
@@ -502,8 +599,8 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () {
-                  _pick();
-                  widget.onSwatch(v);
+                  if (_folding != null) return; // une teinte est déjà choisie
+                  widget.onSwatch(v, _pick(v));
                 },
                 child: SizedBox.fromSize(size: card),
               ),
@@ -568,12 +665,12 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final empty = _empty;
-    final m = widget.shown;
+    final m = empty ? widget.shown : (_preview ?? widget.shown);
     final size = m.size * widget.scale;
     final radius = m.cornerRadius * widget.scale;
     final lifted = _hover && !empty;
 
-    return Column(
+    final column = Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // Centré dans une hauteur commune : appareils et noms alignés sur
@@ -596,6 +693,7 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
             child: GestureDetector(
               onTap: empty ? null : () => widget.onPick(m),
               child: OverlayPortal.overlayChildLayoutBuilder(
+                key: _anchorKey,
                 controller: _portal,
                 overlayChildBuilder: _fanLayer,
                 child: SizedBox.fromSize(
@@ -614,6 +712,11 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
                         Positioned.fill(
                           child: Opacity(opacity: 0, child: FittedBox(child: IpodPreview(model: widget.current))),
                         ),
+                      // Vide, il montre en transparence la pastille survolée.
+                      if (empty && _preview != null && _preview!.id != widget.current.id)
+                        Positioned.fill(
+                          child: IgnorePointer(child: Opacity(opacity: 0.55, child: _device(_preview!, size, radius, false))),
+                        ),
                     ],
                   ),
                 ),
@@ -624,9 +727,75 @@ class _SlotState extends State<_Slot> with SingleTickerProviderStateMixin {
           ),
           const SizedBox(height: 14),
           _Engraved(tr(m.label)),
-          // (Là où étaient les pastilles : la grille garde sa disposition.)
-          const SizedBox(height: 28),
+          const SizedBox(height: 10),
+          // Fenêtre trop petite pour l'éventail : les pastilles, au survol
+          // de l'emplacement.
+          SizedBox(height: 18, child: _dots && widget.variants.length > 1 ? _swatches() : null),
         ],
+    );
+    return MouseRegion(
+      onEnter: (_) => setState(() {
+        _inSlot = true;
+        // (Décidé à l'entrée : la taille de la fenêtre a pu changer.)
+        _dots = _tooSmall();
+      }),
+      onExit: (_) => setState(() {
+        _inSlot = false;
+        _preview = null;
+        if (_dots) _picked = false;
+      }),
+      child: column,
+    );
+  }
+
+  /// Les pastilles : sur une ligne si elles tiennent, sinon elles
+  /// rétrécissent. Survolée, une teinte habille l'appareil ; cliquée, elle
+  /// le prend en main.
+  Widget _swatches() {
+    final shown = _inSlot && !_picked;
+    final selected = _empty ? widget.current : widget.shown;
+    return IgnorePointer(
+      ignoring: !shown,
+      child: AnimatedOpacity(
+        opacity: shown ? 1 : 0,
+        duration: const Duration(milliseconds: 180),
+        child: AnimatedSlide(
+          offset: shown ? Offset.zero : const Offset(0, -0.25),
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOutCubic,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final (i, v) in widget.variants.indexed) ...[
+                  if (i > 0) const SizedBox(width: 6),
+                  _Swatch(
+                    model: v,
+                    selected: v.id == (_preview ?? selected).id,
+                    onTap: () {
+                      if (_picked) return;
+                      // Les pastilles s'effacent, puis l'échange commence.
+                      setState(() {
+                        _picked = true;
+                        _preview = null;
+                      });
+                      widget.onSwatch(v, Future<void>.delayed(const Duration(milliseconds: 200)));
+                    },
+                    onHover: (on) => setState(() {
+                      if (on) {
+                        _preview = v;
+                      } else if (_preview?.id == v.id) {
+                        _preview = null;
+                      }
+                    }),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -702,6 +871,73 @@ class _Engraved extends StatelessWidget {
 }
 
 /// Pastille de teinte : petit disque d'aluminium anodisé.
+/// Pastille de teinte : petit disque d'aluminium anodisé.
+class _Swatch extends StatefulWidget {
+  const _Swatch({required this.model, required this.selected, required this.onTap, required this.onHover});
+
+  final IpodModel model;
+  final bool selected;
+  final VoidCallback onTap;
+  final ValueChanged<bool> onHover;
+
+  @override
+  State<_Swatch> createState() => _SwatchState();
+}
+
+class _SwatchState extends State<_Swatch> {
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.model.swatch;
+    return Semantics(
+      label: tr(widget.model.variantName),
+      button: true,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) {
+          setState(() => _hover = true);
+          widget.onHover(true);
+        },
+        onExit: (_) {
+          setState(() => _hover = false);
+          widget.onHover(false);
+        },
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedScale(
+            scale: _hover ? 1.18 : 1,
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutBack,
+            child: _Frozen(
+              key: ValueKey(widget.selected),
+              overflow: 6,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: 14,
+                height: 14,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color.lerp(c, Colors.white, 0.45)!, c, Color.lerp(c, Colors.black, 0.2)!],
+                  ),
+                  border: Border.all(
+                    color: widget.selected ? Colors.white.withValues(alpha: 0.9) : Colors.black.withValues(alpha: 0.35),
+                    width: widget.selected ? 2 : 1,
+                  ),
+                  boxShadow: const [BoxShadow(color: Color(0x88000000), blurRadius: 3, offset: Offset(0, 1.5))],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Partie immobile du tiroir, peinte une fois en image puis réutilisée.
 /// Impeller redessine toute la scène à chaque image ; sans cela, la moindre
 /// animation (survol d'un appareil, titre qui défile) repeindrait mousse,

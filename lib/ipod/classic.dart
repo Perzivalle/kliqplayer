@@ -624,11 +624,9 @@ class _NowPlaying extends StatelessWidget {
     if (track == null) {
       return Center(child: Text(tr('Aucun morceau')));
     }
-    final albumIndex = player.currentAlbum;
-    final album = albumIndex >= 0 ? player.albums[albumIndex] : null;
-    final position = album == null
-        ? trOf(player.index + 1, player.queue.length)
-        : trOf(player.index - album.firstIndex + 1, album.trackCount);
+    // Rang dans ce qui a été lancé (l'album, la liste…), comme sur un vrai
+    // iPod ; rien si le morceau a été lancé ailleurs (appli Spotify).
+    final position = player.queueIndex >= 0 ? trOf(player.queueIndex + 1, player.nowPlaying.length) : '';
 
     const art = 116.0;
     return Stack(

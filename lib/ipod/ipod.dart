@@ -273,7 +273,10 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     if (_remember) {
       // Au lancement, la prise vient se brancher, une fois l'iPod arrivé
       // (voir main.dart) ; l'écran s'allume au branchement.
-      _plug.value = JackGeometry.away;
+      // (La cible aussi : la scène peut s'animer pendant la montée, souris
+      // sur la fenêtre, et le ressort ramènerait sinon la prise jusqu'à la
+      // prise femelle sans qu'on la voie, déjà branchée à l'arrivée.)
+      _plug.value = _plugTarget = JackGeometry.away;
       if (ipodLanded.value) {
         _startPlugging();
       } else {
@@ -476,6 +479,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     widget.player.pause();
     await wait(300);
     Settings.flush();
+    for (final a in widget.player.accounts) {
+      a.shutdown();
+    }
     exit(0);
   }
 
@@ -1120,21 +1126,33 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   /// Clic sur un appareil du tiroir : on débranche celui en main, il se
   /// range, l'autre sort et se branche, puis le tiroir se referme.
   void _pick(IpodModel m) {
-    if (_phase != _Swap.none || m.id == _model.id) return;
+    if (_phase != _Swap.none || _swatchPending || m.id == _model.id) return;
     setState(() => _shown[m.family] = m);
     _startSwap(m);
   }
 
+  /// Une teinte choisie attend que l'éventail soit rangé pour partir en main.
+  bool _swatchPending = false;
+
   /// Clic sur une pastille : prend cet appareil, dans cette teinte. Si
   /// c'est la famille en main, il change juste de teinte (tiroir ouvert).
-  void _swatch(IpodModel m) {
+  /// Sinon, chaque chose à son tour : l'appareil de l'emplacement prend la
+  /// teinte, les autres teintes se rangent derrière lui, et seulement alors
+  /// on débranche et on échange.
+  void _swatch(IpodModel m, Future<void> folded) {
     if (m.family == _model.family) {
       if (m.id == _model.id) return;
       WheelClick.instance.play();
       _choose(m);
-    } else {
-      _pick(m);
+      return;
     }
+    if (_phase != _Swap.none || _swatchPending) return;
+    _swatchPending = true;
+    setState(() => _shown[m.family] = m);
+    folded.whenComplete(() {
+      _swatchPending = false;
+      if (mounted) _pick(m);
+    });
   }
 
   KeyEventResult _onKey(FocusNode _, KeyEvent e) {
