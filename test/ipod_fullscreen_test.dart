@@ -129,5 +129,42 @@ void main() {
       expect(end.center.dx, closeTo(home.center.dx, 0.5));
       expect(end.center.dy, closeTo(home.center.dy, 0.5));
     });
+
+    testWidgets('tenu, il suit le pointeur dans la fenêtre ; lâché, il revient à sa place', (tester) async {
+      tester.view
+        ..physicalSize = window
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      IpodStage.debugDragInside = true;
+      addTearDown(() => IpodStage.debugDragInside = false);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            type: MaterialType.transparency,
+            child: IpodStage(player: PlayerController.preview(), initial: const ClassicModel()),
+          ),
+        ),
+      );
+      await settle(tester);
+      final home = tester.getRect(find.byType(IpodDevice));
+
+      // Attrapé par le boîtier, à côté de l'écran.
+      final gesture = await tester.startGesture(Offset(home.left + 12, home.center.dy));
+      await gesture.moveBy(const Offset(30, 10));
+      await gesture.moveBy(const Offset(220, 70));
+      await tester.pump();
+      // Il a suivi, en largeur comme en hauteur, et y reste tant qu'on le tient.
+      final held = tester.getRect(find.byType(IpodDevice));
+      expect(held.center.dx - home.center.dx, greaterThan(200));
+      expect(held.center.dy - home.center.dy, greaterThan(60));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(tester.getRect(find.byType(IpodDevice)).center, held.center);
+
+      await gesture.up();
+      await settle(tester);
+      final end = tester.getRect(find.byType(IpodDevice));
+      expect(end.center.dx, closeTo(home.center.dx, 0.5));
+      expect(end.center.dy, closeTo(home.center.dy, 0.5));
+    });
   });
 }

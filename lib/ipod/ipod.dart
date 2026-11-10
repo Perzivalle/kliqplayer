@@ -122,6 +122,11 @@ class IpodStage extends StatefulWidget {
   final PlayerController player;
   final IpodModel? initial;
 
+  /// Pour les tests : l'iPod se déplace à la main dans la fenêtre, comme
+  /// sous Windows.
+  @visibleForTesting
+  static bool debugDragInside = false;
+
   /// Le modèle qui s'affichera au lancement.
   static IpodModel get savedModel => _IpodStageState._saved();
 
@@ -219,6 +224,57 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   @override
   Rect? _deviceShown;
+  @override
+  Size _stageSize = Size.zero;
+
+  /// Tenu à la main, ou emporté par Windows : le décalage ne se résorbe pas.
+  bool _backHeld = false;
+
+  /// Tenu : où doit être son centre (à l'écran), l'écart entre ce centre et
+  /// le pointeur, le pointeur (à l'écran), et la zone quittée pour l'occasion.
+  Offset? _heldCenter;
+  Offset _grab = Offset.zero, _heldPointer = Offset.zero;
+  Rect? _heldDock;
+
+  /// On attrape l'appareil ([pointer] : dans la fenêtre). Faux : ce n'est
+  /// pas à nous de le déplacer (c'est la fenêtre qu'on déplace).
+  bool _holdBegin(Offset pointer) {
+    if (!_dragsInside) return false;
+    final dev = _deviceShown;
+    // Tiroir sorti, échange, pas encore arrivé : il ne bouge pas.
+    if (dev == null || _wantOpen || _open.value != 0 || _phase != _Swap.none || !ipodLanded.value) return true;
+    final origin = _origin;
+    _heldPointer = origin + pointer;
+    _grab = pointer - dev.center;
+    _heldCenter = _heldPointer - _grab;
+    _backHeld = true;
+    _backFrom = null;
+    _heldDock = _leaveDock();
+    setState(() {});
+    return true;
+  }
+
+  void _holdUpdate(Offset pointer) {
+    if (_heldCenter == null) return;
+    _heldPointer = _origin + pointer;
+    if (_atTop(_heldPointer)) {
+      // Emporté par Windows : il reste sous le pointeur, tel quel.
+      _heldCenter = null;
+      _heldDock = null;
+      _handToSystem();
+      return;
+    }
+    setState(() => _heldCenter = _heldPointer - _grab);
+  }
+
+  void _holdEnd() {
+    final center = _heldCenter;
+    if (center == null) return;
+    final dock = _heldDock;
+    _heldCenter = null;
+    _heldDock = null;
+    _dropHeld(center, _heldPointer, dock);
+  }
 
   @override
   void _glideHome(Offset from, Rect window) {
@@ -226,8 +282,17 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _backWindow = window;
     // (Si la fenêtre ne prend jamais cette taille, on n'attend pas.)
     _backGiveUp?.cancel();
-    _backGiveUp = Timer(const Duration(seconds: 1), () => _backFrom = null);
+    _backGiveUp = Timer(const Duration(seconds: 1), _settleHome);
     if (mounted) setState(() {});
+  }
+
+  @override
+  void _settleHome() {
+    _backGiveUp?.cancel();
+    _backFrom = null;
+    if (!_backHeld) return;
+    _backHeld = false;
+    if (mounted) setState(_kick);
   }
 
   /// Pour les tests : comme si on venait de lâcher l'iPod en [from].
@@ -388,9 +453,11 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     }
     _place.step(_placeTarget.toDouble(), dt);
     if (_place.isSettled) _place.value = _placeTarget.toDouble();
-    for (final back in [_backX, _backY]) {
-      back.step(0, dt);
-      if (back.isSettled) back.value = 0;
+    if (!_backHeld) {
+      for (final back in [_backX, _backY]) {
+        back.step(0, dt);
+        if (back.isSettled) back.value = 0;
+      }
     }
     for (final (peek, side) in [(_peekL, -1), (_peekR, 1)]) {
       // Les deux boutons d'un coin sortent ensemble, quel que soit celui
@@ -428,8 +495,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
         _peekR.isSettled &&
         _lift.isSettled &&
         _place.isSettled &&
-        _backX.isSettled &&
-        _backY.isSettled &&
+        (_backHeld || (_backX.isSettled && _backY.isSettled)) &&
         _movePeekL.isSettled &&
         _movePeekR.isSettled &&
         _swaySettled &&
@@ -1182,6 +1248,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                         player: widget.player,
                         nav: _nav,
                         onWindowDrag: _beginWindowDrag,
+                        onHoldBegin: _holdBegin,
+                        onHoldUpdate: _holdUpdate,
+                        onHoldEnd: _holdEnd,
                       ),
                   ),
                 ),
@@ -1221,22 +1290,30 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
           final c = Offset(w / 2, h / 2);
           Offset place(Offset p) => c + (p - c) * scale + Offset(shift, 0);
           final dev = Rect.fromPoints(place(g.device.topLeft), place(g.device.bottomRight));
-          _deviceShown = dev;
-          // Lâché à l'instant, et la fenêtre a pris sa taille : il part d'où
-          // on l'a posé.
-          final dropped = _backFrom, window = _backWindow;
-          if (dropped != null && window != null && (w - window.width).abs() < 2 && (h - window.height).abs() < 2) {
+          _stageSize = Size(w, h);
+          // Tenu : son centre suit le pointeur. Lâché à l'instant, et la
+          // fenêtre a pris sa taille : il part d'où on l'a posé.
+          final held = _heldCenter, dropped = _backFrom, window = _backWindow;
+          Offset? gap;
+          if (held != null) {
+            gap = held - (_origin + dev.center);
+          } else if (dropped != null && window != null && (w - window.width).abs() < 2 && (h - window.height).abs() < 2) {
+            gap = dropped - (window.topLeft + dev.center);
             _backFrom = null;
-            final gap = dropped - (window.topLeft + dev.center);
+            _backGiveUp?.cancel();
+            _backHeld = false;
+            _kick();
+          }
+          if (gap != null) {
             _backX
               ..value = gap.dx
               ..velocity = 0;
             _backY
               ..value = gap.dy
               ..velocity = 0;
-            _kick();
           }
           final back = Offset(_backX.value, _backY.value);
+          _deviceShown = dev.shift(back);
           // L'appareil, lui, est déjà mis en page à sa nouvelle place.
           final devActual = Rect.fromPoints(place(target.device.topLeft), place(target.device.bottomRight));
 
@@ -1265,6 +1342,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                 open != 0 ||
                 _dragging ||
                 back != Offset.zero ||
+                _backHeld ||
                 _backFrom != null ||
                 _phase != _Swap.none ||
                 _geoFrom != null ||

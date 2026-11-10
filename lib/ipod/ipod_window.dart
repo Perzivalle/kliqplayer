@@ -128,8 +128,13 @@ mixin _ManagedWindow on State<IpodStage> {
   _Geo? get _geoShown;
   bool get _remember;
 
-  /// L'appareil dans la fenêtre, à la dernière image.
+  /// L'appareil dans la fenêtre, à la dernière image (là où on le voit),
+  /// et la taille de la scène.
   Rect? get _deviceShown;
+  Size get _stageSize;
+
+  /// L'appareil n'est plus tenu ni emporté : il est à sa place.
+  void _settleHome();
 
   /// L'appareil, qu'on vient de lâcher en [from] (son centre, à l'écran),
   /// glisse jusqu'à sa place dans la fenêtre, qui va occuper [window].
@@ -302,14 +307,94 @@ mixin _ManagedWindow on State<IpodStage> {
 
   late final Window? _full = _remember && Platform.isWindows ? _currentWindow() : null;
 
-  // Tenir l'iPod, c'est tenir la fenêtre : Windows la déplace et propose ses
-  // zones d'ancrage. Rangée dans une zone (ou par Win+flèche), elle la garde,
-  // et l'iPod y vit comme dans une tuile sous Linux. Lâché ailleurs :
-  // - dans la fenêtre (le plein écran, ou la zone qu'il occupait), il glisse
-  //   jusqu'à la place qu'il avait ;
-  // - hors de sa zone, la fenêtre redevient le plein écran et il en rejoint
-  //   le milieu.
+  // On tient l'iPod pour le déplacer dans la fenêtre, qui ne bouge pas.
+  // Lâché :
+  // - dans la fenêtre, il glisse jusqu'à la place qu'il avait ;
+  // - hors de la zone où Windows l'avait rangé, la fenêtre redevient le
+  //   plein écran et il en rejoint le milieu.
+  // Amené tout en haut de l'écran, il passe aux mains de Windows, qui
+  // propose ses zones d'ancrage : déposé dans l'une, la fenêtre la garde et
+  // l'iPod y vit comme dans une tuile sous Linux.
   // (On le change de côté avec les boutons sous les poignées.)
+
+  /// L'iPod se déplace dans la fenêtre quand on le tient.
+  bool get _dragsInside => _full != null || IpodStage.debugDragInside;
+
+  /// Le coin de la fenêtre, à l'écran.
+  Offset get _origin {
+    try {
+      return _full?.contentBounds.toRect().topLeft ?? Offset.zero;
+    } catch (_) {
+      return Offset.zero;
+    }
+  }
+
+  /// Là où est la fenêtre à l'écran.
+  Rect get _windowNow {
+    try {
+      return _full?.contentBounds.toRect() ?? Offset.zero & _stageSize;
+    } catch (_) {
+      return Offset.zero & _stageSize;
+    }
+  }
+
+  /// On attrape l'iPod rangé dans une zone : le temps de le tenir, la
+  /// fenêtre reprend tout l'écran (il peut ainsi en sortir sans être
+  /// coupé). Rend la zone quittée.
+  Rect? _leaveDock() {
+    final win = _full, dock = _dock;
+    if (win == null || dock == null) return null;
+    final filled = fillWorkArea(win);
+    if (filled == null) return null;
+    _lastFill = filled.size;
+    return dock;
+  }
+
+  /// Le pointeur ([screen], à l'écran) est tout en haut de l'écran : là où
+  /// Windows propose ses zones d'ancrage.
+  bool _atTop(Offset screen) {
+    if (_full == null) return false;
+    try {
+      final area = _workAreaOf(_windowNow);
+      return area != null && screen.dy <= area.top + 40;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// L'iPod, tenu, arrive en haut de l'écran : Windows prend la fenêtre en
+  /// main (elle n'est plus rangée nulle part) et propose ses zones.
+  void _handToSystem() {
+    _dock = null;
+    try {
+      _full?.startDragging();
+    } catch (_) {}
+    // Même si elle n'a pas bougé d'un point, on finira par la remettre en
+    // place.
+    _refit?.cancel();
+    _refit = Timer(const Duration(milliseconds: 300), _windowSettled);
+  }
+
+  /// On lâche l'iPod, son centre en [center] et le pointeur en [pointer] (à
+  /// l'écran) ; [dock] : la zone où il était rangé quand on l'a attrapé.
+  void _dropHeld(Offset center, Offset pointer, Rect? dock) {
+    final win = _full;
+    if (win == null || dock == null) {
+      _glideHome(center, _windowNow);
+    } else if (dock.contains(pointer)) {
+      // Dans sa zone : la fenêtre la reprend, il y retrouve sa place.
+      try {
+        win.contentBounds = dock.toNative();
+      } catch (_) {}
+      _glideHome(center, dock);
+    } else {
+      // Sorti de sa zone : il reste en plein écran, au milieu.
+      _dock = null;
+      _recenter();
+      _glideHome(center, _windowNow);
+    }
+  }
+
   /// Taille donnée en dernier à la fenêtre pour couvrir un écran.
   Size? _lastFill;
 
@@ -369,31 +454,29 @@ mixin _ManagedWindow on State<IpodStage> {
       if (area == null || area.isEmpty) return;
       final maximized = win.isMaximized;
       final fit = maximized ? WindowFit.refit : windowFit(now, area, _lastFill);
+      // Là où on voit l'iPod (emporté par Windows, il est resté sous le
+      // pointeur).
+      final device = _deviceShown;
+      final center = dropped && device != null ? now.topLeft + device.center : null;
       if (fit == WindowFit.docked) {
+        // Rangée dans une zone : l'iPod est à sa place dedans.
         _dock = now;
+        _settleHome();
         return;
       }
       if (fit == WindowFit.fills) {
         _dock = null;
+        center != null ? _glideHome(center, now) : _settleHome();
         return;
       }
       if (maximized) win.unmaximize();
-      final device = _deviceShown;
-      final center = device == null ? null : now.topLeft + device.center;
-      final dock = _dock;
-      if (dropped && dock != null && center != null && dock.contains(center)) {
-        // Lâché dans la zone qu'il occupait : la fenêtre la reprend.
-        win.contentBounds = dock.toNative();
-        _glideHome(center, dock);
-        return;
-      }
-      // Sorti de sa zone : le plein écran, et l'iPod au milieu. Sinon (déjà
-      // en plein écran), il retrouve la place qu'il avait.
-      if (dock != null) _recenter();
+      // Sortie de sa zone (au clavier) : l'iPod au milieu. Puis le plein
+      // écran, où il rejoint sa place.
+      if (_dock != null) _recenter();
       _dock = null;
       final filled = fillWorkArea(win) ?? area;
       _lastFill = filled.size;
-      if (dropped && center != null) _glideHome(center, filled);
+      center != null ? _glideHome(center, filled) : _settleHome();
     } catch (_) {}
   }
 

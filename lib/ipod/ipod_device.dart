@@ -7,6 +7,9 @@ class IpodDevice extends StatefulWidget {
     required this.player,
     required this.nav,
     this.onWindowDrag,
+    this.onHoldBegin,
+    this.onHoldUpdate,
+    this.onHoldEnd,
   });
 
   final IpodModel model;
@@ -17,6 +20,14 @@ class IpodDevice extends StatefulWidget {
 
   /// On commence à déplacer la fenêtre en tenant l'appareil.
   final VoidCallback? onWindowDrag;
+
+  /// On tient l'appareil pour le déplacer dans la fenêtre (Windows), sans
+  /// qu'elle bouge : position du pointeur dans la fenêtre, du début à la
+  /// fin. [onHoldBegin] répond faux quand la scène ne s'en charge pas :
+  /// c'est alors la fenêtre qu'on déplace.
+  final bool Function(Offset pointer)? onHoldBegin;
+  final ValueChanged<Offset>? onHoldUpdate;
+  final VoidCallback? onHoldEnd;
 
   @override
   State<IpodDevice> createState() => _IpodDeviceState();
@@ -268,7 +279,12 @@ class _IpodDeviceState extends State<IpodDevice> {
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onPanStart: (_) => _moveWindow(),
+                onPanStart: (d) {
+                  if (!(widget.onHoldBegin?.call(d.globalPosition) ?? false)) _moveWindow();
+                },
+                onPanUpdate: (d) => widget.onHoldUpdate?.call(d.globalPosition),
+                onPanEnd: (_) => widget.onHoldEnd?.call(),
+                onPanCancel: () => widget.onHoldEnd?.call(),
                 child: CustomPaint(painter: m.body),
               ),
             ),
