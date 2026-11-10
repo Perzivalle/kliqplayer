@@ -51,7 +51,9 @@ PlayerController _player({int index = -1, bool playing = false, Duration positio
     playing: playing,
     duration: const Duration(minutes: 4, seconds: 12),
     position: position,
-  );
+    // Le dossier affiché dans Réglages › Bibliothèque : le même partout, pas
+    // celui de la machine qui lance les tests.
+  )..musicDir = '/x/Musique Ipod';
 }
 
 Future<void> _show(WidgetTester tester, Widget stage, {Size size = const Size(460, 760)}) async {

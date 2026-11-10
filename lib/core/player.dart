@@ -490,7 +490,8 @@ class PlayerController extends ChangeNotifier {
     try {
       bytes = track == null || _preview ? null : await _source.artwork(track);
     } catch (_) {}
-    if (request != _coverRequest) return; // un autre morceau entre-temps
+    // Un autre morceau entre-temps, ou le lecteur n'existe plus.
+    if (_disposed || request != _coverRequest) return;
     cover = bytes;
     notifyListeners();
   }
@@ -603,8 +604,11 @@ class PlayerController extends ChangeNotifier {
   /// L'écran En lecture s'affiche : un moteur distant se remet à jour.
   void refresh() => _engine.refresh();
 
+  bool _disposed = false;
+
   @override
   void dispose() {
+    _disposed = true;
     _engine
       ..onUpdate = null
       ..dispose();
