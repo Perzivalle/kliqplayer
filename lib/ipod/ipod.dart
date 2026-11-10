@@ -249,7 +249,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _heldCenter = _heldPointer - _grab;
     _backHeld = true;
     _backFrom = null;
-    _heldDock = _leaveDock();
+    // (Rangé dans une zone, il y reste le temps qu'on le tienne : retailler
+    // la fenêtre maintenant l'étirerait un instant.)
+    _heldDock = _dock;
     setState(() {});
     return true;
   }
@@ -287,9 +289,13 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   }
 
   @override
+  bool get _dropPending => _backFrom != null;
+
+  @override
   void _settleHome() {
     _backGiveUp?.cancel();
     _backFrom = null;
+    _unblankSoon();
     if (!_backHeld) return;
     _backHeld = false;
     if (mounted) setState(_kick);
@@ -1302,6 +1308,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             _backFrom = null;
             _backGiveUp?.cancel();
             _backHeld = false;
+            _unblankSoon();
             _kick();
           }
           if (gap != null) {
@@ -1342,6 +1349,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             h,
             // (Tenu ou en train de revenir : là où on le voit.)
             dev.shift(back),
+            moving: back != Offset.zero || _backHeld,
             whole: _wantOpen ||
                 open != 0 ||
                 _dragging ||

@@ -136,6 +136,10 @@ mixin _ManagedWindow on State<IpodStage> {
   /// L'appareil n'est plus tenu ni emporté : il est à sa place.
   void _settleHome();
 
+  /// On vient de lâcher l'appareil : il attend que la fenêtre ait pris sa
+  /// taille pour partir vers sa place.
+  bool get _dropPending;
+
   /// L'appareil, qu'on vient de lâcher en [from] (son centre, à l'écran),
   /// glisse jusqu'à sa place dans la fenêtre, qui va occuper [window].
   void _glideHome(Offset from, Rect window);
@@ -338,18 +342,6 @@ mixin _ManagedWindow on State<IpodStage> {
     }
   }
 
-  /// On attrape l'iPod rangé dans une zone : le temps de le tenir, la
-  /// fenêtre reprend tout l'écran (il peut ainsi en sortir sans être
-  /// coupé). Rend la zone quittée.
-  Rect? _leaveDock() {
-    final win = _full, dock = _dock;
-    if (win == null || dock == null) return null;
-    final filled = fillWorkArea(win);
-    if (filled == null) return null;
-    _lastFill = filled.size;
-    return dock;
-  }
-
   /// Le pointeur ([screen], à l'écran) est tout en haut de l'écran : là où
   /// Windows propose ses zones d'ancrage.
   bool _atTop(Offset screen) {
@@ -365,7 +357,7 @@ mixin _ManagedWindow on State<IpodStage> {
   /// L'iPod, tenu, arrive en haut de l'écran : Windows prend la fenêtre en
   /// main (elle n'est plus rangée nulle part) et propose ses zones.
   void _handToSystem() {
-    _dock = null;
+    _carried = true;
     try {
       _full?.startDragging();
     } catch (_) {}
@@ -379,21 +371,41 @@ mixin _ManagedWindow on State<IpodStage> {
   /// l'écran) ; [dock] : la zone où il était rangé quand on l'a attrapé.
   void _dropHeld(Offset center, Offset pointer, Rect? dock) {
     final win = _full;
-    if (win == null || dock == null) {
+    if (win == null || dock == null || dock.contains(pointer)) {
+      // Dans la fenêtre : elle ne change pas, il retrouve sa place.
       _glideHome(center, _windowNow);
-    } else if (dock.contains(pointer)) {
-      // Dans sa zone : la fenêtre la reprend, il y retrouve sa place.
-      try {
-        win.contentBounds = dock.toNative();
-      } catch (_) {}
-      _glideHome(center, dock);
-    } else {
-      // Sorti de sa zone : il reste en plein écran, au milieu.
-      _dock = null;
-      _recenter();
-      _glideHome(center, _windowNow);
+      return;
     }
+    // Sorti de sa zone : le plein écran, et lui au milieu. Retailler la
+    // fenêtre étire un instant ce qu'elle montrait : on la masque d'abord
+    // (l'iPod, hors de sa zone, n'y était déjà presque plus visible), et
+    // elle ne reparaît qu'à sa nouvelle taille.
+    _dock = null;
+    _recenter();
+    _blank = true;
+    _applyShape(const [Offset.zero, Offset(1, 0), Offset(0, 1)], _stageSize);
+    final filled = fillWorkArea(win) ?? _windowNow;
+    _lastFill = filled.size;
+    _glideHome(center, filled);
   }
+
+  /// La fenêtre est masquée le temps de changer de taille.
+  bool _blank = false;
+
+  /// La fenêtre a pris sa nouvelle taille : elle reparaît, une fois les
+  /// premières images à cette taille affichées.
+  void _unblankSoon() {
+    if (!_blank) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_blank) return;
+        setState(() => _blank = false);
+      });
+    });
+  }
+
+  /// Windows a la fenêtre en main (l'iPod a été amené en haut de l'écran).
+  bool _carried = false;
 
   /// Taille donnée en dernier à la fenêtre pour couvrir un écran.
   Size? _lastFill;
@@ -401,8 +413,6 @@ mixin _ManagedWindow on State<IpodStage> {
   /// La zone où Windows a rangé la fenêtre (null : plein écran).
   Rect? _dock;
 
-  /// On a vu la fenêtre tenue à la souris depuis qu'elle bouge.
-  bool _handHeld = false;
 
   Timer? _refit;
   List<Offset>? _shape;
@@ -440,14 +450,17 @@ mixin _ManagedWindow on State<IpodStage> {
     // Encore tenue à la souris (on hésite au-dessus des zones d'ancrage) :
     // on attend qu'elle soit lâchée, sans la lui reprendre des mains.
     if (_mouseHeld()) {
-      _handHeld = true;
       _refit = Timer(const Duration(milliseconds: 60), _windowSettled);
       return;
     }
-    // Lâchée à l'instant (et pas déplacée au clavier) : l'iPod rejoindra sa
-    // place en glissant.
-    final dropped = _handHeld;
-    _handHeld = false;
+    // Lâchée par Windows, qui l'avait en main (et pas déplacée au clavier) :
+    // l'iPod rejoindra sa place en glissant.
+    final dropped = _carried;
+    _carried = false;
+    void home() {
+      if (!_dropPending) _settleHome();
+    }
+
     try {
       final now = win.contentBounds.toRect();
       final area = _workAreaOf(now);
@@ -461,12 +474,12 @@ mixin _ManagedWindow on State<IpodStage> {
       if (fit == WindowFit.docked) {
         // Rangée dans une zone : l'iPod est à sa place dedans.
         _dock = now;
-        _settleHome();
+        home();
         return;
       }
       if (fit == WindowFit.fills) {
         _dock = null;
-        center != null ? _glideHome(center, now) : _settleHome();
+        center != null ? _glideHome(center, now) : home();
         return;
       }
       if (maximized) win.unmaximize();
@@ -476,7 +489,7 @@ mixin _ManagedWindow on State<IpodStage> {
       _dock = null;
       final filled = fillWorkArea(win) ?? area;
       _lastFill = filled.size;
-      center != null ? _glideHome(center, filled) : _settleHome();
+      center != null ? _glideHome(center, filled) : home();
     } catch (_) {}
   }
 
@@ -505,26 +518,62 @@ mixin _ManagedWindow on State<IpodStage> {
   /// Découpe la fenêtre ([w] × [h]) : entière si [whole], sinon autour de
   /// l'appareil (en [dev] à l'écran, avec ses poignées et son ombre) et de
   /// son câble, jusqu'au bord.
-  void _shapeWindow(double w, double h, Rect dev, {required bool whole}) {
+  void _shapeWindow(double w, double h, Rect dev, {required bool whole, bool moving = false}) {
     final win = _full;
     if (win == null) return;
-    final all = Offset.zero & Size(w, h);
-    final List<Offset> points;
-    if (whole) {
-      points = [all.topLeft, all.topRight, all.bottomRight, all.bottomLeft];
-    } else {
-      final jack = dev.left + _model.jackX * dev.width / _model.size.width;
-      points = outlineOf([
-        // Les poignées sortent de 60 de chaque côté ; l'ombre tombe dessous.
-        Rect.fromLTRB(dev.left - 84, dev.top - 34, dev.right + 84, dev.bottom + 90).intersect(all),
-        (_model.jackOnTop
-                ? Rect.fromLTRB(jack - 54, 0, jack + 54, dev.top)
-                : Rect.fromLTRB(jack - 54, dev.bottom, jack + 54, h))
-            .intersect(all),
-      ]);
-    }
-    final rounded = [for (final p in points) Offset(p.dx.roundToDouble(), p.dy.roundToDouble())];
     final size = Size(w, h);
+    final all = Offset.zero & size;
+    if (_blank) {
+      _applyShape(const [Offset.zero, Offset(1, 0), Offset(0, 1)], size);
+      return;
+    }
+    if (whole) {
+      _trail.clear();
+      _applyShape([all.topLeft, all.topRight, all.bottomRight, all.bottomLeft], size);
+      return;
+    }
+    // La découpe est appliquée tout de suite, l'image qui va avec n'arrive
+    // qu'un instant plus tard. Quand l'iPod bouge, elle couvre donc aussi
+    // ses dernières positions (l'image encore à l'écran n'est pas rognée)
+    // et celle où il sera à l'image suivante.
+    final spots = <Rect>[dev];
+    if (moving) {
+      if (_trail.isNotEmpty) spots.add(dev.shift((dev.topLeft - _trail.last.topLeft) * 2));
+      spots.addAll(_trail);
+      _trail.add(dev);
+      if (_trail.length > 4) _trail.removeAt(0);
+    } else {
+      _trail.clear();
+    }
+    _applyShape(
+      outlineOf([
+        for (final d in spots) ...[
+          // Les poignées sortent de 60 de chaque côté ; l'ombre tombe dessous.
+          Rect.fromLTRB(d.left - 84, d.top - 34, d.right + 84, d.bottom + 90).intersect(all),
+          _cableZone(d, h).intersect(all),
+        ],
+      ]),
+      size,
+    );
+  }
+
+  /// Dernières positions de l'iPod pendant qu'il bouge.
+  final _trail = <Rect>[];
+
+  /// La colonne du câble, de l'appareil (en [dev]) au bord de la fenêtre.
+  Rect _cableZone(Rect dev, double h) {
+    final jack = dev.left + _model.jackX * dev.width / _model.size.width;
+    return _model.jackOnTop
+        ? Rect.fromLTRB(jack - 54, 0, jack + 54, dev.top)
+        : Rect.fromLTRB(jack - 54, dev.bottom, jack + 54, h);
+  }
+
+  /// Applique le contour [points] à la fenêtre (de taille [size]), s'il a
+  /// changé.
+  void _applyShape(List<Offset> points, Size size) {
+    final win = _full;
+    if (win == null) return;
+    final rounded = [for (final p in points) Offset(p.dx.roundToDouble(), p.dy.roundToDouble())];
     if (rounded.length < 3 || (_shapeFor == size && listEquals(_shape, rounded))) return;
     try {
       final shape = WindowShape.create();
