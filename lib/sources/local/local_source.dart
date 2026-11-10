@@ -42,9 +42,14 @@ class MediaKitEngine extends PlaybackEngine {
       _player.stream.duration.listen((d) => _emit(EngineUpdate(duration: d))),
       _player.stream.volume.listen((v) => _emit(EngineUpdate(volume: v))),
       _player.stream.playlist.listen((playlist) {
-        if (playlist.index != _index) {
-          _index = playlist.index;
-          _emit(EngineUpdate(index: _index));
+        final at = playlist.index;
+        if (at < 0 || at >= playlist.medias.length) return;
+        // En aléatoire, mpv mélange sa liste : le rang qu'il donne n'est plus
+        // celui de notre file. On retrouve le morceau par son fichier.
+        final rank = _rank[playlist.medias[at].uri] ?? (_shuffle ? -1 : at);
+        if (rank != _index) {
+          _index = rank;
+          _emit(EngineUpdate(index: rank));
         }
       }),
     ]);
@@ -53,6 +58,9 @@ class MediaKitEngine extends PlaybackEngine {
   final _player = Player(configuration: const PlayerConfiguration(title: 'Lecteur'));
   final List<StreamSubscription<Object?>> _subs = [];
   int _index = -1;
+
+  /// Rang de chaque morceau dans la file lancée, par fichier.
+  Map<String, int> _rank = const {};
   bool _shuffle = false;
   RepeatMode _repeat = RepeatMode.off;
 
@@ -66,8 +74,15 @@ class MediaKitEngine extends PlaybackEngine {
 
   @override
   Future<void> open(List<Track> queue, int start, {String? uri}) async {
+    final medias = [for (final t in queue) Media(t.id)];
+    // (Par l'adresse que media_kit en retient : c'est elle qu'il redonne.)
+    final rank = <String, int>{};
+    for (var i = 0; i < medias.length; i++) {
+      rank.putIfAbsent(medias[i].uri, () => i);
+    }
+    _rank = rank;
     // Le morceau choisi part en premier, même en aléatoire.
-    await _player.open(Playlist([for (final t in queue) Media(t.id)], index: start), play: false);
+    await _player.open(Playlist(medias, index: start), play: false);
     await _player.setPlaylistMode(_modeFor(_repeat));
     if (_shuffle) await _player.setShuffle(true);
     await _player.play();
@@ -85,6 +100,13 @@ class MediaKitEngine extends PlaybackEngine {
   Future<void> seek(Duration position) => _player.seek(position);
   @override
   Future<void> setVolume(double volume) => _player.setVolume(volume);
+
+  @override
+  void restore({required bool shuffle, required RepeatMode repeat}) {
+    // Appliqués à la prochaine file lancée (voir [open]).
+    _shuffle = shuffle;
+    _repeat = repeat;
+  }
 
   @override
   Future<void> setShuffle(bool on) {

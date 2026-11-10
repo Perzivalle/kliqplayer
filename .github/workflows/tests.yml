@@ -1,0 +1,26 @@
+# À chaque push : l'analyse statique et les tests (menus, tiroir, lecteur,
+# Spotify simulé, captures de référence).
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Même version de Flutter que pour les versions publiées.
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.9
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - run: flutter analyze
+
+      - run: flutter test

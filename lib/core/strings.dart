@@ -80,6 +80,8 @@ const _strings = <String, List<String>>{
   'Listes': ['Playlists', 'Listas', 'Playlists'],
   // Sources en ligne (Spotify…)
   'Chargement…': ['Loading…', 'Cargando…', 'Wird geladen…'],
+  'Actualiser': ['Refresh', 'Actualizar', 'Aktualisieren'],
+  'Pas de connexion': ['No Connection', 'Sin conexión', 'Keine Verbindung'],
   'Lire la liste': ['Play Playlist', 'Reproducir lista', 'Playlist abspielen'],
   'Connexion…': ['Connecting…', 'Conectando…', 'Verbinden…'],
   'navigateur': ['browser', 'navegador', 'Browser'],

@@ -113,6 +113,7 @@ class SpotifyApp {
   void stop() {
     final app = _app, display = _display;
     _app = _display = null;
+    _launched = DateTime(0); // on pourra la relancer tout de suite
     app?.kill();
     // L'écran en dernier : ce qui resterait de Spotify s'arrête avec lui.
     if (display != null) Timer(const Duration(seconds: 2), display.kill);

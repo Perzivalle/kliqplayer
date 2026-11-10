@@ -11,6 +11,7 @@ import '../core/settings.dart';
 import '../core/source.dart';
 import '../core/paths.dart';
 import '../core/strings.dart';
+import '../core/version.dart';
 import '../physics.dart';
 import 'click.dart';
 import 'look.dart';
@@ -39,7 +40,7 @@ class MenuEntry {
 }
 
 class MenuPage extends IpodPage {
-  MenuPage(this.title, List<MenuEntry> Function() builder, {this.live = false}) : _builder = builder;
+  MenuPage(this.title, List<MenuEntry> Function() builder, {this.live = false, this.music = false}) : _builder = builder;
 
   @override
   final String title;
@@ -47,6 +48,10 @@ class MenuPage extends IpodPage {
 
   /// Reconstruit ses entrées à chaque affichage (menu principal).
   final bool live;
+
+  /// Montre des albums ou des morceaux de la bibliothèque : ne vaut plus
+  /// rien quand elle change.
+  final bool music;
   List<MenuEntry>? _cache;
 
   List<MenuEntry> get entries => live ? _builder() : (_cache ??= _builder());
@@ -129,6 +134,31 @@ class IpodNav extends ChangeNotifier {
     WheelClick.instance.enabled = Settings.getString('ipod.clicker') != 'off';
     WheelClick.instance.pitch =
         (int.tryParse(Settings.getString('ipod.clickPitch') ?? '') ?? 2).clamp(0, WheelClick.pitches.length - 1);
+    _libraryVersion = player.libraryVersion;
+    player.addListener(_onPlayer);
+  }
+
+  @override
+  void dispose() {
+    player.removeListener(_onPlayer);
+    super.dispose();
+  }
+
+  int _libraryVersion = 0;
+
+  /// La bibliothèque a changé (autre source, rafraîchie) : les pages qui
+  /// montraient l'ancienne (albums, morceaux, Cover Flow) se referment. On
+  /// reste sur En lecture si on y était.
+  void _onPlayer() {
+    if (player.libraryVersion == _libraryVersion) return;
+    _libraryVersion = player.libraryVersion;
+    final at = stack.indexWhere((p) => p is CoverFlowPage || (p is MenuPage && p.music));
+    if (at < 1) return;
+    final top = stack.last;
+    stack.removeRange(at, stack.length);
+    if (top is NowPlayingPage) stack.add(top);
+    leaving = null;
+    notifyListeners();
   }
 
   final PlayerController player;
@@ -336,9 +366,7 @@ class IpodNav extends ChangeNotifier {
   MenuPage _root() => MenuPage(tr('Lecteur'), live: true, () => [
         // Ce qui n'a pas marché (pas d'appareil Spotify…) ; valider l'efface.
         if (player.notice case final notice?)
-          MenuEntry(notice, action: () {
-            player.notice = null;
-          }),
+          MenuEntry(notice, action: player.dismissNotice),
         MenuEntry(tr('Musique'), open: _music),
         MenuEntry(tr('Réglages'), open: _settings),
         MenuEntry(tr('Morceau au hasard'), action: () {
@@ -357,7 +385,7 @@ class IpodNav extends ChangeNotifier {
         MenuEntry(tr('Morceaux'), open: _songs),
       ]);
 
-  MenuPage _playlists() => MenuPage(tr('Listes de lecture'), () => [
+  MenuPage _playlists() => MenuPage(tr('Listes de lecture'), music: true, () => [
         MenuEntry(tr('Ajouts récents'), open: () => _tracks(tr('Ajouts récents'), player.recentlyAdded(25))),
         MenuEntry(tr('Les plus écoutés'), open: () => _tracks(tr('Les plus écoutés'), player.mostPlayed(25))),
         for (final l in player.playlists) MenuEntry(l.name, open: () => _songList(l)),
@@ -365,7 +393,7 @@ class IpodNav extends ChangeNotifier {
 
   /// Une liste de lecture : ses morceaux, chargés à la première ouverture
   /// si la source les donne à la demande (Spotify).
-  MenuPage _songList(SongList l) => MenuPage(l.name, live: true, () {
+  MenuPage _songList(SongList l) => MenuPage(l.name, live: true, music: true, () {
         final tracks = l.tracks;
         if (tracks != null) {
           return [for (var i = 0; i < tracks.length; i++) MenuEntry(tracks[i].title, action: () => _play(tracks, i, uri: l.uri))];
@@ -389,7 +417,11 @@ class IpodNav extends ChangeNotifier {
 
   // --- Réglages ------------------------------------------------------------
 
-  MenuPage _settings() => MenuPage(tr('Réglages'), live: true, () => [
+  /// La page Réglages ouverte : on y revient d'un coup après avoir choisi
+  /// une bibliothèque.
+  MenuPage? _settingsPage;
+
+  MenuPage _settings() => _settingsPage = MenuPage(tr('Réglages'), live: true, () => [
         MenuEntry(tr('À propos'), open: _about),
         MenuEntry(
           tr('Bibliothèque'),
@@ -585,8 +617,14 @@ class IpodNav extends ChangeNotifier {
         return [
           MenuEntry(tr('Utiliser %s').replaceFirst('%s', a.label), checked: () => inUse, action: () {
             if (!inUse) player.useSource(a.sourceId);
-            _backTo(tr('Réglages'));
+            _backToSettings();
           }),
+          // Ce qu'on vient d'ajouter au compte, depuis une autre appli.
+          if (inUse)
+            MenuEntry(tr('Actualiser'), action: () {
+              player.loadLibrary();
+              _backToSettings();
+            }),
           MenuEntry(tr('Compte'), value: () => a.userName ?? ''),
           MenuEntry(tr('Se déconnecter'), action: () {
             a.disconnect();
@@ -614,15 +652,16 @@ class IpodNav extends ChangeNotifier {
           // depuis Spotify, choisir le même dossier y revient.)
           MenuEntry(tr('Utiliser ce dossier'), checked: () => _usingFolder(path), action: () {
             if (!_usingFolder(path)) player.setMusicDir(path);
-            _backTo(tr('Réglages'));
+            _backToSettings();
           }),
           for (final d in subs) MenuEntry(_folderName(d.path), open: () => _folder(d.path)),
         ];
       });
 
-  /// Revient d'un coup à la page [title] (en glissant vers la droite).
-  void _backTo(String title) {
-    final at = stack.lastIndexWhere((p) => p.title == title);
+  /// Revient d'un coup aux Réglages (en glissant vers la droite).
+  void _backToSettings() {
+    // (La page elle-même, pas son titre : un dossier peut s'appeler pareil.)
+    final at = stack.lastIndexWhere((p) => identical(p, _settingsPage));
     if (at < 0 || at == stack.length - 1) return;
     leaving = stack.last;
     stack.removeRange(at + 1, stack.length);
@@ -638,13 +677,13 @@ class IpodNav extends ChangeNotifier {
           MenuEntry(tr('Albums'), value: () => '${player.albums.length}'),
           MenuEntry(tr('Artistes'), value: () => '${artists.length}'),
           MenuEntry(tr('Listes'), value: () => '${player.playlists.length}'),
-          MenuEntry('Version', value: () => '0.5.0'),
+          MenuEntry('Version', value: () => appVersion),
         ];
       });
 
   static int _cmp(String a, String b) => a.toLowerCase().compareTo(b.toLowerCase());
 
-  MenuPage _artists() => MenuPage(tr('Artistes'), () {
+  MenuPage _artists() => MenuPage(tr('Artistes'), music: true, () {
         final names = <String, String>{};
         for (final a in player.albums) {
           names.putIfAbsent(a.artist.toLowerCase(), () => a.artist);
@@ -665,14 +704,14 @@ class IpodNav extends ChangeNotifier {
 
   MenuPage _artist(String artist) {
     final ids = _sortedAlbums(artist);
-    return MenuPage(artist, () => [
+    return MenuPage(artist, music: true, () => [
           MenuEntry(tr('Tous'), open: () => _tracks(artist, [for (final i in ids) ..._albumTracks(player.albums[i])])),
           for (final i in ids) MenuEntry(player.albums[i].title, open: () => _album(i)),
         ]);
   }
 
   MenuPage _albumList(String title, List<int> ids) =>
-      MenuPage(title, () => [for (final i in ids) MenuEntry(player.albums[i].title, open: () => _album(i))]);
+      MenuPage(title, music: true, () => [for (final i in ids) MenuEntry(player.albums[i].title, open: () => _album(i))]);
 
   List<Track> _albumTracks(Album a) => player.tracks.sublist(a.firstIndex, a.firstIndex + a.trackCount);
 
@@ -681,16 +720,16 @@ class IpodNav extends ChangeNotifier {
   MenuPage _album(int i) {
     final a = player.albums[i];
     final list = _albumTracks(a);
-    return MenuPage(a.title, () => [
+    return MenuPage(a.title, music: true, () => [
           for (var k = 0; k < list.length; k++) MenuEntry(list[k].title, action: () => _play(list, k, uri: a.uri)),
         ]);
   }
 
-  MenuPage _songs() => MenuPage(tr('Morceaux'), () {
+  MenuPage _songs() => MenuPage(tr('Morceaux'), music: true, () {
         final list = [...player.tracks]..sort((a, b) => _cmp(a.title, b.title));
         return [for (var i = 0; i < list.length; i++) MenuEntry(list[i].title, action: () => _play(list, i))];
       });
 
   MenuPage _tracks(String title, List<Track> list) =>
-      MenuPage(title, () => [for (var i = 0; i < list.length; i++) MenuEntry(list[i].title, action: () => _play(list, i))]);
+      MenuPage(title, music: true, () => [for (var i = 0; i < list.length; i++) MenuEntry(list[i].title, action: () => _play(list, i))]);
 }

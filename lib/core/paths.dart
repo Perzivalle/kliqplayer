@@ -54,14 +54,17 @@ List<String> windowsDrives() => [
     ];
 
 /// Dossier de musique : $LECTEUR_MUSIC s'il est donné, sinon celui choisi
-/// dans Réglages › Bibliothèque, sinon celui de MPD.
+/// dans Réglages › Bibliothèque, sinon le dossier Musique.
 Directory defaultMusicDirectory() {
   final home = homeDir();
   final override = Platform.environment['LECTEUR_MUSIC'];
   if (override != null && override.isNotEmpty) return Directory(override);
   final chosen = Settings.getString('library.folder');
   if (chosen != null && chosen.isNotEmpty) return Directory(chosen);
-  return Directory(joinPath(home, joinPath('Music', 'Musique Ipod')));
+  // Sinon « Musique Ipod » s'il existe, ou le dossier Musique tout entier.
+  final music = joinPath(home, 'Music');
+  final ipod = Directory(joinPath(music, 'Musique Ipod'));
+  return ipod.existsSync() ? ipod : Directory(music);
 }
 
 /// Dossier où garder ce qui peut se retélécharger (pochettes en ligne).

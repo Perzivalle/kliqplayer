@@ -6,6 +6,7 @@ import 'package:audio_metadata_reader/audio_metadata_reader.dart';
 
 import '../../core/library.dart';
 import '../../core/paths.dart';
+import '../../core/strings.dart';
 
 const _audioExtensions = {'.mp3', '.flac', '.ogg', '.opus', '.m4a', '.aac', '.wav'};
 
@@ -13,16 +14,22 @@ const _audioExtensions = {'.mp3', '.flac', '.ogg', '.opus', '.m4a', '.aac', '.wa
 /// bloquer l'interface.
 Future<Library> scanLibrary(Directory root) {
   final rootPath = root.path;
-  return Isolate.run(() => _scan(rootPath));
+  // (Traduit ici : l'isolate ne connaît pas la langue choisie.)
+  final unknown = tr('Artiste inconnu');
+  return Isolate.run(() => _scan(rootPath, unknown));
 }
 
-Library _scan(String rootPath) {
+Library _scan(String rootPath, String unknownArtist) {
   final tracks = <Track>[];
+  // Album de chaque morceau : son titre, et l'artiste de l'album quand le
+  // tag le donne (deux « Greatest Hits » ne font pas un seul album).
+  final albumOf = <String, String>{};
   final m3u = <File>[];
   final root = Directory(rootPath);
   if (!root.existsSync()) return const Library([], []);
 
-  for (final entity in root.listSync(recursive: true, followLinks: false)) {
+  // (Liens suivis : une bibliothèque rangée ailleurs et liée ici compte.)
+  for (final entity in root.listSync(recursive: true)) {
     if (entity is! File) continue;
     final lower = entity.path.toLowerCase();
     final dot = lower.lastIndexOf('.');
@@ -38,20 +45,24 @@ Library _scan(String rootPath) {
     } catch (_) {}
     try {
       final meta = readMetadata(entity, getImage: false);
+      final album = _orElse(meta.album, _basename(entity.parent.path));
       tracks.add(Track(
         id: entity.path,
         title: _orElse(meta.title, fallbackTitle),
-        artist: _orElse(meta.artist, 'Artiste inconnu'),
-        album: _orElse(meta.album, _basename(entity.parent.path)),
+        artist: _orElse(meta.artist, unknownArtist),
+        album: album,
         trackNumber: meta.trackNumber,
+        discNumber: meta.discNumber,
         duration: meta.duration,
         added: added,
       ));
+      final albumArtist = meta.albumArtist?.trim() ?? '';
+      if (albumArtist.isNotEmpty) albumOf[entity.path] = '${album.toLowerCase()}\u0000${albumArtist.toLowerCase()}';
     } catch (_) {
       tracks.add(Track(
         id: entity.path,
         title: fallbackTitle,
-        artist: 'Artiste inconnu',
+        artist: unknownArtist,
         album: _basename(entity.parent.path),
         added: added,
       ));
@@ -59,7 +70,7 @@ Library _scan(String rootPath) {
   }
 
   // Regroupement par album (tag), dans l'ordre « bibliothèque ».
-  final (tracks: ordered, :albums) = groupByAlbum(tracks);
+  final (tracks: ordered, :albums) = groupByAlbum(tracks, albumKey: (t) => albumOf[t.id] ?? t.album.toLowerCase());
   return Library(ordered, albums, _readPlaylists(m3u, ordered));
 }
 

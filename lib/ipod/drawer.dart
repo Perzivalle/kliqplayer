@@ -871,7 +871,6 @@ class _Engraved extends StatelessWidget {
 }
 
 /// Pastille de teinte : petit disque d'aluminium anodisé.
-/// Pastille de teinte : petit disque d'aluminium anodisé.
 class _Swatch extends StatefulWidget {
   const _Swatch({required this.model, required this.selected, required this.onTap, required this.onHover});
 

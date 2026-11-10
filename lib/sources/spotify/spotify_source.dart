@@ -1,11 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
-import 'dart:convert';
 
 import '../../core/engine.dart';
 import '../../core/library.dart';
@@ -85,9 +85,15 @@ class SpotifyAccount extends RemoteAccount {
   /// qui jouent alors en silence.
   Librespot? get librespot => builtInEnabled ? installedLibrespot : null;
 
-  bool get builtInEnabled => installedLibrespot != null && Settings.getString('spotify.builtin') == 'on';
+  /// (Réglable dans settings.json : « spotify.builtin » : « on » ou « off ».
+  /// Sans réglage, il sert quand l'appli Spotify n'est pas installée : sur
+  /// une machine qui n'a que lui, c'est la seule façon d'avoir du son.)
+  bool get builtInEnabled {
+    if (installedLibrespot == null) return false;
+    final choice = Settings.getString('spotify.builtin');
+    return choice == 'on' || (choice != 'off' && app == null);
+  }
 
-  /// (Réglable dans settings.json : « spotify.builtin » : « on ».)
   String? _userName;
   bool _connecting = false;
 
@@ -123,6 +129,10 @@ class SpotifyAccount extends RemoteAccount {
 
   @override
   Future<void> disconnect() async {
+    rest();
+    try {
+      await SpotifySource.cacheFile?.delete();
+    } catch (_) {}
     await auth.logout();
     _userName = null;
     Settings.setString('spotify.user', '');
@@ -192,7 +202,29 @@ class SpotifyAccount extends RemoteAccount {
   /// L'appareil de ce PC, qui joue toujours le son de TinyPod (même si le
   /// compte jouait ailleurs, sur le téléphone : la lecture revient ici).
   /// L'appli Spotify est lancée, cachée, s'il le faut.
-  Future<String> thisPcDevice() async {
+  ///
+  /// Retenu une minute : chaque lecture n'a pas à redemander la liste des
+  /// appareils. [fresh] : il a disparu (commande refusée), on le recherche.
+  Future<String> thisPcDevice({bool fresh = false}) {
+    if (fresh) _device = null;
+    if (deviceReady) return Future.value(_device!);
+    // Une seule recherche à la fois : deux appuis pendant que l'appli
+    // Spotify se lance attendent la même.
+    return _finding ??= _findThisPc().then((id) {
+      _device = id;
+      _deviceAt = DateTime.now();
+      return id;
+    }).whenComplete(() => _finding = null);
+  }
+
+  String? _device;
+  DateTime _deviceAt = DateTime(0);
+  Future<String>? _finding;
+
+  /// L'appareil de ce PC est connu : une lecture partira tout de suite.
+  bool get deviceReady => _device != null && DateTime.now().difference(_deviceAt) < const Duration(minutes: 1);
+
+  Future<String> _findThisPc() async {
     if (librespot != null) {
       final built = await _builtIn();
       if (built != null) return built.id;
@@ -229,29 +261,201 @@ class SpotifyAccount extends RemoteAccount {
     }
   }
 
-  @override
-  void shutdown() {
+  /// On n'écoute plus Spotify (retour au dossier, déconnexion) : ce qu'on
+  /// avait lancé pour lui s'arrête, au lieu de rester en mémoire.
+  void rest() {
+    _device = null;
     installedLibrespot?.stop();
     app?.stop();
+  }
+
+  @override
+  void shutdown() => rest();
+}
+
+/// La bibliothèque telle qu'on la garde d'un lancement à l'autre.
+class _Snapshot {
+  _Snapshot(this.tracks, this.albums, this.lists);
+
+  final List<Track> tracks;
+  final List<Album> albums;
+
+  /// Les listes de lecture (leurs morceaux sont chargés à l'ouverture).
+  final List<({String id, String name, String? uri})> lists;
+
+  Map<String, Object?> toJson(String? user) => {
+        'user': user,
+        'tracks': [
+          for (final t in tracks)
+            {
+              'id': t.id,
+              'title': t.title,
+              'artist': t.artist,
+              'album': t.album,
+              'n': t.trackNumber,
+              'disc': t.discNumber,
+              'ms': t.duration?.inMilliseconds,
+              'added': t.added?.toIso8601String(),
+              'art': t.artworkUrl,
+            },
+        ],
+        'albums': [
+          for (final a in albums)
+            {'title': a.title, 'artist': a.artist, 'first': a.firstIndex, 'count': a.trackCount, 'uri': a.uri},
+        ],
+        'lists': [
+          for (final l in lists) {'id': l.id, 'name': l.name, 'uri': l.uri},
+        ],
+      };
+
+  /// Null si [json] n'est pas la bibliothèque de [user] (autre compte,
+  /// ancien format).
+  static _Snapshot? fromJson(Object? json, String? user) {
+    try {
+      final map = json as Map<String, Object?>;
+      if (map['user'] != user) return null;
+      final tracks = [
+        for (final t in (map['tracks'] as List).cast<Map<String, Object?>>())
+          Track(
+            id: t['id'] as String,
+            title: t['title'] as String,
+            artist: t['artist'] as String,
+            album: t['album'] as String,
+            trackNumber: t['n'] as int?,
+            discNumber: t['disc'] as int?,
+            duration: switch (t['ms']) { final int ms => Duration(milliseconds: ms), _ => null },
+            added: DateTime.tryParse(t['added'] as String? ?? ''),
+            artworkUrl: t['art'] as String?,
+          ),
+      ];
+      final albums = [
+        for (final a in (map['albums'] as List).cast<Map<String, Object?>>())
+          Album(
+            title: a['title'] as String,
+            artist: a['artist'] as String,
+            firstIndex: a['first'] as int,
+            trackCount: a['count'] as int,
+            uri: a['uri'] as String?,
+          ),
+      ];
+      // (Un fichier abîmé ne doit pas faire planter les menus.)
+      if (albums.any((a) => a.firstIndex < 0 || a.firstIndex + a.trackCount > tracks.length)) return null;
+      final lists = [
+        for (final l in (map['lists'] as List).cast<Map<String, Object?>>())
+          (id: l['id'] as String, name: l['name'] as String, uri: l['uri'] as String?),
+      ];
+      return _Snapshot(tracks, albums, lists);
+    } catch (_) {
+      return null;
+    }
   }
 }
 
 /// La musique du compte Spotify : albums enregistrés, titres likés (rangés
 /// par album), listes de lecture.
 class SpotifySource extends MusicSource {
-  SpotifySource(this.account);
+  /// [cache] : où garder la bibliothèque d'un lancement à l'autre (par
+  /// défaut dans ~/.cache/lecteur ; nulle part sous `flutter test`).
+  SpotifySource(this.account, {File? cache}) : _cache = cache ?? cacheFile;
 
   final SpotifyAccount account;
   SpotifyApi get _api => account.api;
+
+  static File? get cacheFile =>
+      JsonStore.inTest ? null : File(joinPath(cacheDir(), joinPath('lecteur', 'spotify-library.json')));
+
+  final File? _cache;
+  bool _served = false;
+  bool _disposed = false;
+
+  /// Rafraîchie en arrière-plan, pas encore servie.
+  _Snapshot? _fresh;
 
   @override
   String get id => 'spotify';
   @override
   String get label => 'Spotify';
 
+  /// Au lancement, la bibliothèque gardée la dernière fois est servie tout
+  /// de suite, et la vraie demandée derrière : si elle a changé, la source
+  /// prévient ([onChanged]) et la sert au chargement suivant. Ensuite
+  /// (« Actualiser », nouvel essai), elle est demandée à Spotify.
   @override
   Future<Library> load() async {
     if (!account.connected) throw NoticeException(tr('Spotify : non connecté'));
+    if (_fresh case final fresh?) {
+      _fresh = null;
+      return _library(fresh);
+    }
+    if (!_served) {
+      _served = true;
+      final text = await _readCache();
+      final kept = text == null ? null : _decode(text);
+      if (kept != null) {
+        _refresh(text!);
+        return _library(kept);
+      }
+    }
+    final snapshot = await _fetch();
+    _writeCache(_encode(snapshot));
+    return _library(snapshot);
+  }
+
+  String _encode(_Snapshot s) => jsonEncode(s.toJson(account.userName));
+
+  _Snapshot? _decode(String text) {
+    try {
+      return _Snapshot.fromJson(jsonDecode(text), account.userName);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _readCache() async {
+    try {
+      return await _cache?.readAsString();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _writeCache(String text) async {
+    final file = _cache;
+    if (file == null) return;
+    try {
+      await file.parent.create(recursive: true);
+      final tmp = File('${file.path}.tmp');
+      await tmp.writeAsString(text);
+      await tmp.rename(file.path);
+    } catch (_) {}
+  }
+
+  /// Demande la vraie bibliothèque pendant qu'on montre celle gardée
+  /// ([kept], son texte) ; prévient si elle a changé.
+  Future<void> _refresh(String kept) async {
+    try {
+      final snapshot = await _fetch();
+      final text = _encode(snapshot);
+      if (_disposed || text == kept) return;
+      await _writeCache(text);
+      _fresh = snapshot;
+      onChanged?.call();
+    } catch (_) {
+      // Hors ligne : on reste sur celle d'avant.
+    }
+  }
+
+  Library _library(_Snapshot s) => Library(s.tracks, s.albums, [
+        for (final l in s.lists) SongList.lazy(l.name, () => _playlistTracks(l.id), uri: l.uri),
+      ]);
+
+  @override
+  void dispose() {
+    _disposed = true;
+    account.rest();
+  }
+
+  Future<_Snapshot> _fetch() async {
     final byId = <String, Track>{};
     final albumOf = <String, String>{}; // morceau → album
     final savedAlbums = <String, String>{}; // album → son uri
@@ -266,11 +470,12 @@ class SpotifySource extends MusicSource {
       if (albumId != null) albumOf[t.id] = albumId;
     }
 
-    final (albums, liked, lists) = await (
+    // (Future.wait : au premier échec, son erreur telle quelle, à montrer.)
+    final [albums, liked, lists] = await Future.wait([
       _api.pages('/me/albums'),
       _api.pages('/me/tracks'),
       _api.pages('/me/playlists'),
-    ).wait;
+    ], eagerError: true);
 
     for (final item in albums) {
       final album = item['album'] as Map<String, Object?>?;
@@ -300,12 +505,10 @@ class SpotifySource extends MusicSource {
       albumUri: (key) => savedAlbums[key],
     );
 
-    final playlists = [
+    return _Snapshot(tracks, grouped, [
       for (final p in lists)
-        if (p['id'] is String)
-          SongList.lazy(p['name'] as String? ?? '', () => _playlistTracks(p['id'] as String), uri: p['uri'] as String?),
-    ];
-    return Library(tracks, grouped, playlists);
+        if (p['id'] case final String id) (id: id, name: p['name'] as String? ?? '', uri: p['uri'] as String?),
+    ]);
   }
 
   /// Les morceaux d'une liste (seulement les siennes ou celles où l'on

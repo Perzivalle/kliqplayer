@@ -42,6 +42,9 @@ class _FakeSpotify {
   final bodies = <String, Object?>{};
   bool deviceActive = false;
 
+  /// Un titre liké de plus (ajouté depuis une autre appli).
+  bool extraLiked = false;
+
   http.Client get client => MockClient((req) async {
         final path = req.url.path.replaceFirst('/v1', '');
         calls.add('${req.method} $path${req.url.hasQuery ? '?${req.url.query}' : ''}');
@@ -69,6 +72,7 @@ class _FakeSpotify {
               'items': [
                 {'added_at': '2026-03-01T00:00:00Z', 'track': _track('b1', 'Liké', 4, album: _albumB)},
                 {'added_at': '2026-03-02T00:00:00Z', 'track': _track('a1', 'Un', 1, album: _albumA)},
+                if (extraLiked) {'added_at': '2026-04-01T00:00:00Z', 'track': _track('b2', 'Nouveau', 5, album: _albumB)},
               ],
               'next': null,
             };
@@ -182,5 +186,62 @@ void main() {
     addTearDown(p.dispose);
     await p.playUri('spotify:playlist:Q');
     expect(p.notice, isNotNull);
+  });
+
+  cacheTests();
+}
+
+// (Ajouts : bibliothèque gardée d'un lancement à l'autre, appareil retenu.)
+void cacheTests() {
+  /// Attend que [done] soit vrai (au plus 10 s).
+  Future<void> until(bool Function() done) async {
+    for (var i = 0; i < 500 && !done(); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+  }
+
+  test('bibliothèque gardée : servie tout de suite, puis remplacée si elle a changé', () async {
+    final dir = Directory.systemTemp.createTempSync('lecteur-test');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}/spotify-library.json');
+    final fake = _FakeSpotify();
+    // Premier lancement : rien de gardé, on demande à Spotify et on garde.
+    final first = await SpotifySource(_account(fake), cache: file).load();
+    await pumpEventQueue();
+    expect(file.existsSync(), isTrue);
+
+    // Deuxième lancement, la même : servie sans attendre, rien à signaler.
+    final again = SpotifySource(_account(fake), cache: file);
+    var changed = 0;
+    again.onChanged = () => changed++;
+    fake.calls.clear();
+    final kept = await again.load();
+    expect(fake.calls.where((c) => c.startsWith('GET /me/albums')), isEmpty, reason: 'servie avant toute réponse de Spotify');
+    expect(kept.tracks.map((t) => t.id), first.tracks.map((t) => t.id));
+    expect(kept.albums.map((a) => a.uri), first.albums.map((a) => a.uri));
+    expect(kept.playlists.map((l) => l.name), ['Ma liste', 'Suivie']);
+    // (Le temps que la vraie soit arrivée et comparée.)
+    await until(() => fake.calls.any((c) => c.startsWith('GET /me/playlists')));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(changed, 0);
+
+    // Troisième lancement, un titre liké en plus entre-temps.
+    fake.extraLiked = true;
+    final later = SpotifySource(_account(fake), cache: file);
+    later.onChanged = () => changed++;
+    expect((await later.load()).tracks, hasLength(3), reason: 'd\'abord celle d\'avant');
+    await until(() => changed == 1);
+    expect(changed, 1);
+    expect((await later.load()).tracks, hasLength(4));
+  });
+
+  test('l\'appareil de ce PC est retenu : pas de liste d\'appareils à chaque lecture', () async {
+    final fake = _FakeSpotify()..deviceActive = true;
+    final player = PlayerController(SpotifySource(_account(fake)));
+    addTearDown(player.dispose);
+    await player.loadLibrary();
+    await player.playTracks(player.tracks, 0);
+    await player.playTracks(player.tracks, 1);
+    expect(fake.calls.where((c) => c == 'GET /me/player/devices'), hasLength(1));
   });
 }

@@ -82,11 +82,20 @@ class SpotifyAuth {
   Future<String>? _refreshing;
 
   Future<String> _renew() async {
-    final res = await _http.post(Uri.parse('https://accounts.spotify.com/api/token'), body: {
-      'grant_type': 'refresh_token',
-      'refresh_token': _refresh!,
-      'client_id': clientId,
-    });
+    final http.Response res;
+    try {
+      res = await _http.post(Uri.parse('https://accounts.spotify.com/api/token'), body: {
+        'grant_type': 'refresh_token',
+        'refresh_token': _refresh!,
+        'client_id': clientId,
+      }).timeout(const Duration(seconds: 15));
+    } on TimeoutException {
+      throw NoticeException(tr('Pas de connexion'));
+    } on http.ClientException {
+      throw NoticeException(tr('Pas de connexion'));
+    } on IOException {
+      throw NoticeException(tr('Pas de connexion'));
+    }
     if (res.statusCode == 400 || res.statusCode == 401) {
       // Accès retiré (mot de passe changé, appli révoquée) : il faut se
       // reconnecter.

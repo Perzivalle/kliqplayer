@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -9,9 +10,12 @@ import 'auth.dart';
 
 /// Réponse d'erreur de l'API (statut, raison donnée par Spotify).
 class SpotifyError implements NoticeException {
-  const SpotifyError(this.status, this.reason, this.detail);
+  const SpotifyError(this.status, this.reason, this.detail, {this.retryAfter});
 
   final int status;
+
+  /// Secondes à attendre avant de redemander (429, « trop de demandes »).
+  final int? retryAfter;
 
   /// « NO_ACTIVE_DEVICE », « PREMIUM_REQUIRED »…
   final String? reason;
@@ -29,6 +33,9 @@ class SpotifyError implements NoticeException {
   @override
   String toString() => message;
 }
+
+/// Le réseau ne répond pas : un message court, pas l'erreur brute.
+NoticeException offline() => NoticeException(tr('Pas de connexion'));
 
 /// Appels à l'API Web de Spotify : jeton renouvelé au besoin, attente
 /// quand Spotify demande de ralentir (429).
@@ -66,9 +73,10 @@ class SpotifyApi {
   }
 
   Future<Map<String, Object?>?> _send(String method, Uri uri, {Object? body}) async {
-    var renewed = false;
+    var renewed = false, force = false;
     for (var attempt = 0;; attempt++) {
-      final token = await auth.accessToken(force: renewed);
+      final token = await auth.accessToken(force: force);
+      force = false;
       final req = http.Request(method, uri)..headers['Authorization'] = 'Bearer $token';
       if (body != null) {
         req.headers['Content-Type'] = 'application/json';
@@ -76,13 +84,23 @@ class SpotifyApi {
       } else if (method != 'GET') {
         req.headers['Content-Length'] = '0';
       }
-      final res = await http.Response.fromStream(await _http.send(req).timeout(const Duration(seconds: 15)));
+      final http.Response res;
+      try {
+        res = await _http.send(req).then(http.Response.fromStream).timeout(const Duration(seconds: 15));
+      } on TimeoutException {
+        throw offline();
+      } on http.ClientException {
+        throw offline();
+      } on IOException {
+        throw offline();
+      }
       if (res.statusCode == 401 && !renewed) {
-        renewed = true;
+        renewed = force = true;
         continue;
       }
+      final retryAfter = res.statusCode == 429 ? int.tryParse(res.headers['retry-after'] ?? '') : null;
       if (res.statusCode == 429 && attempt < 3) {
-        final wait = int.tryParse(res.headers['retry-after'] ?? '') ?? 2;
+        final wait = retryAfter ?? 2;
         if (wait <= 10) {
           await Future<void>.delayed(Duration(seconds: wait));
           continue;
@@ -97,7 +115,7 @@ class SpotifyApi {
             detail = err['message'] as String?;
           }
         } catch (_) {}
-        throw SpotifyError(res.statusCode, reason, detail);
+        throw SpotifyError(res.statusCode, reason, detail, retryAfter: retryAfter);
       }
       if (res.body.isEmpty || res.statusCode == 204) return null;
       try {

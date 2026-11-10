@@ -32,6 +32,11 @@ import 'wheel.dart';
 
 export 'wheel.dart' show IpodWheel, WheelStyle, WheelZone;
 
+part 'ipod_bench.dart';
+part 'ipod_device.dart';
+part 'ipod_painters.dart';
+part 'ipod_window.dart';
+
 /// Tous les modèles et leurs teintes, dans l'ordre du tiroir : par date de
 /// sortie.
 final List<IpodModel> ipodModels = [
@@ -114,14 +119,16 @@ class IpodStage extends StatefulWidget {
   State<IpodStage> createState() => _IpodStageState();
 }
 
-class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMixin {
+class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMixin, _ManagedWindow {
   static const _settingsKey = 'ipod.model';
 
+  @override
   late IpodModel _model = widget.initial ?? _saved();
 
   /// Navigation dans les menus : elle appartient à la scène, pas à
   /// l'appareil, si bien qu'en changeant d'iPod on reste sur le même écran.
   late final IpodNav _nav = IpodNav(widget.player, look: _model.look);
+  @override
   bool get _remember => widget.initial == null;
 
   late final Ticker _ticker = createTicker(_tick);
@@ -131,6 +138,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   final _open = Spring(0, stiffness: 230, damping: 0.78);
 
   /// Côté où sort le tiroir : 1 à droite, -1 à gauche (la poignée tirée).
+  @override
   int _side = 1;
 
   /// Les poignées derrière les coins du haut, qui dépassent un peu plus
@@ -231,6 +239,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   // --- Prise jack et changement d'appareil ------------------------------------
 
   _Swap _phase = _Swap.none;
+  @override
   IpodModel? _incoming;
 
   /// Hauteur dont la prise est sortie, en unités de l'appareil (0 = enfoncée).
@@ -241,9 +250,6 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   /// Le grésillement de la pointe qui entre a déjà été joué.
   bool _plugCrackled = false;
-
-  /// La musique jouait quand on a débranché : elle reprendra au branchement.
-  bool _resumeOnPlug = false;
 
   /// Hauteur du « pop » quand on arrache la prise, avant qu'elle s'en aille.
   static const double _popHeight = 46;
@@ -292,201 +298,6 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     if (mounted) _startPlugging();
   }
 
-  /// LECTEUR_BENCH=1 : joue chaque animation l'une après l'autre (menus,
-  /// Cover Flow, En lecture, tiroir, teintes, échanges) et affiche pour
-  /// chacune les temps d'image (construction ui, rendu raster), puis quitte.
-  /// Le son est coupé le temps du banc ; le modèle en main est remis à la fin.
-  Future<void> _bench() async {
-    final only = Platform.environment['LECTEUR_BENCH']!;
-    final build = <double>[], raster = <double>[], at = <int>[];
-    var recording = false;
-    var t0 = 0;
-    SchedulerBinding.instance.addTimingsCallback((timings) {
-      if (!recording) return;
-      for (final t in timings) {
-        build.add(t.buildDuration.inMicroseconds / 1000);
-        raster.add(t.rasterDuration.inMicroseconds / 1000);
-        at.add(t.timestampInMicroseconds(ui.FramePhase.vsyncStart) ~/ 1000 - t0);
-      }
-    });
-    Future<void> wait(int ms) => Future<void>.delayed(Duration(milliseconds: ms));
-    Future<void> run(String name, Future<void> Function() body) async {
-      if (only != '1' && !only.split(',').contains(name)) return;
-      build.clear();
-      raster.clear();
-      at.clear();
-      t0 = now();
-      recording = true;
-      await body();
-      await wait(400); // les derniers temps arrivent par paquets
-      recording = false;
-      if (raster.isEmpty) {
-        stdout.writeln('[bench] ${name.padRight(14)} aucune image');
-        return;
-      }
-      String f(double v) => v.toStringAsFixed(1).padLeft(5);
-      final sorted = [...raster]..sort();
-      double avg(List<double> v) => v.reduce((a, b) => a + b) / v.length;
-      final slowAt = [for (var i = 0; i < build.length; i++) if (build[i] > 16.7 || raster[i] > 16.7) i];
-      final slow = '${slowAt.length} ${[for (final i in slowAt) '@${at[i]}ms:${raster[i].round()}']}';
-      stdout.writeln('[bench] ${name.padRight(14)} ${raster.length.toString().padLeft(4)} img · '
-          'raster moy${f(avg(raster))} p90${f(sorted[(sorted.length * 0.9).floor()])} max${f(sorted.last)} · '
-          'ui moy${f(avg(build))} max${f(build.reduce(math.max))} · lentes $slow');
-    }
-
-    void goTo(String label) {
-      final p = _nav.page;
-      if (p is! MenuPage) return;
-      final i = p.entries.indexWhere((e) => e.label == label);
-      if (i < 0) return;
-      _nav.scroll(i - p.selected);
-      _nav.select();
-    }
-
-    Future<void> home() async {
-      while (_nav.stack.length > 1) {
-        _nav.menu();
-        await wait(350);
-      }
-    }
-
-    final volume = widget.player.volume;
-    final start = _model;
-    widget.player.setVolume(0);
-    // Montée de l'iPod, puis la prise qui se branche et l'écran qui s'allume.
-    await run('démarrage', () async {
-      ipodLanded.addListener(() => stdout.writeln('[bench]   arrivé @${now() - t0}ms'));
-      screenPower.addListener(() => stdout.writeln('[bench]   écran ${screenPower.value} @${now() - t0}ms'));
-      await wait(3000);
-    });
-
-    await run('repos', () => wait(1500));
-    await run('menu-entrer', () async {
-      for (var i = 0; i < 3; i++) {
-        goTo(tr('Musique'));
-        await wait(450);
-        _nav.menu();
-        await wait(450);
-      }
-    });
-    goTo(tr('Musique'));
-    await wait(400);
-    goTo(tr('Morceaux'));
-    await wait(400);
-    await run('menu-défiler', () async {
-      for (var i = 0; i < 25; i++) {
-        _nav.scroll(1);
-        await wait(70);
-      }
-      for (var i = 0; i < 25; i++) {
-        _nav.scroll(-1);
-        await wait(70);
-      }
-      await wait(300);
-    });
-    _nav.select(); // joue le morceau, passe à En lecture
-    await wait(800);
-    await run('en-lecture', () async {
-      await wait(2000);
-      _nav.scroll(1); // volume
-      await wait(1800);
-    });
-    await home();
-    goTo(tr('Musique'));
-    await wait(400);
-    if (_nav.page case final MenuPage p when p.entries.any((e) => e.label == 'Cover Flow')) {
-      goTo('Cover Flow');
-      await wait(600);
-      await run('coverflow', () async {
-        for (var i = 0; i < 12; i++) {
-          _nav.scroll(1);
-          await wait(130);
-        }
-        await wait(500);
-      });
-      await run('coverflow-bis', () async {
-        // Mêmes pochettes, déjà chargées.
-        for (var i = 0; i < 12; i++) {
-          _nav.scroll(-1);
-          await wait(130);
-        }
-        await wait(500);
-      });
-      await run('pochette', () async {
-        _nav.select();
-        await wait(900);
-        _nav.menu();
-        await wait(900);
-      });
-    }
-    await home();
-    // Souris qui approche d'un coin du haut : les poignées sortent, rentrent.
-    await run('poignées', () async {
-      for (final side in [1, -1, 1]) {
-        _setHoverSide(side, true);
-        await wait(600);
-        _setHoverSide(side, false);
-        await wait(600);
-      }
-    });
-    // L'iPod d'un bord à l'autre de la fenêtre, puis remis à sa place.
-    final place = _placeTarget;
-    if (_canPlace) {
-      await run('déplacer', () async {
-        for (final to in [-1, 1, 0]) {
-          stdout.writeln('[bench]   vers $to @${now() - t0}ms');
-          _moveTo(to);
-          await wait(900);
-        }
-      });
-      _moveTo(place);
-      await wait(900);
-    }
-    await run('tiroir', () async {
-      for (final open in [true, false, true, false]) {
-        _setOpen(open);
-        await wait(1100);
-      }
-    });
-    _setOpen(true);
-    await wait(1100);
-    final family = _families.firstWhere((f) => f.first.family == _model.family);
-    // Souris sur le tiroir, comme quand on clique une pastille.
-    _drawerHover(true);
-    await wait(500);
-    await run('teinte', () async {
-      for (final m in family.length > 1 ? [...family.skip(1), family.first] : <IpodModel>[]) {
-        stdout.writeln('[bench]   choix @${now() - t0}ms');
-        _choose(m);
-        await wait(700);
-      }
-    });
-    await run('quitte-tiroir', () async {
-      _drawerHover(false);
-      await wait(1200);
-    });
-    await run('échange', () async {
-      final other = start.family == 'mini' ? ipodModels.firstWhere((m) => m.family == 'nano4') : ipodModels.firstWhere((m) => m.family == 'mini');
-      _pick(other);
-      await wait(4500);
-      _setOpen(true);
-      await wait(1100);
-      _pick(start);
-      await wait(4500);
-    });
-    if (_model.id != start.id) _choose(start);
-    widget.player.setVolume(volume);
-    widget.player.pause();
-    await wait(300);
-    Settings.flush();
-    for (final a in widget.player.accounts) {
-      a.shutdown();
-    }
-    exit(0);
-  }
-
-  static int now() => Timeline.now ~/ 1000;
-
   static IpodModel _saved() {
     final id = Settings.getString(_settingsKey);
     // Par défaut, le Classic.
@@ -495,7 +306,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   @override
   void dispose() {
+    ipodLanded.removeListener(_landed);
     _liveTimer?.cancel();
+    _dragSettle?.cancel();
     _nav.dispose();
     _drawerSnap.dispose();
     _deviceSnap.dispose();
@@ -573,158 +386,6 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     }
   }
 
-  // --- Fenêtre réglée par l'appli (Windows, macOS) ---------------------------
-  //
-  // Sous Windows et macOS, l'appli place et taille elle-même sa fenêtre
-  // autour de l'appareil, qui, lui, ne bouge pas à l'écran : elle va jusqu'au
-  // bord de l'écran du côté du câble (on le voit partir jusqu'au bout), et
-  // s'élargit du côté du tiroir quand il sort (l'appareil n'a plus à
-  // rétrécir). Sous Linux, c'est le gestionnaire de fenêtres qui décide
-  // (souvent en mosaïque) : on s'adapte à ce qu'il donne, comme avant.
-
-  late final Window? _win = _remember && (Platform.isWindows || Platform.isMacOS) ? _currentWindow() : null;
-
-  static Window? _currentWindow() {
-    try {
-      return WindowManager.instance.getCurrent();
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// L'appareil à l'écran (coordonnées de l'écran), une fois la fenêtre
-  /// prise en main.
-  Rect? _anchor;
-
-  /// Limites de la fenêtre demandées en dernier, et les précédentes : tant
-  /// que Flutter n'a pas reçu la nouvelle taille, l'image se dessine encore
-  /// dans l'ancienne fenêtre.
-  Rect? _frame, _framePrev;
-
-  /// La fenêtre fait la place au tiroir (ouvert, ou en train de bouger).
-  bool _frameDrawer = false;
-
-  /// Déplacement de la fenêtre à la main : d'où elle part, et l'appareil à
-  /// ce moment-là ; on la réajuste quand elle ne bouge plus.
-  Offset? _dragFrom;
-  Rect? _dragAnchor;
-  Timer? _dragSettle;
-
-  Rect _windowRect() => _win!.contentBounds.toRect();
-
-  static bool _near(Rect a, Rect b) =>
-      (a.left - b.left).abs() < 0.5 && (a.top - b.top).abs() < 0.5 && (a.right - b.right).abs() < 0.5 && (a.bottom - b.bottom).abs() < 0.5;
-
-  /// Largeur du tiroir quand la fenêtre lui fait la place : à la mesure de
-  /// l'appareil, comme dans une grande fenêtre.
-  double _managedDrawerW(double deviceW) => (deviceW * 1.3).clamp(230.0, 460.0);
-
-  /// Ce que la fenêtre ajoute à côté de l'appareil pour le tiroir ouvert.
-  double _drawerRoom(double deviceW) => _managedDrawerW(deviceW) - _tuck + 18;
-
-  /// L'écran où est l'appareil.
-  Rect _screenOf(Rect r) {
-    Rect? best;
-    try {
-      for (final d in DisplayManager.instance.getAll()) {
-        final screen = d.position.toOffset() & d.size.toSize();
-        if (screen.contains(r.center)) return screen;
-        best ??= screen;
-      }
-    } catch (_) {}
-    return best ?? r.inflate(400);
-  }
-
-  /// Limites voulues pour la fenêtre, l'appareil [model] étant en [device]
-  /// à l'écran.
-  Rect _frameFor(IpodModel model, Rect device) => windowFrameFor(
-        model,
-        device,
-        _screenOf(device),
-        drawerSide: _frameDrawer ? _side : 0,
-        drawerRoom: _drawerRoom(device.width),
-      );
-
-  /// Ajuste la fenêtre : autour de l'appareil en main (et, pendant un
-  /// échange, aussi autour du nouveau, centré au même endroit).
-  void _applyFrame() {
-    final win = _win;
-    final anchor = _anchor;
-    if (win == null || anchor == null || _dragFrom != null) return;
-    var frame = _frameFor(_model, anchor);
-    final incoming = _incoming;
-    if (incoming != null) {
-      final other = Rect.fromCenter(center: anchor.center, width: incoming.size.width, height: incoming.size.height);
-      frame = frame.expandToInclude(_frameFor(incoming, other));
-    }
-    if (_frame != null && _near(_frame!, frame)) return;
-    _framePrev = _frame;
-    _frame = frame;
-    try {
-      win.contentBounds = frame.toNative();
-    } catch (_) {}
-    setState(() {});
-  }
-
-  /// Première image : on note où est l'appareil à l'écran, puis la fenêtre
-  /// se met à sa mesure autour de lui.
-  void _takeWindow() {
-    final win = _win;
-    if (win == null || _anchor != null) return;
-    final g = _geoShown;
-    if (g == null) return;
-    final origin = _windowRect().topLeft;
-    // À sa vraie taille : la fenêtre va se faire à sa mesure.
-    _anchor = Rect.fromCenter(center: g.device.center + origin, width: _model.size.width, height: _model.size.height);
-    win.addListener((e) {
-      if (e is WindowMovedEvent && _dragFrom != null && mounted) {
-        // L'appareil suit la fenêtre qu'on déplace.
-        // (La zone de contenu, comme [_dragFrom] : pas le cadre de la fenêtre.)
-        _anchor = _dragAnchor!.shift(_windowRect().topLeft - _dragFrom!);
-        _dragSettle?.cancel();
-        _dragSettle = Timer(const Duration(milliseconds: 250), _endWindowDrag);
-      }
-    });
-    _applyFrame();
-  }
-
-  /// On attrape l'appareil pour déplacer la fenêtre.
-  void _beginWindowDrag() {
-    if (_win == null || _anchor == null) return;
-    _dragFrom = _windowRect().topLeft;
-    _dragAnchor = _anchor;
-    _dragSettle?.cancel();
-    _dragSettle = Timer(const Duration(milliseconds: 600), _endWindowDrag);
-  }
-
-  /// Lâchée (elle ne bouge plus) : la fenêtre se réajuste à sa nouvelle place
-  /// (jusqu'au bord de l'écran, peut-être un autre).
-  void _endWindowDrag() {
-    if (!mounted || _dragFrom == null) return;
-    _dragFrom = null;
-    _dragAnchor = null;
-    _frame = null;
-    _applyFrame();
-  }
-
-  /// Marges de l'appareil dans une fenêtre réglée par l'appli : il est là où
-  /// il est à l'écran, à sa taille.
-  EdgeInsets? _managedPadding(double w, double h) {
-    final anchor = _anchor;
-    if (_win == null || anchor == null) return null;
-    final frame = _frame, prev = _framePrev;
-    final Offset origin;
-    if (_dragFrom != null || frame == null) {
-      origin = _windowRect().topLeft;
-    } else if (((frame.width - w).abs() < 1 && (frame.height - h).abs() < 1) || prev == null) {
-      origin = frame.topLeft;
-    } else {
-      origin = prev.topLeft; // la nouvelle taille n'est pas encore arrivée
-    }
-    final left = anchor.left - origin.dx, top = anchor.top - origin.dy;
-    return EdgeInsets.fromLTRB(left, top, w - left - anchor.width, h - top - anchor.height);
-  }
-
   // --- Changement d'appareil : débrancher, ranger, sortir, brancher ----------
 
   /// Rectangle d'un widget dans le repère de la scène (transformations comprises).
@@ -753,8 +414,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   void _startUnplugging() {
     // Prise arrachée : plus de son, comme avec de vrais écouteurs.
-    _resumeOnPlug = widget.player.playing;
-    if (_resumeOnPlug) widget.player.pause();
+    widget.player.unplug();
     JackStatic.instance.unplug();
     _phase = _Swap.unplugging;
     _plugTarget = _popHeight;
@@ -816,11 +476,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       if (_plug.velocity < 0) _plug.velocity = -_plug.velocity * 0.22;
       if (!_plugClicked) {
         _plugClicked = true;
-        // Rebranchée : la musique reprend là où elle s'était arrêtée.
-        if (_resumeOnPlug) {
-          _resumeOnPlug = false;
-          widget.player.play();
-        }
+        // Rebranchée : le son revient.
+        widget.player.plug();
       }
     }
 
@@ -951,7 +608,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     final x = rect?.left;
     if (x != null && _lastSocketX != null && dt > 0) {
       final v = (x - _lastSocketX!) / dt;
-      _sway.velocity -= v * 0.9 * dt * 60 / 60;
+      _sway.velocity -= v * 0.9 * dt;
     }
     _lastSocketX = x;
     _sway.step(0, dt);
@@ -1245,6 +902,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   /// leur nouvelle taille au lieu d'y sauter.
   final _morph = Spring(1, stiffness: 110, damping: 1);
   _Geo? _geoFrom;
+  @override
   _Geo? _geoShown;
 
   /// Mise en place pour une fenêtre [w] × [h] : où est l'appareil au repos,
@@ -1588,349 +1246,6 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   }
 }
 
-class IpodDevice extends StatefulWidget {
-  const IpodDevice({super.key, required this.model, required this.player, required this.nav, this.onWindowDrag});
-
-  final IpodModel model;
-  final PlayerController player;
-
-  /// Navigation de la scène, passée d'un appareil à l'autre.
-  final IpodNav nav;
-
-  /// On commence à déplacer la fenêtre en tenant l'appareil.
-  final VoidCallback? onWindowDrag;
-
-  @override
-  State<IpodDevice> createState() => _IpodDeviceState();
-}
-
-class _IpodDeviceState extends State<IpodDevice> {
-  IpodNav get _nav => widget.nav;
-  final _focus = FocusNode(debugLabel: 'baladeur');
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focus.requestFocus();
-    });
-    WheelClick.instance.warmUp();
-    JackStatic.instance.warmUp();
-  }
-
-  @override
-  void dispose() {
-    _endHold();
-    _ledTimer?.cancel();
-    _focus.dispose();
-    super.dispose();
-  }
-
-  KeyEventResult _onKey(FocusNode _, KeyEvent e) {
-    if (e is KeyDownEvent) _nav.touch();
-    // ← → se comportent comme les côtés de la molette : appui bref pour
-    // changer de morceau, appui long pour avancer / reculer.
-    final side = switch (e.logicalKey) {
-      LogicalKeyboardKey.arrowRight => WheelZone.next,
-      LogicalKeyboardKey.arrowLeft => WheelZone.previous,
-      _ => null,
-    };
-    if (side != null) {
-      if (e is KeyDownEvent) _down(side);
-      if (e is KeyUpEvent) _up(side);
-      return KeyEventResult.handled;
-    }
-    if (e is! KeyDownEvent && e is! KeyRepeatEvent) return KeyEventResult.ignored;
-    // Les lettres choisies dans Réglages › Touches (H J K L comme dans
-    // vim, W A S D ou Z Q S D) : monter, descendre, entrer, revenir (MENU).
-    final keys = _nav.keys;
-    final k = e.logicalKey;
-    switch (k) {
-      case LogicalKeyboardKey.arrowUp:
-      case _ when k == keys.up:
-        _scroll(-1);
-      case LogicalKeyboardKey.arrowDown:
-      case _ when k == keys.down:
-        _scroll(1);
-      case LogicalKeyboardKey.enter || LogicalKeyboardKey.numpadEnter:
-      case _ when k == keys.enter:
-        if (e is KeyRepeatEvent) return KeyEventResult.handled;
-        WheelClick.instance.play();
-        _press(WheelZone.center);
-      case LogicalKeyboardKey.backspace:
-      case _ when k == keys.back:
-        if (e is KeyRepeatEvent) return KeyEventResult.handled;
-        WheelClick.instance.play();
-        _press(WheelZone.menu);
-      default:
-        // Espace, T, Échap : gérés plus haut (scène, raccourcis globaux).
-        return KeyEventResult.ignored;
-    }
-    return KeyEventResult.handled;
-  }
-
-  /// Voyant du shuffle : un éclair vert à chaque appui.
-  bool _led = false;
-  Timer? _ledTimer;
-
-  void _blink() {
-    _ledTimer?.cancel();
-    setState(() => _led = true);
-    _ledTimer = Timer(const Duration(milliseconds: 380), () {
-      if (mounted) setState(() => _led = false);
-    });
-  }
-
-  /// Le gestionnaire de fenêtres prend la main : la fenêtre suit le
-  /// pointeur jusqu'au relâchement (sans effet sans vraie fenêtre, dans
-  /// les tests).
-  void _moveWindow() {
-    widget.onWindowDrag?.call();
-    try {
-      WindowManager.instance.getCurrent()?.startDragging();
-    } catch (_) {}
-  }
-
-  void _scroll(int delta) {
-    _nav.touch();
-    // Sans écran (shuffle), la molette de la souris règle le volume.
-    if (!widget.model.hasScreen) {
-      widget.player.setVolume(widget.player.volume - delta * 4);
-      return;
-    }
-    if (_nav.scroll(delta)) WheelClick.instance.play();
-  }
-
-  // --- Appui long sur ⏮ / ⏭ : recherche dans le morceau ---------------------
-
-  /// Délai avant qu'un appui devienne une recherche.
-  static const _holdDelay = Duration(milliseconds: 450);
-
-  Timer? _holdTimer;
-  Timer? _seekTimer;
-  WheelZone? _held;
-  bool _seeking = false;
-  final _seekClock = Stopwatch();
-
-  /// Bouton enfoncé : le clic sonne tout de suite, l'action attend le
-  /// relâchement (ou la fin du délai pour une recherche).
-  void _down(WheelZone zone) {
-    _nav.touch();
-    if (zone == WheelZone.none || _held != null) return;
-    WheelClick.instance.play();
-    _held = zone;
-    if (zone == WheelZone.next || zone == WheelZone.previous) {
-      _holdTimer = Timer(_holdDelay, () => _startSeek(zone == WheelZone.next ? 1 : -1));
-    }
-  }
-
-  void _up(WheelZone zone) {
-    if (_held != zone) return;
-    final wasSeeking = _seeking;
-    _endHold();
-    if (!wasSeeking) _press(zone);
-  }
-
-  /// Le doigt a glissé (rotation) : l'appui est annulé sans action.
-  void _cancelPress() => _endHold();
-
-  void _endHold() {
-    _holdTimer?.cancel();
-    _seekTimer?.cancel();
-    _holdTimer = _seekTimer = null;
-    _held = null;
-    _seeking = false;
-    _seekClock
-      ..stop()
-      ..reset();
-  }
-
-  /// Avance (dir = 1) ou recule de plus en plus vite tant qu'on tient :
-  /// ×4 au début, ×10 après 1,5 s, ×24 après 4 s.
-  void _startSeek(int dir) {
-    _seeking = true;
-    _seekClock.start();
-    const tick = Duration(milliseconds: 80);
-    _seekTimer = Timer.periodic(tick, (_) {
-      final p = widget.player;
-      final total = p.duration.inMilliseconds;
-      if (total <= 0) return;
-      final t = _seekClock.elapsedMilliseconds / 1000;
-      final speed = t < 1.5 ? 4 : (t < 4 ? 10 : 24);
-      final pos = p.smoothPosition.inMilliseconds + dir * speed * tick.inMilliseconds;
-      p.seekProgress(pos.clamp(0, total - 500) / total);
-      _nav.showScrub();
-    });
-  }
-
-  void _press(WheelZone zone) {
-    final p = widget.player;
-    if (!widget.model.hasScreen) {
-      _blink();
-      // Anneau d'un shuffle : + et − en haut et en bas, ⏯ au centre.
-      switch (zone) {
-        case WheelZone.menu:
-          p.setVolume(p.volume + 8);
-        case WheelZone.playPause:
-          p.setVolume(p.volume - 8);
-        case WheelZone.center:
-          p.playPause();
-        case WheelZone.next:
-          p.next();
-        case WheelZone.previous:
-          p.previous();
-        case WheelZone.none:
-      }
-      return;
-    }
-    switch (zone) {
-      case WheelZone.menu:
-        _nav.menu();
-      case WheelZone.next:
-        p.next();
-      case WheelZone.previous:
-        p.previous();
-      case WheelZone.playPause:
-        p.playPause();
-      case WheelZone.center:
-        _nav.select();
-      case WheelZone.none:
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final m = widget.model;
-    final wheelRect = Rect.fromCircle(center: m.wheelCenter, radius: m.wheel.radius);
-    final glass = m.glass;
-    return Focus(
-      focusNode: _focus,
-      onKeyEvent: _onKey,
-      child: SizedBox.fromSize(
-        size: m.size,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            ?_hold(m),
-            // On attrape l'iPod n'importe où (sauf la molette et les boutons,
-            // posés par-dessus) pour déplacer la fenêtre.
-            Positioned.fill(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onPanStart: (_) => _moveWindow(),
-                child: CustomPaint(painter: m.body),
-              ),
-            ),
-            if (m.led case final x?)
-              Positioned(
-                left: x - 7,
-                top: -5,
-                width: 14,
-                height: 8,
-                child: IgnorePointer(child: CustomPaint(painter: _LedPainter(_led))),
-              ),
-            if (m.hasScreen) Positioned.fromRect(
-              rect: m.screen,
-              // L'écran laisse passer la main jusqu'au boîtier.
-              child: IgnorePointer(child: ClipRRect(
-                borderRadius: BorderRadius.circular(m.screenCornerRadius),
-                child: FittedBox(
-                  child: SizedBox.fromSize(
-                    size: m.look.size,
-                    // Couche à part : l'écran s'anime (menus, Cover Flow,
-                    // progression) sans faire repeindre la coque autour.
-                    child: RepaintBoundary(child: IpodScreen(nav: _nav, player: widget.player, look: m.look)),
-                  ),
-                ),
-              )),
-            ),
-            if (glass != null)
-              Positioned.fill(
-                child: IgnorePointer(child: CustomPaint(painter: glass)),
-              ),
-            for (final b in m.buttons)
-              Positioned.fromRect(
-                rect: Rect.fromCircle(center: b.center, radius: b.radius),
-                child: _HardButton(
-                  paint: (pressed) => m.buttonPainter(b, pressed: pressed)!,
-                  onDown: () => _down(b.zone),
-                  onUp: () => _up(b.zone),
-                  onCancel: _cancelPress,
-                ),
-              ),
-            Positioned.fromRect(
-              rect: wheelRect,
-              child: IpodWheel(style: m.wheel, onScroll: _scroll, onDown: _down, onUp: _up, onCancel: _cancelPress),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Le verrou, qui dépasse de la tranche.
-  Widget? _hold(IpodModel m) {
-    final h = m.hold;
-    if (h == null) return null;
-    return Positioned(
-      left: h.x - h.width / 2,
-      top: h.onTop ? -HoldPainter.depth : null,
-      bottom: h.onTop ? null : -HoldPainter.depth,
-      width: h.width,
-      height: HoldPainter.depth,
-      child: CustomPaint(painter: HoldPainter(h)),
-    );
-  }
-}
-
-/// Bouton rond à part (3e génération) : enfoncé dès qu'on appuie, action
-/// au relâchement (ou appui long), comme les côtés de la molette.
-class _HardButton extends StatefulWidget {
-  const _HardButton({required this.paint, required this.onDown, required this.onUp, required this.onCancel});
-
-  final CustomPainter Function(bool pressed) paint;
-  final VoidCallback onDown;
-  final VoidCallback onUp;
-  final VoidCallback onCancel;
-
-  @override
-  State<_HardButton> createState() => _HardButtonState();
-}
-
-class _HardButtonState extends State<_HardButton> {
-  bool _pressed = false;
-  Offset _downAt = Offset.zero;
-
-  void _cancel() {
-    if (!_pressed) return;
-    setState(() => _pressed = false);
-    widget.onCancel();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Listener(
-      behavior: HitTestBehavior.opaque,
-      onPointerDown: (e) {
-        if (e.buttons != kPrimaryButton) return;
-        _downAt = e.localPosition;
-        setState(() => _pressed = true);
-        widget.onDown();
-      },
-      onPointerMove: (e) {
-        if ((e.localPosition - _downAt).distance > 8) _cancel();
-      },
-      onPointerUp: (_) {
-        if (!_pressed) return;
-        setState(() => _pressed = false);
-        widget.onUp();
-      },
-      onPointerCancel: (_) => _cancel(),
-      child: CustomPaint(painter: widget.paint(_pressed)),
-    );
-  }
-}
-
 /// Pendant le fondu d'un changement de teinte, l'appareil qui apparaît
 /// n'est qu'une photo : fondre l'appareil vivant (ombres floues, écran)
 /// obligerait à le repeindre entier dans une couche à part à chaque image.
@@ -1966,226 +1281,6 @@ class _FadePhotoState extends State<_FadePhoto> {
   @override
   Widget build(BuildContext context) =>
       SnapshotWidget(controller: _snap, mode: SnapshotMode.permissive, autoresize: true, child: widget.child);
-}
-
-/// Peintre qui recalcule la prise au moment de peindre, une fois toute la
-/// mise en page (et les transformations de l'appareil) connue.
-class _LiveJackPainter extends CustomPainter {
-  const _LiveJackPainter(this.build);
-
-  final JackPainter Function() build;
-
-  @override
-  void paint(Canvas canvas, Size size) => build().paint(canvas, size);
-
-  @override
-  bool shouldRepaint(covariant CustomPainter old) => true;
-}
-
-/// Le curseur du verrou, qui dépasse à peine de la tranche.
-class HoldPainter extends CustomPainter {
-  const HoldPainter(this.hold);
-
-  final HoldSwitch hold;
-
-  /// Ce qui dépasse de la tranche.
-  static const double depth = 3;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Vers l'extérieur de l'appareil : le haut pour un verrou du haut.
-    if (!hold.onTop) {
-      canvas.translate(0, size.height);
-      canvas.scale(1, -1);
-    }
-    final w = size.width, h = size.height;
-    switch (hold.kind) {
-      case HoldKind.pin:
-        // Demi-perle de métal poli, avec son reflet.
-        final dome = Rect.fromLTWH(0, 0, w, h * 2);
-        canvas.save();
-        canvas.clipRect(Rect.fromLTWH(0, 0, w, h + 0.5));
-        canvas.drawOval(
-          dome,
-          Paint()
-            ..shader = RadialGradient(
-              center: const Alignment(-0.35, -0.6),
-              radius: 0.9,
-              colors: hold.knob ?? const [Color(0xFFFFFFFF), Color(0xFFC3C7CC), Color(0xFF7D8287)],
-              stops: const [0, 0.45, 1],
-            ).createShader(dome),
-        );
-        canvas.restore();
-      case HoldKind.plastic || HoldKind.metal:
-        final knob = RRect.fromRectAndCorners(
-          Rect.fromLTWH(0, 0, w, h + 0.5),
-          topLeft: const Radius.circular(1.5),
-          topRight: const Radius.circular(1.5),
-        );
-        final colors =
-            hold.knob ??
-            (hold.kind == HoldKind.metal
-                ? const [Color(0xFFE9EBED), Color(0xFFA3A7AC), Color(0xFFD5D8DB)]
-                : const [Color(0xFFFFFFFF), Color(0xFFE3E5E7), Color(0xFFC7CACE)]);
-        canvas.drawRRect(
-          knob,
-          Paint()
-            ..shader = LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: colors,
-            ).createShader(knob.outerRect),
-        );
-        canvas.drawRRect(
-          knob,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 0.6
-            ..color = Colors.black.withValues(alpha: 0.25),
-        );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant HoldPainter old) => old.hold != hold;
-}
-
-/// Ne laisse voir que ce qui est au-delà de [x], du côté où sort le tiroir.
-class _SideClip extends CustomClipper<Rect> {
-  const _SideClip(this.x, this.right);
-
-  final double x;
-  final bool right;
-
-  @override
-  Rect getClip(Size size) =>
-      right ? Rect.fromLTRB(x, -1e4, size.width + 1e4, 1e4) : Rect.fromLTRB(-1e4, -1e4, x, 1e4);
-
-  @override
-  bool shouldReclip(_SideClip old) => old.x != x || old.right != right;
-}
-
-/// Poignée du tiroir : une languette d'aluminium microbillé, arrondie du
-/// côté qui dépasse, avec une encoche pour le doigt.
-class _HandlePainter extends CustomPainter {
-  const _HandlePainter(this.side, {this.arrow = false});
-
-  /// 1 : elle dépasse à droite ; -1 : à gauche.
-  final int side;
-
-  /// Une flèche gravée vers l'extérieur au lieu de l'encoche (bouton qui
-  /// déplace l'iPod).
-  final bool arrow;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (side < 0) {
-      canvas
-        ..translate(size.width, 0)
-        ..scale(-1, 1);
-    }
-    final r = Offset.zero & size;
-    final shape = RRect.fromRectAndCorners(
-      r,
-      topRight: const Radius.circular(9),
-      bottomRight: const Radius.circular(9),
-    );
-    canvas.drawRRect(
-      shape.shift(const Offset(1, 3)),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.4)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
-    );
-    canvas.drawRRect(
-      shape,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          r.topCenter,
-          r.bottomCenter,
-          const [Color(0xFFE2E5E8), Color(0xFFC6CACE), Color(0xFFA9AEB3)],
-          const [0, 0.5, 1],
-        ),
-    );
-    // Arête : un filet de lumière en haut, plus sombre en bas.
-    canvas.drawRRect(
-      shape.deflate(0.6),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.2
-        ..shader = ui.Gradient.linear(
-          r.topCenter,
-          r.bottomCenter,
-          [Colors.white.withValues(alpha: 0.9), Colors.black.withValues(alpha: 0.2)],
-        ),
-    );
-    if (arrow) {
-      // Chevron gravé : un trait sombre, doublé d'un reflet en dessous.
-      final c = Offset(size.width - 11, size.height / 2);
-      final path = Path()
-        ..moveTo(c.dx - 3, c.dy - 5)
-        ..lineTo(c.dx + 2, c.dy)
-        ..lineTo(c.dx - 3, c.dy + 5);
-      Paint stroke() => Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round;
-      // Même teinte que l'encoche de l'autre poignée.
-      final ink = stroke()
-        ..shader = ui.Gradient.linear(
-          Offset(c.dx - 4, c.dy),
-          Offset(c.dx + 3, c.dy),
-          const [Color(0xFF7C8085), Color(0xFFD2D5D8)],
-        );
-      canvas
-        ..drawPath(path.shift(const Offset(0, 1)), stroke()..color = Colors.white.withValues(alpha: 0.7))
-        ..drawPath(path, ink);
-      return;
-    }
-    // Encoche pour le doigt, près du bout.
-    final notch = RRect.fromRectAndRadius(
-      Rect.fromCenter(center: Offset(size.width - 8, size.height / 2), width: 4, height: size.height * 0.5),
-      const Radius.circular(2),
-    );
-    canvas.drawRRect(
-      notch,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          notch.outerRect.centerLeft,
-          notch.outerRect.centerRight,
-          const [Color(0xFF7C8085), Color(0xFFD2D5D8)],
-        ),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _HandlePainter old) => old.side != side || old.arrow != arrow;
-}
-
-/// Voyant d'état d'un shuffle, sur la tranche du haut : éteint, ou vert vif
-/// avec son halo.
-class _LedPainter extends CustomPainter {
-  const _LedPainter(this.on);
-
-  final bool on;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = Offset(size.width / 2, size.height - 3);
-    if (on) {
-      canvas.drawCircle(
-        c,
-        7,
-        Paint()
-          ..color = const Color(0xAA4CFF6A)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
-      );
-    }
-    canvas.drawCircle(c, 2.6, Paint()..color = on ? const Color(0xFFB8FFC4) : const Color(0xFF3B4A3E));
-  }
-
-  @override
-  bool shouldRepaint(covariant _LedPainter old) => old.on != on;
 }
 
 /// Mise en place de la scène pour un modèle (voir `_geometry`).

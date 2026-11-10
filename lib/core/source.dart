@@ -1,4 +1,3 @@
-
 import 'package:flutter/foundation.dart';
 
 import 'engine.dart';
@@ -19,6 +18,10 @@ abstract class MusicSource {
   Future<Uint8List?> artwork(Track track);
 
   PlaybackEngine createEngine();
+
+  /// Appelé par la source quand sa bibliothèque a changé sans qu'on le lui
+  /// demande (rafraîchie en arrière-plan) : il faut la recharger.
+  void Function()? onChanged;
 
   void dispose() {}
 }

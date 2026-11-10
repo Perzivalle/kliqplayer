@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -44,7 +45,21 @@ Future<void> main() async {
 
   if (Platform.environment['LECTEUR_FPS'] != null) _logFrameTimings();
 
+  // Restes d'anciennes versions.
+  Settings.remove(const ['deck', 'ipod.zoom', 'spotify.device']);
+
   final player = _player();
+  // Arrêté de l'extérieur (kill, fin de session) : on enregistre quand même.
+  for (final signal in [ProcessSignal.sigterm, ProcessSignal.sigint, ProcessSignal.sighup]) {
+    try {
+      signal.watch().listen((_) {
+        _beforeExit(player);
+        exit(0);
+      });
+    } catch (_) {
+      // (Signal inconnu de ce système : Windows n'a que SIGINT.)
+    }
+  }
   runApp(LecteurApp(player: player));
   player.loadLibrary();
 }
@@ -62,6 +77,16 @@ PlayerController _player() {
     sourceFor: sourceFor,
     accounts: [spotify],
   );
+}
+
+/// Avant de quitter, d'où que vienne l'ordre (Échap, fenêtre fermée par le
+/// système, signal) : ce qui tourne en arrière-plan s'arrête, ce qui
+/// n'était pas encore écrit (préférences, écoutes) l'est.
+void _beforeExit(PlayerController player) {
+  for (final a in player.accounts) {
+    a.shutdown();
+  }
+  Settings.flush();
 }
 
 /// La fenêtre de l'appli (null si le système ne la donne pas).
@@ -109,8 +134,22 @@ class LecteurApp extends StatefulWidget {
 class _LecteurAppState extends State<LecteurApp> {
   final _keys = FocusNode(debugLabel: 'raccourcis');
 
+  /// La fenêtre fermée par le système (gestionnaire de fenêtres, Alt+F4…) :
+  /// même sortie propre qu'avec Échap.
+  late final _lifecycle = AppLifecycleListener(onExitRequested: () async {
+    _beforeExit(widget.player);
+    return AppExitResponse.exit;
+  });
+
+  @override
+  void initState() {
+    super.initState();
+    _lifecycle; // (créé maintenant : il n'écoute qu'une fois construit)
+  }
+
   @override
   void dispose() {
+    _lifecycle.dispose();
     _keys.dispose();
     super.dispose();
   }
@@ -125,11 +164,7 @@ class _LecteurAppState extends State<LecteurApp> {
       case LogicalKeyboardKey.space:
         widget.player.playPause();
       case LogicalKeyboardKey.escape || LogicalKeyboardKey.keyQ:
-        widget.player.savePlays();
-        for (final a in widget.player.accounts) {
-          a.shutdown();
-        }
-        Settings.flush();
+        _beforeExit(widget.player);
         exit(0);
       default:
         return KeyEventResult.ignored;

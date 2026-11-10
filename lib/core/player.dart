@@ -22,7 +22,7 @@ class PlayerController extends ChangeNotifier {
   PlayerController(MusicSource source, {this.sourceFor, this.accounts = const []}) {
     shuffle = Settings.getString('player.shuffle') == 'on';
     repeat = RepeatMode.values.asNameMap()[Settings.getString('player.repeat')] ?? RepeatMode.off;
-    _plays = _loadPlays();
+    _migratePlays();
     _attach(source);
   }
 
@@ -78,12 +78,27 @@ class PlayerController extends ChangeNotifier {
 
   void _attach(MusicSource source) {
     _source = source;
-    _engine = source.createEngine()..onUpdate = _onEngine;
+    _engine = source.createEngine()
+      ..onUpdate = _onEngine
+      // Le moteur neuf ne sait rien des réglages retenus.
+      ..restore(shuffle: shuffling, repeat: repeat);
+    // La source a du nouveau (bibliothèque rafraîchie en arrière-plan).
+    source.onChanged = () {
+      if (identical(source, _source)) loadLibrary();
+    };
   }
 
   /// Change de source (dossier → Spotify…) : l'ancienne s'arrête, la
   /// nouvelle est chargée.
-  Future<void> setSource(MusicSource source) async {
+  Future<void> setSource(MusicSource source) {
+    // L'un après l'autre : deux changements rapprochés libéreraient sinon
+    // deux fois le même moteur.
+    return _switching = _switching.then((_) => _setSource(source), onError: (_) => _setSource(source));
+  }
+
+  Future<void> _switching = Future.value();
+
+  Future<void> _setSource(MusicSource source) async {
     // Ce qui joue s'arrête : un appareil Spotify continuerait sinon à côté
     // de la nouvelle source.
     if (playing) {
@@ -94,8 +109,16 @@ class PlayerController extends ChangeNotifier {
     _engine
       ..onUpdate = null
       ..dispose();
-    _source.dispose();
+    _source
+      ..onChanged = null
+      ..dispose();
     _attach(source);
+    // Rien de l'ancienne source ne reste, même si la nouvelle ne se charge pas.
+    tracks = const [];
+    albums = const [];
+    playlists = const [];
+    _indexTracks();
+    libraryVersion++;
     nowPlaying = const [];
     queueIndex = -1;
     current = null;
@@ -140,6 +163,10 @@ class PlayerController extends ChangeNotifier {
   /// Le chargement de la bibliothèque a échoué (réseau, compte…).
   Object? loadError;
 
+  /// Change à chaque nouvelle bibliothèque : les menus ouverts sur
+  /// l'ancienne (albums, morceaux) ne valent plus.
+  int libraryVersion = 0;
+
   /// Rang de chaque morceau dans [tracks], par identifiant.
   Map<String, int> _byId = const {};
 
@@ -155,10 +182,14 @@ class PlayerController extends ChangeNotifier {
       library = await source.load();
     } catch (e) {
       if (!identical(source, _source)) return;
-      library = Library.empty;
+      // On garde ce qu'on avait (rafraîchissement raté) ; le menu principal
+      // montre l'erreur, la valider réessaie.
+      library = Library(tracks, albums, playlists);
       loadError = e;
+      notice = _message(e);
     }
     if (!identical(source, _source)) return; // une autre source entre-temps
+    if (loadError == null && !identical(library.tracks, tracks)) libraryVersion++;
     tracks = library.tracks;
     albums = library.albums;
     playlists = library.playlists;
@@ -175,9 +206,22 @@ class PlayerController extends ChangeNotifier {
   /// null.
   String? notice;
 
+  static String _message(Object e) => e is NoticeException ? e.message : '$e';
+
   void _fail(Object e) {
-    notice = e is NoticeException ? e.message : '$e';
+    notice = _message(e);
     notifyListeners();
+  }
+
+  /// Le message a été vu (validé dans le menu) : il s'efface ; si c'était
+  /// la bibliothèque qui n'avait pas pu se charger, on réessaie.
+  void dismissNotice() {
+    notice = null;
+    if (loadError != null) {
+      loadLibrary();
+    } else {
+      notifyListeners();
+    }
   }
 
   /// Lance une commande du moteur ; une erreur devient un [notice].
@@ -221,6 +265,22 @@ class PlayerController extends ChangeNotifier {
   }
 
   void _onEngine(EngineUpdate u) {
+    // Une position seule, là où on l'attendait : on se recale sans prévenir
+    // personne. L'écran avance déjà tout seul ([smoothPosition]) ; mpv en
+    // envoie une quinzaine par seconde, qui le reconstruiraient autant de
+    // fois, même dans les menus.
+    final onlyPosition = u.position != null &&
+        u.playing == null &&
+        u.duration == null &&
+        u.volume == null &&
+        u.index == null &&
+        u.track == null &&
+        u.shuffle == null &&
+        u.repeat == null;
+    if (onlyPosition && (u.position! - smoothPosition).abs() < const Duration(milliseconds: 400)) {
+      _anchorPosition(u.position!);
+      return;
+    }
     if (u.position != null) _anchorPosition(u.position!);
     if (u.playing != null) {
       // La position repart de là où elle est, pas de la dernière reçue.
@@ -228,8 +288,11 @@ class PlayerController extends ChangeNotifier {
       playing = u.playing!;
     }
     if (u.duration != null) duration = u.duration!;
-    if (u.volume != null) volume = u.volume!;
-    if (u.shuffle != null && u.shuffle != shuffling) {
+    // (Son coupé par la prise débranchée : ce zéro-là n'est pas le réglage.)
+    if (u.volume != null && _mutedFrom == null) volume = u.volume!;
+    // (Un shuffle en main impose l'aléatoire : celui de la source ne dit
+    // alors rien du réglage.)
+    if (u.shuffle != null && !forcedShuffle && u.shuffle != shuffle) {
       shuffle = u.shuffle!;
       Settings.setString('player.shuffle', shuffle ? 'on' : 'off');
     }
@@ -314,19 +377,35 @@ class PlayerController extends ChangeNotifier {
 
   // --- Pochettes des albums (Cover Flow) -------------------------------------
 
+  /// Les dernières pochettes servies seulement : gardées toutes, celles
+  /// d'une grande bibliothèque (souvent plus d'un Mo chacune, dans les
+  /// fichiers) finiraient par peser des centaines de Mo.
   final Map<int, Uint8List?> _albumCovers = {};
+  static const _coversKept = 60;
   final Set<int> _coverLoads = {};
   int _coverGeneration = 0;
 
   /// Pochette de l'album [i] si elle est déjà lue ; sinon null, et elle est
   /// lue en arrière-plan (l'écran est prévenu quand elle arrive).
   Uint8List? albumCover(int i) {
-    if (_albumCovers.containsKey(i)) return _albumCovers[i];
+    if (_albumCovers.containsKey(i)) {
+      final bytes = _albumCovers[i];
+      // Servie à l'instant : elle repasse en fin de file, la dernière à partir.
+      if (!_preview && _albumCovers.keys.last != i) {
+        _albumCovers
+          ..remove(i)
+          ..[i] = bytes;
+      }
+      return bytes;
+    }
     if (!_preview && i >= 0 && i < albums.length && _coverLoads.add(i)) {
       final generation = _coverGeneration;
       _source.artwork(tracks[albums[i].firstIndex]).then((bytes) {
         if (generation != _coverGeneration) return; // autre bibliothèque entre-temps
         _albumCovers[i] = bytes;
+        while (_albumCovers.length > _coversKept) {
+          _albumCovers.remove(_albumCovers.keys.first);
+        }
         _coverLoads.remove(i);
         notifyListeners();
       }, onError: (_) {
@@ -338,15 +417,32 @@ class PlayerController extends ChangeNotifier {
 
   // --- Nombre d'écoutes (liste « Les plus écoutés ») -------------------------
 
-  Map<String, int> _plays = {};
-  Timer? _savePlays;
+  /// Dans plays.json, à part des préférences : il grossit avec la
+  /// bibliothèque et change à chaque morceau.
+  static final _playsStore = JsonStore('plays.json');
+
+  /// (Sous `flutter test`, chaque lecteur a les siennes.)
+  late final Map<String, Object?> _plays = JsonStore.inTest ? {} : _playsStore.values;
+
+  int _playsOf(Track t) => switch (_plays[t.id]) { final int n => n, _ => 0 };
+
+  /// Les écoutes étaient rangées dans les préférences (jusqu'à la 0.5.0).
+  static void _migratePlays() {
+    final old = Settings.getMap('plays');
+    if (old.isEmpty) return;
+    if (_playsStore.values.isEmpty) {
+      _playsStore.values.addAll(old);
+      _playsStore.changed();
+    }
+    Settings.remove(const ['plays']);
+  }
 
   /// Les morceaux les plus écoutés, du plus au moins écouté.
   List<Track> mostPlayed(int count) {
     final list = [
       for (final t in tracks)
-        if ((_plays[t.id] ?? 0) > 0) t,
-    ]..sort((a, b) => (_plays[b.id] ?? 0).compareTo(_plays[a.id] ?? 0));
+        if (_playsOf(t) > 0) t,
+    ]..sort((a, b) => _playsOf(b).compareTo(_playsOf(a)));
     return list.take(count).toList();
   }
 
@@ -357,25 +453,18 @@ class PlayerController extends ChangeNotifier {
     return list.take(count).toList();
   }
 
-  static Map<String, int> _loadPlays() {
-    final raw = Settings.getMap('plays');
-    return {
-      for (final e in raw.entries)
-        if (e.value is int) e.key: e.value as int,
-    };
-  }
-
   void _countPlay(Track t) {
-    _plays[t.id] = (_plays[t.id] ?? 0) + 1;
-    _savePlays?.cancel();
-    _savePlays = Timer(const Duration(seconds: 5), () => Settings.setMap('plays', _plays));
+    _plays[t.id] = _playsOf(t) + 1;
+    _playsStore.changed();
   }
 
   int _coverRequest = 0;
 
-  Future<void> _onTrackChanged() async {
+  /// [count] : c'est une écoute de plus (le morceau suivant qui démarre) ;
+  /// faux quand on vient de le lancer soi-même, déjà compté.
+  Future<void> _onTrackChanged({bool count = true}) async {
     final track = current;
-    if (track != null && playing) _countPlay(track);
+    if (count && track != null && playing) _countPlay(track);
     final request = ++_coverRequest;
     Uint8List? bytes;
     try {
@@ -399,7 +488,7 @@ class PlayerController extends ChangeNotifier {
       current = list[start];
       duration = current!.duration ?? Duration.zero;
       _anchorPosition(Duration.zero);
-      _onTrackChanged();
+      _onTrackChanged(count: false);
     }
     _countPlay(list[start]);
     notifyListeners();
@@ -441,6 +530,40 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- Prise casque ----------------------------------------------------------
+
+  bool _resumeOnPlug = false;
+
+  /// Volume d'avant, tant que le son est coupé par la prise débranchée.
+  double? _mutedFrom;
+
+  /// La prise est arrachée : plus de son, comme avec de vrais écouteurs.
+  /// Un fichier se met en pause sur-le-champ. Un appareil distant (Spotify)
+  /// obéit avec du retard, la pause et la reprise tomberaient à côté du
+  /// geste : on lui coupe seulement le son, la musique continue sans nous.
+  void unplug() {
+    if (!playing || _mutedFrom != null) return;
+    if (_engine.slow) {
+      _mutedFrom = volume;
+      _engine.mute(true, volume).catchError((_) {});
+    } else {
+      _resumeOnPlug = true;
+      pause();
+    }
+  }
+
+  /// Rebranchée : le son revient (la musique reprend là où elle s'était
+  /// arrêtée, ou là où elle en est).
+  void plug() {
+    if (_mutedFrom case final v?) {
+      _mutedFrom = null;
+      _engine.mute(false, v).catchError((_) {});
+    } else if (_resumeOnPlug) {
+      play();
+    }
+    _resumeOnPlug = false;
+  }
+
   Future<void> next() => _run((e) => e.next());
   Future<void> previous() => _run((e) => e.previous());
 
@@ -460,18 +583,8 @@ class PlayerController extends ChangeNotifier {
   /// L'écran En lecture s'affiche : un moteur distant se remet à jour.
   void refresh() => _engine.refresh();
 
-  /// Enregistre tout de suite les écoutes pas encore écrites (avant de
-  /// quitter).
-  void savePlays() {
-    if (_savePlays?.isActive ?? false) {
-      _savePlays!.cancel();
-      Settings.setMap('plays', _plays);
-    }
-  }
-
   @override
   void dispose() {
-    savePlays();
     _engine
       ..onUpdate = null
       ..dispose();

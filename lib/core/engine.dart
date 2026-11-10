@@ -58,6 +58,19 @@ abstract class PlaybackEngine {
   Future<void> setShuffle(bool on);
   Future<void> setRepeat(RepeatMode mode);
 
+  /// Aléatoire et répétition retenus (Réglages), donnés au moteur neuf avant
+  /// toute lecture. Un moteur distant a déjà les siens : il n'en fait rien.
+  void restore({required bool shuffle, required RepeatMode repeat}) {}
+
+  /// Le moteur met du temps à obéir (appareil distant) : pour un silence
+  /// bref, mieux vaut couper le son que mettre en pause puis relancer, qui
+  /// arriveraient en retard l'un et l'autre.
+  bool get slow => false;
+
+  /// Coupe le son sans arrêter la lecture ([on]), ou le rend, à [volume]
+  /// (de 0 à 100). Seulement pour un moteur [slow].
+  Future<void> mute(bool on, double volume) async {}
+
   /// L'appli revient au premier plan, ou l'écran En lecture s'affiche :
   /// un moteur distant peut en profiter pour se remettre à jour.
   void refresh() {}
