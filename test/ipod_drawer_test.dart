@@ -299,14 +299,14 @@ void main() {
     await _settle(tester);
     expect(find.byWidgetPredicate((w) => w is IpodDevice && w.model.id == const ClassicModel(ClassicColor.noir).id), findsOneWidget);
     // La souris n'a pas bougé : l'éventail est rangé et ne se rouvre pas.
-    expect(_swatch('Blanc'), findsNothing);
+    expect(_swatch('Argent'), findsNothing);
     expect(_swatch('Noir'), findsNothing);
     // Elle quitte l'appareil puis revient : il se rouvre.
     await mouse.moveTo(Offset.zero);
     await _settle(tester);
     await mouse.moveTo(tester.getCenter(classic.first));
     await _settle(tester);
-    expect(_swatch('Blanc'), findsOneWidget);
+    expect(_swatch('Argent'), findsOneWidget);
   });
 
   testWidgets('en changeant d\'iPod, on reste sur le même écran', (tester) async {

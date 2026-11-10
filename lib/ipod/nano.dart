@@ -1,9 +1,9 @@
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
 import 'classic.dart';
+import 'finish.dart';
 import 'look.dart';
 import 'model.dart';
 import 'wheel.dart';
@@ -11,11 +11,12 @@ import 'wheel.dart';
 /// Teintes du Nano de 3e génération (2007) : façade en aluminium anodisé,
 /// molette blanche (noire sur le noir).
 enum NanoColor {
-  argent('Argent', base: Color(0xFFCDD0D3), light: Color(0xFFE6E8EA), dark: Color(0xFFA9ADB1)),
-  noir('Noir', base: Color(0xFF2B2C2F), light: Color(0xFF3E3F43), dark: Color(0xFF1A1B1D)),
-  bleu('Bleu', base: Color(0xFF93C1E3), light: Color(0xFFB9D8EF), dark: Color(0xFF6E9FC5)),
-  vert('Vert', base: Color(0xFFA6D7B5), light: Color(0xFFC6E7D0), dark: Color(0xFF7DB491)),
-  rouge('Rouge', base: Color(0xFFC21F35), light: Color(0xFFD9475A), dark: Color(0xFF8E1424));
+  argent('Argent', base: Color(0xFFBFC4C6), light: Color(0xFFDFE4E5), dark: Color(0xFF8F9599)),
+  noir('Noir', base: Color(0xFF26282E), light: Color(0xFF3F4148), dark: Color(0xFF131418)),
+  bleu('Bleu', base: Color(0xFF60B8B8), light: Color(0xFF9DD3D8), dark: Color(0xFF2F7B83)),
+  vert('Vert', base: Color(0xFFA3D3A0), light: Color(0xFFCBE9C8), dark: Color(0xFF6C9F6E)),
+  rouge('Rouge', base: Color(0xFF8E1031), light: Color(0xFFBA1A49), dark: Color(0xFF5C0920)),
+  rose('Rose', base: Color(0xFFB83479), light: Color(0xFFE8529E), dark: Color(0xFF8A1F58));
 
   const NanoColor(this.displayName, {required this.base, required this.light, required this.dark});
 
@@ -79,13 +80,14 @@ class NanoModel extends IpodModel {
           iconScale: 0.65,
           labelSize: 11,
           labelSpacing: 0.8,
-          label: Color(0xFF8E9195),
-          recess: Color(0xFF0E0F10),
-          ring: [Color(0xFF3C3D40), Color(0xFF2C2D30), Color(0xFF1E1F22)],
-          edgeLight: 0.12,
-          groove: Color(0xFF111214),
-          buttonUp: [Color(0xFF47484C), Color(0xFF2A2B2E)],
-          buttonDown: [Color(0xFF26272A), Color(0xFF34353A)],
+          label: Color(0xFFE1E2E4),
+          recess: Color(0xFF0B0C0E),
+          ring: [Color(0xFF292B31), Color(0xFF25272D), Color(0xFF1E2025)],
+          edgeLight: 0.1,
+          groove: Color(0xFF0E0F12),
+          buttonUp: [Color(0xFF212328), Color(0xFF2E3037)],
+          buttonDown: [Color(0xFF17181C), Color(0xFF24262B)],
+          buttonEdge: 0.1,
         )
       : WheelStyle(
           radius: 86,
@@ -93,10 +95,15 @@ class NanoModel extends IpodModel {
           iconScale: 0.65,
           labelSize: 11,
           labelSpacing: 0.8,
-          recess: Color.lerp(color.dark, Colors.black, 0.15)!,
-          // Bouton central de la couleur du boîtier.
-          buttonUp: [color.light, color.base],
-          buttonDown: [color.dark, color.base],
+          label: const Color(0xFF95A0AC),
+          recess: Color.lerp(color.dark, Colors.black, 0.2)!,
+          ring: const [Color(0xFFFFFFFF), Color(0xFFFBFDFD), Color(0xFFEFF2F3)],
+          groove: Color.lerp(color.dark, Colors.black, 0.25)!,
+          // Bouton central en aluminium de la couleur du boîtier, un peu
+          // creusé : sombre en haut, clair en bas.
+          buttonUp: [Color.lerp(color.base, color.dark, 0.3)!, Color.lerp(color.base, color.light, 0.8)!],
+          buttonDown: [Color.lerp(color.base, color.dark, 0.6)!, Color.lerp(color.base, color.dark, 0.15)!],
+          buttonEdge: 0.18,
         );
 
   /// Petit curseur en métal, en bas à gauche.
@@ -131,19 +138,7 @@ class _NanoBodyPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final outer = RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(NanoModel._radius));
 
-    // Ombres : il flotte.
-    canvas.drawRRect(
-      outer.shift(const Offset(0, 22)).deflate(8),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.32)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 24),
-    );
-    canvas.drawRRect(
-      outer.shift(const Offset(0, 5)),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.25)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
-    );
+    paintFloatShadow(canvas, outer);
 
     // Dos en acier poli qui déborde en fin liseré.
     canvas.drawRRect(
@@ -157,53 +152,50 @@ class _NanoBodyPainter extends CustomPainter {
         ),
     );
 
-    // Façade en aluminium anodisé, mate et plate.
+    // Façade en aluminium anodisé, mate et bombée comme un coussin : unie
+    // au milieu, elle s'éclaircit en tombant vers les bords.
     final c = color;
-    final front = outer.deflate(2.5);
+    final front = outer.deflate(2);
     canvas.save();
     canvas.clipRRect(front);
+    canvas.drawRect(Offset.zero & size, Paint()..color = c.base);
+    // (Des filets emboîtés plutôt qu'un flou : régulier jusque dans les
+    // coins.)
+    const bevel = 30.0, steps = 20;
+    for (var i = 0; i < steps; i++) {
+      final t = 1 - i / steps;
+      canvas.drawRRect(
+        front.deflate(bevel * (i + 0.5) / steps),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = bevel / steps + 0.6
+          ..color = c.light.withValues(alpha: t * t * 0.85),
+      );
+    }
+    // La lumière vient d'en haut à gauche : le coin opposé reste un peu
+    // dans l'ombre.
     canvas.drawRect(
       Offset.zero & size,
       Paint()
         ..shader = ui.Gradient.linear(
           Offset.zero,
-          Offset(size.width * 0.3, size.height),
-          [c.light, c.base, c.dark],
-          const [0, 0.45, 1],
+          Offset(size.width, size.height),
+          [Colors.white.withValues(alpha: 0.06), Colors.white.withValues(alpha: 0), Colors.black.withValues(alpha: 0.14)],
+          const [0, 0.5, 1],
         ),
     );
-    final rnd = math.Random(17);
-    final light = <Offset>[];
-    final dark = <Offset>[];
-    for (var i = 0; i < 3600; i++) {
-      final p = Offset(rnd.nextDouble() * size.width, rnd.nextDouble() * size.height);
-      (rnd.nextBool() ? light : dark).add(p);
-    }
-    canvas.drawPoints(
-      ui.PointMode.points,
-      light,
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.08)
-        ..strokeWidth = 0.9,
-    );
-    canvas.drawPoints(
-      ui.PointMode.points,
-      dark,
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.07)
-        ..strokeWidth = 0.9,
-    );
+    paintSatin(canvas, size, strength: color == NanoColor.noir ? 0.6 : 1);
     canvas.restore();
-    // Arête biseautée de la façade.
+    // Arête de la façade.
     canvas.drawRRect(
-      front.deflate(0.75),
+      front.deflate(0.5),
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
+        ..strokeWidth = 1
         ..shader = ui.Gradient.linear(
           Offset.zero,
           Offset(0, size.height),
-          [Colors.white.withValues(alpha: 0.55), Colors.black.withValues(alpha: 0.15)],
+          [Colors.white.withValues(alpha: 0.45), Colors.black.withValues(alpha: 0.18)],
         ),
     );
 

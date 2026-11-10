@@ -22,6 +22,10 @@ sealed class IpodPage {
 
 /// Ce que montre la moitié « image » d'un menu scindé (Classic, nano 3G
 /// et 4G) quand la ligne est sélectionnée.
+/// La fenêtre reste par-dessus les autres (Réglages › Premier plan, sous
+/// Windows) ; la scène l'applique.
+final windowOnTop = ValueNotifier(Settings.getString('window.top') == 'on');
+
 enum MenuPreview { covers, settings, nowPlaying }
 
 /// Mise en page d'un menu : lignes simples ; scindé (le menu d'un côté,
@@ -602,6 +606,17 @@ class IpodNav extends ChangeNotifier {
           open: _pitchMenu,
         ),
         MenuEntry(tr('Touches'), value: () => keys.label, open: _keysMenu),
+        // Sous Windows, rien ne réserve de place à l'iPod : on peut le garder
+        // par-dessus les autres fenêtres.
+        if (Platform.isWindows)
+          MenuEntry(
+            tr('Premier plan'),
+            value: () => windowOnTop.value ? tr('Oui') : tr('Non'),
+            action: () {
+              windowOnTop.value = !windowOnTop.value;
+              Settings.setString('window.top', windowOnTop.value ? 'on' : 'off');
+            },
+          ),
         MenuEntry(tr('Langue'), value: () => Lang.current.nativeName, open: _languageMenu),
       ]);
 

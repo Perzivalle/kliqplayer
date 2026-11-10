@@ -242,7 +242,7 @@ class ThirdGenModel extends IpodModel {
 /// molette rouge).
 enum FourthGenColor {
   blanc('Blanc', Color(0xFFF7F7F5)),
-  u2('U2', Color(0xFFC41E26));
+  u2('U2', Color(0xFFCC001F));
 
   const FourthGenColor(this.displayName, this.swatch);
 
@@ -301,26 +301,27 @@ class FourthGenModel extends IpodModel {
       radius: 140,
       buttonRadius: 47,
       labelSize: 17,
-      label: Color(0xFFF2F3F4),
-      recess: Color(0xFFDDDEDF),
-      ring: [Color(0xFFD3D5D8), Color(0xFFC8CACD), Color(0xFFBCBEC2)],
-      edgeLight: 0.45,
-      groove: Color(0xFFAEB1B5),
-      buttonUp: [Color(0xFFF7F7F8), Color(0xFFE2E3E5)],
-      buttonDown: [Color(0xFFD9DADC), Color(0xFFEDEEEF)],
+      label: Color(0xFFFBFBFC),
+      recess: Color(0xFFE3E4E5),
+      ring: [Color(0xFFE2E4E6), Color(0xFFDADCDF), Color(0xFFCFD2D5)],
+      edgeLight: 0.5,
+      groove: Color(0xFFBDC0C4),
+      buttonUp: [Color(0xFFFCFCFC), Color(0xFFF1F1F2)],
+      buttonDown: [Color(0xFFDFE0E2), Color(0xFFEFF0F0)],
     ),
     // Molette rouge, inscriptions claires, bouton central noir.
     FourthGenColor.u2 => const WheelStyle(
       radius: 140,
       buttonRadius: 47,
       labelSize: 17,
-      label: Color(0xFFF1DADB),
-      recess: Color(0xFF0E0F10),
-      ring: [Color(0xFFD9333A), Color(0xFFC41E26), Color(0xFFA3151C)],
-      edgeLight: 0.3,
-      groove: Color(0xFF3A0B0E),
-      buttonUp: [Color(0xFF47484C), Color(0xFF2A2B2E)],
-      buttonDown: [Color(0xFF26272A), Color(0xFF34353A)],
+      label: Color(0xFFF7ECEC),
+      recess: Color(0xFF000000),
+      ring: [Color(0xFFDD0023), Color(0xFFCC001F), Color(0xFFB0001A)],
+      edgeLight: 0.22,
+      groove: Color(0xFF2A0006),
+      buttonUp: [Color(0xFF17151A), Color(0xFF090507)],
+      buttonDown: [Color(0xFF050304), Color(0xFF100D10)],
+      buttonEdge: 0.14,
     ),
   };
 
@@ -334,7 +335,8 @@ class FourthGenModel extends IpodModel {
       _size,
       _radius,
       _screen,
-      front: [Color(0xFF3A3B3E), Color(0xFF242528), Color(0xFF17181A)],
+      front: _black,
+      dark: true,
     ),
   };
 
@@ -412,7 +414,7 @@ class PhotoModel extends IpodModel {
 /// Teintes du nano de 1re génération : plastique brillant blanc ou noir.
 enum Nano1Color {
   blanc('Blanc', Color(0xFFF7F7F5)),
-  noir('Noir', Color(0xFF1E1F21));
+  noir('Noir', Color(0xFF1B1C1E));
 
   const Nano1Color(this.displayName, this.swatch);
 
@@ -479,11 +481,12 @@ class Nano1Model extends IpodModel {
       iconScale: 0.7,
       labelSize: 12,
       labelSpacing: 0.8,
-      label: Color(0xFFF7F8F9),
+      label: Color(0xFFFBFBFC),
       recess: Color(0xFFDDDEE0),
-      ring: [Color(0xFFCDCED3), Color(0xFFC3C5CA), Color(0xFFB8BAC0)],
+      ring: [Color(0xFFBFC0C4), Color(0xFFB5B6BA), Color(0xFFABACB1)],
       edgeLight: 0.4,
-      groove: Color(0xFFAAADB2),
+      groove: Color(0xFF9FA1A6),
+      buttonUp: [Color(0xFFF9F9FA), Color(0xFFEFEFF1)],
     ),
     // Molette gris anthracite, bouton central noir.
     Nano1Color.noir => const WheelStyle(
@@ -492,13 +495,14 @@ class Nano1Model extends IpodModel {
       iconScale: 0.7,
       labelSize: 12,
       labelSpacing: 0.8,
-      label: Color(0xFFC9CBCE),
-      recess: Color(0xFF0E0F10),
-      ring: [Color(0xFF6E7074), Color(0xFF5E6064), Color(0xFF4E5054)],
-      edgeLight: 0.18,
-      groove: Color(0xFF111214),
-      buttonUp: [Color(0xFF3A3B3E), Color(0xFF1F2022)],
-      buttonDown: [Color(0xFF1C1D1F), Color(0xFF2C2D30)],
+      label: Color(0xFFE4E5E7),
+      recess: Color(0xFF000000),
+      ring: [Color(0xFF3B3D40), Color(0xFF313336), Color(0xFF27292B)],
+      edgeLight: 0.14,
+      groove: Color(0xFF050506),
+      buttonUp: [Color(0xFF17181A), Color(0xFF0A0B0C)],
+      buttonDown: [Color(0xFF060607), Color(0xFF111213)],
+      buttonEdge: 0.14,
     ),
   };
 
@@ -513,7 +517,8 @@ class Nano1Model extends IpodModel {
       _radius,
       _screen,
       rim: 2.5,
-      front: [Color(0xFF2E2F32), Color(0xFF1B1C1E), Color(0xFF111213)],
+      front: _black,
+      dark: true,
     ),
   };
 
@@ -530,10 +535,17 @@ class Nano1Model extends IpodModel {
   int get hashCode => color.hashCode;
 }
 
+/// Plastique noir brillant (U2, nano noir) : presque noir, relevé sur les
+/// photos d'Apple.
+const _black = [Color(0xFF18191B), Color(0xFF0B0B0D), Color(0xFF050506)];
+
 // --- Boîtier blanc à dos chromé -------------------------------------------------
 
 class _WhiteBodyPainter extends CustomPainter {
-  const _WhiteBodyPainter(this.bodySize, this.radius, this.screen, {this.front = _ivory, this.rim = 3.5});
+  const _WhiteBodyPainter(this.bodySize, this.radius, this.screen, {this.front = _ivory, this.rim = 3.5, this.dark = false});
+
+  /// Façade noire : le cadre de l'écran et l'arrondi s'y fondent.
+  final bool dark;
 
   final Size bodySize;
 
@@ -545,7 +557,7 @@ class _WhiteBodyPainter extends CustomPainter {
   /// Dégradé de la façade, de haut en bas.
   final List<Color> front;
 
-  static const _ivory = [Color(0xFFFDFDFB), Color(0xFFF3F3F0), Color(0xFFE8E8E4)];
+  static const _ivory = [Color(0xFFFCFCFB), Color(0xFFF8F8F7), Color(0xFFEEEEEC)];
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -584,17 +596,17 @@ class _WhiteBodyPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2
-        ..color = Colors.black.withValues(alpha: 0.07),
+        ..color = dark ? Colors.white.withValues(alpha: 0.10) : Colors.black.withValues(alpha: 0.07),
     );
     // Écran monochrome dans un cadre gris foncé.
     final frame = RRect.fromRectAndRadius(screen.inflate(9), const Radius.circular(7));
-    canvas.drawRRect(frame.inflate(1), Paint()..color = const Color(0xFFD2D3D5));
+    canvas.drawRRect(frame.inflate(1), Paint()..color = dark ? const Color(0xFF2B2C2F) : const Color(0xFFD2D3D5));
     canvas.drawRRect(frame, Paint()..color = const Color(0xFF34373B));
   }
 
   @override
   bool shouldRepaint(covariant _WhiteBodyPainter old) =>
-      old.screen != screen || old.radius != radius || old.front != front || old.rim != rim;
+      old.screen != screen || old.radius != radius || old.front != front || old.rim != rim || old.dark != dark;
 }
 
 class _GlassPainter extends CustomPainter {

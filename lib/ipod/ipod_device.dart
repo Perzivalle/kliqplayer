@@ -1,7 +1,16 @@
 part of 'ipod.dart';
 
 class IpodDevice extends StatefulWidget {
-  const IpodDevice({super.key, required this.model, required this.player, required this.nav, this.onWindowDrag});
+  const IpodDevice({
+    super.key,
+    required this.model,
+    required this.player,
+    required this.nav,
+    this.onWindowDrag,
+    this.onHoldBegin,
+    this.onHoldUpdate,
+    this.onHoldEnd,
+  });
 
   final IpodModel model;
   final PlayerController player;
@@ -11,6 +20,13 @@ class IpodDevice extends StatefulWidget {
 
   /// On commence à déplacer la fenêtre en tenant l'appareil.
   final VoidCallback? onWindowDrag;
+
+  /// On tient l'appareil pour le glisser dans la fenêtre (plein écran, sous
+  /// Windows) au lieu de déplacer la fenêtre : position du pointeur à
+  /// l'écran, du début à la fin.
+  final ValueChanged<Offset>? onHoldBegin;
+  final ValueChanged<Offset>? onHoldUpdate;
+  final VoidCallback? onHoldEnd;
 
   @override
   State<IpodDevice> createState() => _IpodDeviceState();
@@ -262,7 +278,10 @@ class _IpodDeviceState extends State<IpodDevice> {
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onPanStart: (_) => _moveWindow(),
+                onPanStart: (d) => widget.onHoldBegin != null ? widget.onHoldBegin!(d.globalPosition) : _moveWindow(),
+                onPanUpdate: widget.onHoldBegin == null ? null : (d) => widget.onHoldUpdate?.call(d.globalPosition),
+                onPanEnd: widget.onHoldBegin == null ? null : (_) => widget.onHoldEnd?.call(),
+                onPanCancel: widget.onHoldBegin == null ? null : () => widget.onHoldEnd?.call(),
                 child: CustomPaint(painter: m.body),
               ),
             ),

@@ -26,17 +26,18 @@ Future<void> main() async {
   if (window != null) {
     window
       ..titleBarStyle = TitleBarStyle.hidden
-      ..setSize(IpodStage.savedModel.windowSize.toNative(), false)
       ..backgroundColor = Colors.transparent.toNative()
       ..title = 'Lecteur';
     if (Platform.isWindows) {
       // Windows dessine une ombre rectangulaire autour de chaque fenêtre :
-      // autour d'une fenêtre transparente, elle trahirait le cadre. Et la
-      // fenêtre s'ouvre au milieu de l'écran (sous Linux, le gestionnaire de
-      // fenêtres la place lui-même).
-      window
-        ..hasShadow = false
-        ..center();
+      // autour d'une fenêtre transparente, elle trahirait le cadre. Et, faute
+      // de gestionnaire qui range les fenêtres, celle-ci couvre toute la zone
+      // de travail : l'iPod s'y déplace, le reste laisse voir (et cliquer) le
+      // bureau.
+      window.hasShadow = false;
+      fillWorkArea(window);
+    } else {
+      window.setSize(IpodStage.savedModel.windowSize.toNative(), false);
     }
     window
       ..show()

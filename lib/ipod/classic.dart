@@ -6,16 +6,23 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart' hide RepeatMode;
 
 import '../core/player.dart';
+import 'finish.dart';
 import 'look.dart';
 import 'model.dart';
 import 'nav.dart';
 import 'wheel.dart';
 import '../core/strings.dart';
 
-/// Teintes du Classic : façade et molette assorties.
+/// Teintes des grands iPod à écran couleur. La 5e génération est en
+/// plastique brillant, [blanc] ou [noir] ; le Classic en aluminium anodisé,
+/// [argent] ou [noir] (un gris anthracite).
 enum ClassicColor {
-  blanc('Blanc', front: [Color(0xFFFFFFFF), Color(0xFFF6F6F4), Color(0xFFECECEA)], swatch: Color(0xFFF7F7F5)),
-  noir('Noir', front: [Color(0xFF3A3B3E), Color(0xFF242528), Color(0xFF17181A)], swatch: Color(0xFF1E1F21));
+  blanc('Blanc', front: [Color(0xFFFCFCFC), Color(0xFFF8F8F8), Color(0xFFF0F0EF)], swatch: Color(0xFFF8F8F8)),
+  noir('Noir', front: [Color(0xFF17191B), Color(0xFF0A0D0F), Color(0xFF050708)], swatch: Color(0xFF1B1C1E)),
+  argent('Argent', front: [Color(0xFFDCDCDD), Color(0xFFD0D0D1), Color(0xFFAEAEAF)], swatch: Color(0xFFD0D0D1)),
+
+  /// Édition U2 de la 5e génération : façade noire, molette rouge.
+  u2('U2', front: [Color(0xFF17191B), Color(0xFF0A0D0F), Color(0xFF050708)], swatch: Color(0xFFCC001F));
 
   const ClassicColor(this.displayName, {required this.front, required this.swatch});
 
@@ -24,16 +31,23 @@ enum ClassicColor {
   final Color swatch;
 }
 
-/// Le Classic : façade laquée, liseré chromé, écran couleur 320×240.
+/// Le Classic (2007) : façade en aluminium anodisé, liseré chromé, écran
+/// couleur 320×240.
 class ClassicModel extends IpodModel {
-  const ClassicModel([this.color = ClassicColor.blanc]);
+  const ClassicModel([this.color = ClassicColor.argent]);
 
   final ClassicColor color;
 
-  // « classic » tout court pour le blanc : les préférences déjà enregistrées
+  bool get _dark => color == ClassicColor.noir;
+
+  /// Façade anodisée, plus claire en haut : anthracite pour le noir.
+  List<Color> get _front =>
+      _dark ? const [Color(0xFF615E62), Color(0xFF4C4A4D), Color(0xFF2C2C2D)] : ClassicColor.argent.front;
+
+  // « classic » tout court pour l'argent : les préférences déjà enregistrées
   // restent valables.
   @override
-  String get id => color == ClassicColor.blanc ? 'classic' : 'classic-${color.name}';
+  String get id => _dark ? 'classic-noir' : 'classic';
 
   @override
   String get family => 'classic';
@@ -42,10 +56,10 @@ class ClassicModel extends IpodModel {
   String get label => 'Classic';
 
   @override
-  String get variantName => color.displayName;
+  String get variantName => _dark ? 'Noir' : 'Argent';
 
   @override
-  Color get swatch => color.swatch;
+  Color get swatch => _dark ? const Color(0xFF4C4A4D) : ClassicColor.argent.swatch;
 
   @override
   Size get size => G.size;
@@ -68,36 +82,47 @@ class ClassicModel extends IpodModel {
   Offset get wheelCenter => G.wheelCenter;
 
   @override
-  WheelStyle get wheel => switch (color) {
-        ClassicColor.blanc => const WheelStyle(radius: G.wheelRadius, buttonRadius: G.buttonRadius),
-        // Molette noire mate, inscriptions gris clair.
-        ClassicColor.noir => const WheelStyle(
-            radius: G.wheelRadius,
-            buttonRadius: G.buttonRadius,
-            label: Color(0xFF8E9195),
-            recess: Color(0xFF0E0F10),
-            ring: [Color(0xFF3C3D40), Color(0xFF2C2D30), Color(0xFF1E1F22)],
-            edgeLight: 0.12,
-            groove: Color(0xFF111214),
-            buttonUp: [Color(0xFF47484C), Color(0xFF2A2B2E)],
-            buttonDown: [Color(0xFF26272A), Color(0xFF34353A)],
-          ),
-      };
+  WheelStyle get wheel => _dark
+      // Molette noire, inscriptions blanches, bouton anthracite creusé.
+      ? const WheelStyle(
+          radius: G.wheelRadius,
+          buttonRadius: G.buttonRadius,
+          label: Color(0xFFECECEE),
+          recess: Color(0xFF111112),
+          ring: [Color(0xFF272728), Color(0xFF222223), Color(0xFF1C1C1D)],
+          edgeLight: 0.1,
+          groove: Color(0xFF0E0E0F),
+          buttonUp: [Color(0xFF333234), Color(0xFF5A575A)],
+          buttonDown: [Color(0xFF262527), Color(0xFF444245)],
+          buttonEdge: 0.1,
+        )
+      // Molette blanche, inscriptions gris bleuté, bouton argent creusé.
+      : const WheelStyle(
+          radius: G.wheelRadius,
+          buttonRadius: G.buttonRadius,
+          label: Color(0xFFB3BBC3),
+          recess: Color(0xFF8E8E90),
+          ring: [Color(0xFFFCFDFE), Color(0xFFF6FAFB), Color(0xFFEAEEF0)],
+          groove: Color(0xFF9A9A9C),
+          buttonUp: [Color(0xFFC0C0C1), Color(0xFFE0E0E1)],
+          buttonDown: [Color(0xFFA9A9AA), Color(0xFFCBCBCC)],
+          buttonEdge: 0.25,
+        );
 
   @override
   ScreenLook get look => const ClassicLook();
 
   @override
-  CustomPainter get body => BodyPainter(color);
+  CustomPainter get body => BodyPainter(_front, anodized: true, dark: _dark);
 
   @override
-  CustomPainter? get glass => const GlassPainter();
+  CustomPainter? get glass => const GlassPainter(G.screen, false);
 
   @override
-  bool operator ==(Object other) => other is ClassicModel && other.color == color;
+  bool operator ==(Object other) => other is ClassicModel && other._dark == _dark;
 
   @override
-  int get hashCode => color.hashCode;
+  int get hashCode => _dark.hashCode;
 }
 
 /// La 5e génération « vidéo » (2005) : le format du Classic, mais une façade
@@ -145,36 +170,53 @@ class VideoModel extends IpodModel {
   Offset get wheelCenter => const Offset(206, 492);
 
   @override
-  WheelStyle get wheel => switch (color) {
-        // Molette gris clair, inscriptions blanches.
-        ClassicColor.blanc => const WheelStyle(
-            radius: 122,
-            buttonRadius: 44,
-            label: Color(0xFFFAFAFB),
-            recess: Color(0xFFDCDDDF),
-            ring: [Color(0xFFE2E3E5), Color(0xFFD6D7DA), Color(0xFFC9CBCE)],
-            edgeLight: 0.5,
-            groove: Color(0xFFBFC1C5),
-          ),
-        // Molette grise, bouton central noir.
-        ClassicColor.noir => const WheelStyle(
-            radius: 122,
-            buttonRadius: 44,
-            label: Color(0xFFF2F3F4),
-            recess: Color(0xFF0E0F10),
-            ring: [Color(0xFF8E9094), Color(0xFF7F8185), Color(0xFF6F7175)],
-            edgeLight: 0.25,
-            groove: Color(0xFF222326),
-            buttonUp: [Color(0xFF2E2F32), Color(0xFF141517)],
-            buttonDown: [Color(0xFF121314), Color(0xFF202124)],
-          ),
-      };
+  WheelStyle get wheel => color == ClassicColor.u2
+      // Molette rouge, inscriptions claires, bouton noir.
+      ? const WheelStyle(
+          radius: 122,
+          buttonRadius: 44,
+          label: Color(0xFFF7ECEC),
+          recess: Color(0xFF000000),
+          ring: [Color(0xFFDD0023), Color(0xFFCC001F), Color(0xFFB0001A)],
+          edgeLight: 0.22,
+          groove: Color(0xFF2A0006),
+          buttonUp: [Color(0xFF17151A), Color(0xFF090507)],
+          buttonDown: [Color(0xFF050304), Color(0xFF100D10)],
+          buttonEdge: 0.14,
+        )
+      : color == ClassicColor.noir
+      // Molette noire, à peine plus claire que la façade, bouton noir.
+      ? const WheelStyle(
+          radius: 122,
+          buttonRadius: 44,
+          label: Color(0xFFEDEEEF),
+          recess: Color(0xFF000000),
+          ring: [Color(0xFF22282B), Color(0xFF1B2124), Color(0xFF14191B)],
+          edgeLight: 0.12,
+          groove: Color(0xFF020304),
+          buttonUp: [Color(0xFF14181A), Color(0xFF080C0E)],
+          buttonDown: [Color(0xFF060809), Color(0xFF101315)],
+          buttonEdge: 0.14,
+        )
+      // Molette grise, inscriptions blanches, bouton blanc.
+      : const WheelStyle(
+          radius: 122,
+          buttonRadius: 44,
+          label: Color(0xFFFBFBFC),
+          recess: Color(0xFFDFE0E2),
+          ring: [Color(0xFFCBCFD2), Color(0xFFC2C6CA), Color(0xFFB8BDC1)],
+          edgeLight: 0.5,
+          groove: Color(0xFFADB1B5),
+          buttonUp: [Color(0xFFFAFAFA), Color(0xFFF1F2F2)],
+          buttonDown: [Color(0xFFDDDFE2), Color(0xFFF0F1F2)],
+        );
 
   @override
   ScreenLook get look => const ClassicLook(ui: ColorUi.video);
 
   @override
-  CustomPainter get body => BodyPainter(color, _screen.inflate(6), true);
+  CustomPainter get body =>
+      BodyPainter(color.front, frameRect: _screen.inflate(6), plastic: true, dark: color != ClassicColor.blanc);
 
   @override
   CustomPainter? get glass => const GlassPainter(_screen);
@@ -204,12 +246,19 @@ class G {
   static const double buttonRadius = 50;
 }
 
-/// Boîtier : ombre portée (il flotte), liseré chromé, façade blanche laquée
-/// et cadre sombre de l'écran.
+/// Boîtier : ombre portée (il flotte), liseré chromé, façade et cadre
+/// sombre de l'écran.
 class BodyPainter extends CustomPainter {
-  const BodyPainter([this.color = ClassicColor.blanc, this.frameRect = G.screenFrame, this.plastic = false]);
+  const BodyPainter(this.front, {this.frameRect = G.screenFrame, this.plastic = false, this.anodized = false, this.dark = false});
 
-  final ClassicColor color;
+  /// Dégradé de la façade, de haut en bas.
+  final List<Color> front;
+
+  /// Façade sombre : le cadre de l'écran s'y fond.
+  final bool dark;
+
+  /// Façade en aluminium anodisé (Classic) : satinée, sans vernis.
+  final bool anodized;
 
   /// Cadre sombre autour de l'écran.
   final Rect frameRect;
@@ -248,7 +297,7 @@ class BodyPainter extends CustomPainter {
         ),
     );
 
-    // Façade blanche.
+    // Façade.
     final front = outer.deflate(G.rim);
     canvas.drawRRect(
       front,
@@ -256,18 +305,47 @@ class BodyPainter extends CustomPainter {
         ..shader = ui.Gradient.linear(
           Offset.zero,
           Offset(0, size.height),
-          color.front,
-          const [0, 0.55, 1],
+          this.front,
+          const [0, 0.45, 1],
         ),
     );
-    // Arrondi de la façade : léger assombrissement au ras du chrome.
-    canvas.drawRRect(
-      front.deflate(1),
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
-        ..color = Colors.black.withValues(alpha: 0.07),
-    );
+    if (anodized) {
+      canvas.save();
+      canvas.clipRRect(front);
+      // L'aluminium accroche un peu plus la lumière du côté d'où elle vient.
+      canvas.drawRect(
+        Offset.zero & size,
+        Paint()
+          ..shader = ui.Gradient.linear(Offset.zero, Offset(size.width, 0), [
+            Colors.white.withValues(alpha: 0.07),
+            Colors.white.withValues(alpha: 0),
+            Colors.black.withValues(alpha: 0.07),
+          ], const [0, 0.4, 1]),
+      );
+      paintSatin(canvas, size, strength: dark ? 0.6 : 1);
+      canvas.restore();
+      // Chanfrein poli au bord de la façade.
+      canvas.drawRRect(
+        front.deflate(0.75),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..shader = ui.Gradient.linear(Offset.zero, Offset(0, size.height), [
+            Colors.white.withValues(alpha: dark ? 0.3 : 0.7),
+            Colors.white.withValues(alpha: 0.1),
+            Colors.black.withValues(alpha: 0.2),
+          ], const [0, 0.5, 1]),
+      );
+    } else {
+      // Arrondi de la façade : léger assombrissement au ras du chrome.
+      canvas.drawRRect(
+        front.deflate(1),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = Colors.black.withValues(alpha: 0.07),
+      );
+    }
     if (plastic) {
       // L'épaisseur transparente du plastique, qui accroche la lumière.
       canvas.drawRRect(
@@ -278,7 +356,9 @@ class BodyPainter extends CustomPainter {
           ..shader = ui.Gradient.linear(
             Offset.zero,
             Offset(size.width * 0.4, size.height),
-            [Colors.white.withValues(alpha: 0.75), Colors.white.withValues(alpha: 0.25), Colors.white.withValues(alpha: 0.5)],
+            dark
+                ? [Colors.white.withValues(alpha: 0.28), Colors.white.withValues(alpha: 0.06), Colors.white.withValues(alpha: 0.14)]
+                : [Colors.white.withValues(alpha: 0.75), Colors.white.withValues(alpha: 0.25), Colors.white.withValues(alpha: 0.5)],
             const [0, 0.5, 1],
           ),
       );
@@ -288,21 +368,32 @@ class BodyPainter extends CustomPainter {
     final frame = RRect.fromRectAndRadius(frameRect, const Radius.circular(6));
     canvas.drawRRect(
       frame.inflate(1),
-      Paint()..color = color == ClassicColor.blanc ? const Color(0xFFD5D6D8) : const Color(0xFF0B0B0C),
+      Paint()
+        ..color = dark
+            ? const Color(0xFF050506)
+            : anodized
+                ? const Color(0xFF8F8F91)
+                : const Color(0xFFD5D6D8),
     );
-    canvas.drawRRect(frame, Paint()..color = const Color(0xFF1E1F21));
+    canvas.drawRRect(frame, Paint()..color = const Color(0xFF1A1C1E));
   }
 
   @override
   bool shouldRepaint(covariant BodyPainter old) =>
-      old.color != color || old.frameRect != frameRect || old.plastic != plastic;
+      old.front != front ||
+      old.frameRect != frameRect ||
+      old.plastic != plastic ||
+      old.anodized != anodized ||
+      old.dark != dark;
 }
 
-/// Reflet de la plaque d'acrylique qui couvre toute la façade.
+/// Reflet de la plaque d'acrylique qui couvre toute la façade ([band] ;
+/// pas sur l'aluminium du Classic, où seule la vitre de l'écran brille).
 class GlassPainter extends CustomPainter {
-  const GlassPainter([this.screen = G.screen]);
+  const GlassPainter([this.screen = G.screen, this.band = true]);
 
   final Rect screen;
+  final bool band;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -315,16 +406,18 @@ class GlassPainter extends CustomPainter {
       ..lineTo(size.width * 0.78, 0)
       ..lineTo(0, size.height * 0.36)
       ..close();
-    canvas.drawPath(
-      band,
-      Paint()
-        ..shader = ui.Gradient.linear(
-          Offset.zero,
-          Offset(size.width * 0.4, size.height * 0.24),
-          [Colors.white.withValues(alpha: 0.22), Colors.white.withValues(alpha: 0.06), Colors.white.withValues(alpha: 0)],
-          const [0, 0.7, 1],
-        ),
-    );
+    if (this.band) {
+      canvas.drawPath(
+        band,
+        Paint()
+          ..shader = ui.Gradient.linear(
+            Offset.zero,
+            Offset(size.width * 0.4, size.height * 0.24),
+            [Colors.white.withValues(alpha: 0.22), Colors.white.withValues(alpha: 0.06), Colors.white.withValues(alpha: 0)],
+            const [0, 0.7, 1],
+          ),
+      );
+    }
     // L'écran sous l'acrylique : très léger voile.
     canvas.drawRect(
       screen,
@@ -340,7 +433,7 @@ class GlassPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter old) => false;
+  bool shouldRepaint(covariant GlassPainter old) => old.screen != screen || old.band != band;
 }
 
 // --- Écran -------------------------------------------------------------------
@@ -355,10 +448,13 @@ const _font = 'Noto Sans';
 enum ColorUi { video, classic }
 
 class ClassicLook extends ScreenLook {
-  const ClassicLook({this.portrait = false, this.ui = ColorUi.classic});
+  const ClassicLook({this.portrait = false, this.tall = false, this.ui = ColorUi.classic});
 
   /// Écran vertical, 240 × 320 (nano de 4e génération).
   final bool portrait;
+
+  /// Écran vertical allongé, 240 × 376 (nano de 5e génération).
+  final bool tall;
 
   final ColorUi ui;
 
@@ -369,7 +465,7 @@ class ClassicLook extends ScreenLook {
 
   @override
   int rowsFor(MenuKind kind) => switch (kind) {
-        MenuKind.tall when _modern => portrait ? 7 : 5,
+        MenuKind.tall when _modern => portrait ? (tall ? 8 : 7) : 5,
         _ => visibleRows,
       };
 
@@ -399,13 +495,13 @@ class ClassicLook extends ScreenLook {
       : const [NowPlayingMode.scrub, NowPlayingMode.art, NowPlayingMode.rating];
 
   @override
-  Size get size => portrait ? const Size(240, 320) : const Size(320, 240);
+  Size get size => portrait ? Size(240, tall ? 376 : 320) : const Size(320, 240);
 
   @override
   double get rowHeight => 24;
 
   @override
-  int get visibleRows => portrait ? 12 : 9;
+  int get visibleRows => portrait ? (tall ? 14 : 12) : 9;
 
   @override
   double get scrollbarWidth => 9;
@@ -462,7 +558,7 @@ class ClassicLook extends ScreenLook {
 
   @override
   Widget nowPlaying(PlayerController player, NowPlayingMode mode) =>
-      portrait ? _NowPlayingPortrait(player: player, mode: mode) : _NowPlaying(player: player, mode: mode, modern: _modern);
+      portrait ? _NowPlayingPortrait(player: player, mode: mode, tall: tall) : _NowPlaying(player: player, mode: mode, modern: _modern);
 }
 
 // --- Barre de titre ----------------------------------------------------------
@@ -958,7 +1054,7 @@ class _Preview extends StatefulWidget {
 
   final MenuPreview kind;
 
-  /// La ligne du menu : chacune commence par un album différent.
+  /// La ligne du menu : en changer fait passer à une autre pochette.
   final String seed;
   final PlayerController player;
 
@@ -978,6 +1074,34 @@ class _PreviewState extends State<_Preview> {
   Object? _shown;
   int _serial = 0;
 
+  /// Les pochettes de la ligne en cours, tirées au hasard : tous les albums
+  /// passent une fois avant qu'un seul ne revienne.
+  final _random = math.Random();
+  final _picks = <int>[];
+  final _bag = <int>[];
+  int _count = 0;
+
+  int _album(int n, int count) {
+    if (count != _count) {
+      _count = count;
+      _picks.clear();
+      _bag.clear();
+    }
+    while (_picks.length <= n) {
+      if (_bag.isEmpty) {
+        _bag
+          ..addAll(Iterable.generate(count))
+          ..shuffle(_random);
+        // Jamais deux fois de suite la même, d'un tour au suivant.
+        if (count > 1 && _bag.last == _lastPick) _bag.insert(0, _bag.removeLast());
+      }
+      _picks.add(_lastPick = _bag.removeLast());
+    }
+    return _picks[n];
+  }
+
+  int? _lastPick;
+
   @override
   void initState() {
     super.initState();
@@ -987,7 +1111,10 @@ class _PreviewState extends State<_Preview> {
   @override
   void didUpdateWidget(_Preview old) {
     super.didUpdateWidget(old);
-    if (old.seed != widget.seed || old.kind != widget.kind) _start = clock.now();
+    if (old.seed != widget.seed || old.kind != widget.kind) {
+      _start = clock.now();
+      _picks.clear();
+    }
     _sync();
   }
 
@@ -1043,8 +1170,7 @@ class _PreviewState extends State<_Preview> {
           image = const _Pan(bytes: null, phase: 0, back: false);
         } else {
           final turn = t ~/ _stay;
-          final seed = widget.seed.codeUnits.fold(0, (a, b) => a + b);
-          int album(int n) => (seed * 7 + n * 37) % count;
+          int album(int n) => _album(n, count);
           player.albumCover(album(turn + 1)); // la suivante se prépare
           key = album(turn);
           image = _Pan(bytes: player.albumCover(album(turn)), phase: (t % _stay) / _stay, back: turn.isOdd);
@@ -1129,12 +1255,19 @@ class _Pan extends StatelessWidget {
 /// bord, puis sur fond noir le titre et l'artiste centrés, et une seule
 /// ligne temps écoulé · barre · temps restant.
 class _NowPlayingPortrait extends StatelessWidget {
-  const _NowPlayingPortrait({required this.player, required this.mode});
+  const _NowPlayingPortrait({required this.player, required this.mode, this.tall = false});
 
   final PlayerController player;
   final NowPlayingMode mode;
 
+  /// Écran allongé du nano 5G : titre, artiste et album en haut, sous la
+  /// barre de titre, puis la pochette. Sinon (nano 4G) la pochette d'abord,
+  /// le titre et l'artiste dessous, sur son reflet.
+  final bool tall;
+
   static const _white = Color(0xFFF2F3F5);
+  static const _grey = Color(0xFFB4B8BE);
+  static const _bg = Color(0xFF0E0F12);
 
   @override
   Widget build(BuildContext context) {
@@ -1146,26 +1279,31 @@ class _NowPlayingPortrait extends StatelessWidget {
       );
     }
     const art = 240.0;
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF2A2C31), Color(0xFF0E0F12)],
-        ),
-      ),
+    final top = tall ? 50.0 : 0.0;
+    final cover = _Artwork(bytes: player.cover, size: art);
+    final title = Marquee(track.title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _white));
+    final artist = Marquee(track.artist, style: const TextStyle(fontSize: 11, color: _grey));
+    return ColoredBox(
+      color: _bg,
       child: Stack(
         children: [
-          Positioned(left: 0, top: 0, child: _Artwork(bytes: player.cover, size: art)),
+          Positioned(left: 0, top: top, child: cover),
+          // Le reflet de la pochette, comme posée sur une table noire : il
+          // occupe tout le bas de l'écran, sous le texte et la barre.
+          Positioned(left: 0, top: top + art, width: art, bottom: 0, child: _Reflection(size: art, child: cover)),
           Positioned(
             left: 8,
             right: 8,
-            top: art + 3,
+            top: tall ? 4 : art + 3,
             child: Column(
               children: [
-                Marquee(track.title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _white)),
+                title,
                 const SizedBox(height: 2),
-                Marquee(track.artist, style: const TextStyle(fontSize: 11, color: Color(0xFFB4B8BE))),
+                artist,
+                if (tall && track.album.isNotEmpty) ...[
+                  const SizedBox(height: 1),
+                  Marquee(track.album, style: const TextStyle(fontSize: 11, color: _grey)),
+                ],
               ],
             ),
           ),
@@ -1193,6 +1331,42 @@ class _NowPlayingPortrait extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Le haut du reflet de [child] (un carré de côté [size]) : retourné, sous
+/// un voile qui se fond dans le fond de l'écran.
+class _Reflection extends StatelessWidget {
+  const _Reflection({required this.size, required this.child});
+
+  final double size;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ClipRect(
+          child: OverflowBox(
+            alignment: Alignment.topCenter,
+            minHeight: size,
+            maxHeight: size,
+            child: Transform.flip(flipY: true, child: child),
+          ),
+        ),
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0x990E0F12), _NowPlayingPortrait._bg],
+              stops: [0, 0.9],
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

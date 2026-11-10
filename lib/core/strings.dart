@@ -60,6 +60,8 @@ const _strings = <String, List<String>>{
   'Lecture aléatoire': ['Shuffle', 'Aleatorio', 'Zufällig'],
   'Répéter': ['Repeat', 'Repetir', 'Wiederholen'],
   'Non': ['Off', 'No', 'Aus'],
+  'Oui': ['On', 'Sí', 'Ein'],
+  'Premier plan': ['Always on Top', 'Siempre visible', 'Im Vordergrund'],
   'Un': ['One', 'Una', 'Einen'],
   'Rétroéclairage': ['Backlight', 'Retroiluminación', 'Beleuchtung'],
   'Allumé': ['On', 'Activada', 'Ein'],

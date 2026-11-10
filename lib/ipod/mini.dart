@@ -1,70 +1,50 @@
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart' hide RepeatMode;
 
 import '../core/player.dart';
+import 'finish.dart';
 import 'look.dart';
 import 'model.dart';
 import 'nav.dart';
 import 'wheel.dart';
 import '../core/strings.dart';
 
-/// Teintes d'aluminium anodisé, avec la molette en plastique assortie.
+/// Teintes d'aluminium anodisé de la 1re génération, relevées sur les
+/// photos d'Apple : la face ([base]), le reflet qui court le long des
+/// arrondis ([light]) et l'ombre des flancs ([dark]).
 enum MiniColor {
-  argent(
-    'Argent',
-    base: Color(0xFFC4C8CC),
-    light: Color(0xFFE4E7EA),
-    dark: Color(0xFF8A8F94),
-    wheel: [Color(0xFFF5F6F7), Color(0xFFE8EAEC), Color(0xFFD8DBDF)],
-    label: Color(0xFFA4A9AE),
-  ),
-  bleu(
-    'Bleu',
-    base: Color(0xFF79AFDC),
-    light: Color(0xFFAED2EF),
-    dark: Color(0xFF3C72A2),
-    wheel: [Color(0xFFEAF3FB), Color(0xFFD6E6F4), Color(0xFFC0D6EA)],
-    label: Color(0xFF86A9CA),
-  ),
-  rose(
-    'Rose',
-    base: Color(0xFFE5A3C2),
-    light: Color(0xFFF4CDE0),
-    dark: Color(0xFFB0688C),
-    wheel: [Color(0xFFFBEBF3), Color(0xFFF3D8E5), Color(0xFFE7C2D5)],
-    label: Color(0xFFD29AB6),
-  ),
-  vert(
-    'Vert',
-    base: Color(0xFFA4CC88),
-    light: Color(0xFFCAE5B6),
-    dark: Color(0xFF6A964E),
-    wheel: [Color(0xFFEFF7E8), Color(0xFFDDEDD0), Color(0xFFC9E0B7)],
-    label: Color(0xFF9EC285),
-  ),
-  or(
-    'Or',
-    base: Color(0xFFD6C38C),
-    light: Color(0xFFEDE1BD),
-    dark: Color(0xFFA38F57),
-    wheel: [Color(0xFFF9F4E5), Color(0xFFEFE6CD), Color(0xFFE2D6B3)],
-    label: Color(0xFFC2B183),
-  );
+  argent('Argent', base: Color(0xFFC4C6C9), light: Color(0xFFD9DBDE), dark: Color(0xFF5A5D62)),
+  bleu('Bleu', base: Color(0xFF609FCA), light: Color(0xFF7ABAE3), dark: Color(0xFF2B4F78)),
+  rose('Rose', base: Color(0xFFE07BA6), light: Color(0xFFEE94B9), dark: Color(0xFF7E4157)),
+  vert('Vert', base: Color(0xFF9ED354), light: Color(0xFFB2E06E), dark: Color(0xFF4F682C)),
+  or('Or', base: Color(0xFFC8AB64), light: Color(0xFFD9C17C), dark: Color(0xFF63492B)),
 
-  const MiniColor(this.displayName, {required this.base, required this.light, required this.dark, required this.wheel, required this.label});
+  // 2e génération (2005) : teintes plus vives, plus d'or, et les
+  // inscriptions de la molette prennent la couleur du boîtier.
+  argent2('Argent', base: Color(0xFFC4C9CA), light: Color(0xFFE2E7E6), dark: Color(0xFF5A5E61), gen2: true),
+  bleu2('Bleu', base: Color(0xFF1596D6), light: Color(0xFF3DB4EC), dark: Color(0xFF0A4F78), gen2: true),
+  rose2('Rose', base: Color(0xFFDC559A), light: Color(0xFFEE7DB7), dark: Color(0xFF7E1F55), gen2: true),
+  vert2('Vert', base: Color(0xFF7DB33B), light: Color(0xFFADD558), dark: Color(0xFF3F6B24), gen2: true);
 
+  const MiniColor(this.displayName, {required this.base, required this.light, required this.dark, this.gen2 = false});
+
+  /// Les cinq teintes de 2004.
+  static List<MiniColor> get gen1 => [for (final c in values) if (!c.gen2) c];
+
+  /// Les quatre teintes de 2005.
+  static List<MiniColor> get gen2s => [for (final c in values) if (c.gen2) c];
+
+  final bool gen2;
   final String displayName;
   final Color base;
   final Color light;
   final Color dark;
-  final List<Color> wheel;
-  final Color label;
 }
 
 /// Le Mini : tube d'aluminium anodisé de 51 × 91 mm, petit écran
-/// monochrome rétroéclairé, molette en plastique de la couleur du boîtier.
+/// monochrome rétroéclairé, molette en plastique blanc cassé aux inscriptions
+/// grises.
 class MiniModel extends IpodModel {
   const MiniModel([this.color = MiniColor.bleu]);
 
@@ -76,13 +56,13 @@ class MiniModel extends IpodModel {
   static const double _radius = 22;
 
   @override
-  String get id => 'mini-${color.name}';
+  String get id => color.gen2 ? 'mini2-${color.name.substring(0, color.name.length - 1)}' : 'mini-${color.name}';
 
   @override
-  String get family => 'mini';
+  String get family => color.gen2 ? 'mini2' : 'mini';
 
   @override
-  String get label => 'Mini';
+  String get label => color.gen2 ? 'Mini 2G' : 'Mini';
 
   @override
   String get variantName => color.displayName;
@@ -117,13 +97,13 @@ class MiniModel extends IpodModel {
         iconScale: 1,
         labelSize: 17,
         labelSpacing: 0.9,
-        label: color.label,
-        recess: Color.lerp(color.dark, color.base, 0.4)!,
-        ring: color.wheel,
+        label: color.gen2 && color != MiniColor.argent2 ? color.base : const Color(0xFF8A9394),
+        recess: Color.lerp(color.dark, color.base, 0.35)!,
+        ring: const [Color(0xFFF3F3F3), Color(0xFFE6E6E6), Color(0xFFDDDEDE)],
         edgeLight: 0.8,
-        groove: Color.lerp(color.wheel.last, color.label, 0.45)!,
-        buttonUp: [color.wheel.first, color.wheel[1]],
-        buttonDown: [color.wheel.last, color.wheel[1]],
+        groove: const Color(0xFFB4B9B9),
+        buttonUp: const [Color(0xFFF0F0F0), Color(0xFFE3E3E3)],
+        buttonDown: const [Color(0xFFD6D7D7), Color(0xFFE6E6E6)],
       );
 
   /// En haut à gauche, dans le bouchon en plastique blanc.
@@ -160,34 +140,23 @@ class _MiniBodyPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final body = RRect.fromRectAndRadius(Offset.zero & size, const Radius.circular(MiniModel._radius));
 
-    // Ombres : il flotte.
-    canvas.drawRRect(
-      body.shift(const Offset(0, 24)).deflate(8),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.32)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 26),
-    );
-    canvas.drawRRect(
-      body.shift(const Offset(0, 5)),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.25)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
-    );
+    paintFloatShadow(canvas, body, drop: 24, blur: 26);
 
     canvas.save();
     canvas.clipRRect(body);
 
-    // Tube d'aluminium : bords qui fuient dans l'ombre, reflet près de chaque
-    // arrondi, face avant mate.
+    // Tube d'aluminium éclairé de la gauche : les flancs arrondis fuient
+    // dans l'ombre, un reflet suit l'arrondi gauche, la face est unie.
     final c = color;
+    final deep = Color.lerp(c.dark, Colors.black, 0.25)!;
     canvas.drawRect(
       Offset.zero & size,
       Paint()
         ..shader = ui.Gradient.linear(
           Offset.zero,
           Offset(size.width, 0),
-          [c.dark, c.base, c.light, c.base, c.base, c.light, c.base, c.dark],
-          const [0, 0.035, 0.09, 0.22, 0.78, 0.91, 0.965, 1],
+          [deep, c.dark, c.light, Color.lerp(c.base, c.light, 0.3)!, c.base, c.base, Color.lerp(c.base, c.dark, 0.35)!, c.dark, deep],
+          const [0, 0.03, 0.075, 0.14, 0.26, 0.86, 0.925, 0.972, 1],
         ),
     );
     // Lumière venant d'en haut.
@@ -197,32 +166,11 @@ class _MiniBodyPainter extends CustomPainter {
         ..shader = ui.Gradient.linear(
           Offset.zero,
           Offset(0, size.height),
-          [Colors.white.withValues(alpha: 0.10), Colors.white.withValues(alpha: 0), Colors.black.withValues(alpha: 0.08)],
-          const [0, 0.45, 1],
+          [Colors.white.withValues(alpha: 0.12), Colors.white.withValues(alpha: 0), Colors.black.withValues(alpha: 0.16)],
+          const [0, 0.4, 1],
         ),
     );
-    // Grain du microbillage (déterministe).
-    final rnd = math.Random(11);
-    final light = <Offset>[];
-    final dark = <Offset>[];
-    for (var i = 0; i < 5200; i++) {
-      final p = Offset(rnd.nextDouble() * size.width, rnd.nextDouble() * size.height);
-      (rnd.nextBool() ? light : dark).add(p);
-    }
-    canvas.drawPoints(
-      ui.PointMode.points,
-      light,
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.10)
-        ..strokeWidth = 0.9,
-    );
-    canvas.drawPoints(
-      ui.PointMode.points,
-      dark,
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.07)
-        ..strokeWidth = 0.9,
-    );
+    paintSatin(canvas, size);
 
     // Bouchons en plastique blanc en haut et en bas du tube.
     for (final top in [true, false]) {
@@ -303,8 +251,10 @@ class _MiniGlassPainter extends CustomPainter {
 
 // --- Écran monochrome ------------------------------------------------------------
 
-const _ink = Color(0xFF1C2830);
-const _lcd = Color(0xFFC6D4DA);
+// Relevés sur l'écran rétroéclairé des photos d'Apple : fond bleuté, encre
+// bleu nuit.
+const _ink = Color(0xFF2B2C55);
+const _lcd = Color(0xFFB5C1D5);
 const _font = 'Noto Sans';
 const double _barH = 18;
 

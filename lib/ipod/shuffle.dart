@@ -13,20 +13,35 @@ const _noScreen = MiniLook(size: Size(160, 128), visibleRows: 6);
 
 /// Anneau de commandes d'un shuffle : blanc, symboles gris, bouton central
 /// blanc (1G) ou de la couleur du boîtier (2G, 4G).
-WheelStyle _pad(double radius, double button, {List<Color>? center, List<Color>? centerDown, Color recess = const Color(0xFFC9CBCE)}) =>
+WheelStyle _pad(double radius, double button, {Anodized? tint, bool darkRing = false, Color recess = const Color(0xFFC9CBCE)}) =>
     WheelStyle(
       radius: radius,
       buttonRadius: button,
       shuffle: true,
       iconScale: radius / 110,
       labelInset: (radius + button) / 2 / radius,
-      label: const Color(0xFFADB0B4),
+      // Anneau blanc aux symboles gris, ou noir aux symboles blancs (4G
+      // argent et gris sidéral : le ⏯ du bouton y est gravé en sombre).
+      label: darkRing ? const Color(0xFFF2F3F5) : const Color(0xFFA3ACB0),
+      centerLabel: darkRing ? const Color(0xFF1A1A1C) : null,
       recess: recess,
-      ring: const [Color(0xFFFAFAF8), Color(0xFFEFEFEC), Color(0xFFE2E2DF)],
-      edgeLight: 0.6,
-      groove: const Color(0xFFCDCFD2),
-      buttonUp: center ?? const [Color(0xFFFFFFFF), Color(0xFFEDEEF0)],
-      buttonDown: centerDown ?? const [Color(0xFFDDDFE2), Color(0xFFF0F1F2)],
+      ring: darkRing
+          ? const [Color(0xFF232325), Color(0xFF19191B), Color(0xFF0E0E10)]
+          : const [Color(0xFFFCFDFF), Color(0xFFF3F7FB), Color(0xFFE6EAEE)],
+      edgeLight: darkRing ? 0.1 : 0.6,
+      groove: darkRing
+          ? const Color(0xFF050506)
+          : tint == null
+              ? const Color(0xFFCDCFD2)
+              : Color.lerp(tint.dark, Colors.black, 0.3)!,
+      // Bouton central en aluminium de la couleur du boîtier, plat.
+      buttonUp: tint == null
+          ? const [Color(0xFFFFFFFF), Color(0xFFEDEEF0)]
+          : [Color.lerp(tint.base, tint.light, 0.5)!, Color.lerp(tint.base, tint.dark, 0.3)!],
+      buttonDown: tint == null
+          ? const [Color(0xFFDDDFE2), Color(0xFFF0F1F2)]
+          : [tint.dark, Color.lerp(tint.base, tint.dark, 0.4)!],
+      buttonEdge: tint == null ? 0.9 : 0.18,
     );
 
 /// Le shuffle de 1re génération (2005) : une barrette de plastique blanc
@@ -93,13 +108,13 @@ class Shuffle1Model extends IpodModel {
 
 /// Les teintes du shuffle de 2e génération (2006-2008).
 const shuffle2Colors = [
-  Anodized('argent', 'Argent', base: Color(0xFFCDD0D3), light: Color(0xFFE6E8EA), dark: Color(0xFFA9ADB1)),
-  Anodized('bleu', 'Bleu', base: Color(0xFF8DBEDF), light: Color(0xFFB4D5EC), dark: Color(0xFF6497BF)),
-  Anodized('vert', 'Vert', base: Color(0xFF1F7F78), light: Color(0xFF3B9C94), dark: Color(0xFF125C57)),
-  Anodized('violet', 'Violet', base: Color(0xFFA796C9), light: Color(0xFFC3B6DE), dark: Color(0xFF8170A8)),
-  Anodized('rose', 'Rose', base: Color(0xFFE79BB9), light: Color(0xFFF1BED2), dark: Color(0xFFC57595)),
-  Anodized('orange', 'Orange', base: Color(0xFFEE8F3E), light: Color(0xFFF4AE71), dark: Color(0xFFC46B22)),
-  Anodized('rouge', 'Rouge', base: Color(0xFFC21F35), light: Color(0xFFD9475A), dark: Color(0xFF8E1424)),
+  Anodized('argent', 'Argent', base: Color(0xFFC8C9CB), light: Color(0xFFD3D5D6), dark: Color(0xFFBBBDBE)),
+  Anodized('bleu', 'Bleu', base: Color(0xFF006DB6), light: Color(0xFF0079C2), dark: Color(0xFF0062A6)),
+  Anodized('vert', 'Vert', base: Color(0xFF4F9800), light: Color(0xFF5AA708), dark: Color(0xFF458A00)),
+  Anodized('violet', 'Violet', base: Color(0xFF9C8AC6), light: Color(0xFFAC9BD3), dark: Color(0xFF8A78B4)),
+  Anodized('rose', 'Rose', base: Color(0xFFBD227A), light: Color(0xFFC92A84), dark: Color(0xFFAE1C70)),
+  Anodized('orange', 'Orange', base: Color(0xFFE9831C), light: Color(0xFFF2922E), dark: Color(0xFFD67413)),
+  Anodized('rouge', 'Rouge', base: Color(0xFFB80012), light: Color(0xFFC70017), dark: Color(0xFFA6000F)),
 ];
 
 /// Le shuffle de 2e génération (2006) : une pince en aluminium anodisé
@@ -154,19 +169,13 @@ class Shuffle2Model extends IpodModel {
   Offset get wheelCenter => const Offset(137.5, 91);
 
   @override
-  WheelStyle get wheel => _pad(
-        66,
-        40,
-        center: [color.light, color.base],
-        centerDown: [color.dark, color.base],
-        recess: Color.lerp(color.dark, Colors.black, 0.15)!,
-      );
+  WheelStyle get wheel => _pad(66, 40, tint: color, recess: Color.lerp(color.dark, Colors.black, 0.25)!);
 
   @override
   ScreenLook get look => _noScreen;
 
   @override
-  CustomPainter get body => AnodizedBodyPainter(color, _radius, Rect.zero, rounded: false);
+  CustomPainter get body => AnodizedBodyPainter(color, _radius, Rect.zero, shape: AluShape.flat);
 
   @override
   CustomPainter? get glass => null;
@@ -183,11 +192,17 @@ class Shuffle2Model extends IpodModel {
 
 /// Les teintes du shuffle de 4e génération (2010).
 const shuffle4Colors = [
-  Anodized('argent', 'Argent', base: Color(0xFFCDD0D3), light: Color(0xFFE6E8EA), dark: Color(0xFFA9ADB1)),
-  Anodized('bleu', 'Bleu', base: Color(0xFF3E86C4), light: Color(0xFF6BA6D8), dark: Color(0xFF2A649A)),
-  Anodized('vert', 'Vert', base: Color(0xFF8DBE4E), light: Color(0xFFADD478), dark: Color(0xFF6A9A33)),
-  Anodized('orange', 'Orange', base: Color(0xFFEE8F3E), light: Color(0xFFF4AE71), dark: Color(0xFFC46B22)),
-  Anodized('rose', 'Rose', base: Color(0xFFE26D9E), light: Color(0xFFEE98BC), dark: Color(0xFFBC4A7A)),
+  // 2010.
+  Anodized('argent', 'Argent', base: Color(0xFFA2A3A8), light: Color(0xFFB9BABF), dark: Color(0xFF85878C)),
+  Anodized('bleu', 'Bleu', base: Color(0xFF3A6EB6), light: Color(0xFF568FCF), dark: Color(0xFF245198)),
+  Anodized('vert', 'Vert', base: Color(0xFF71972B), light: Color(0xFF88B13C), dark: Color(0xFF5E831E)),
+  Anodized('orange', 'Orange', base: Color(0xFFC57418), light: Color(0xFFE08D1F), dark: Color(0xFFB26113)),
+  Anodized('rose', 'Rose', base: Color(0xFFC72D72), light: Color(0xFFDB4F8B), dark: Color(0xFFBA1862)),
+  // 2015.
+  Anodized('sideral', 'Gris sidéral', base: Color(0xFF46454B), light: Color(0xFF58565C), dark: Color(0xFF34333A)),
+  Anodized('or', 'Or', base: Color(0xFFE8D3B8), light: Color(0xFFF3DEC1), dark: Color(0xFFD2BC9E)),
+  Anodized('bleu2015', 'Bleu (2015)', base: Color(0xFF1950AF), light: Color(0xFF1D58BC), dark: Color(0xFF1546A0)),
+  Anodized('rose2015', 'Rose (2015)', base: Color(0xFFF41A7A), light: Color(0xFFFB3087), dark: Color(0xFFD81268)),
 ];
 
 /// Le shuffle de 4e génération (2010) : une petite pince carrée (29 × 31,6
@@ -245,16 +260,16 @@ class Shuffle4Model extends IpodModel {
   WheelStyle get wheel => _pad(
         79,
         47,
-        center: [color.light, color.base],
-        centerDown: [color.dark, color.base],
-        recess: Color.lerp(color.dark, Colors.black, 0.15)!,
+        tint: color,
+        darkRing: color.name == 'argent' || color.name == 'sideral',
+        recess: Color.lerp(color.dark, Colors.black, 0.25)!,
       );
 
   @override
   ScreenLook get look => _noScreen;
 
   @override
-  CustomPainter get body => AnodizedBodyPainter(color, _radius, Rect.zero, rounded: false);
+  CustomPainter get body => AnodizedBodyPainter(color, _radius, Rect.zero, shape: AluShape.flat);
 
   @override
   CustomPainter? get glass => null;

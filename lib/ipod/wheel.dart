@@ -21,6 +21,8 @@ class WheelStyle {
     this.groove = const Color(0xFFC3C6CA),
     this.buttonUp = const [Color(0xFFFFFFFF), Color(0xFFEDEEF0)],
     this.buttonDown = const [Color(0xFFDDDFE2), Color(0xFFF0F1F2)],
+    this.buttonEdge = 0.9,
+    this.centerLabel,
     this.labels = true,
     this.sideClicks = true,
     this.innerRadius,
@@ -62,6 +64,13 @@ class WheelStyle {
   final Color groove;
   final List<Color> buttonUp;
   final List<Color> buttonDown;
+
+  /// Filet de lumière au bord du bouton central : franc sur un bouton en
+  /// plastique blanc, à peine visible sur un bouton en métal teinté.
+  final double buttonEdge;
+
+  /// Couleur du ⏯ gravé sur le bouton central d'un shuffle (sinon [label]).
+  final Color? centerLabel;
 
   /// MENU ⏮ ⏭ ⏯ inscrits sur la molette (sinon, boutons à part).
   final bool labels;
@@ -167,9 +176,9 @@ class WheelPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.2
-        ..color = Colors.white.withValues(alpha: down ? 0.3 : 0.9),
+        ..color = Colors.white.withValues(alpha: down ? s.buttonEdge / 3 : s.buttonEdge),
     );
-    if (s.shuffle && s.labels) _playPause(canvas, c.translate(1.5 * s.iconScale, 0), Paint()..color = s.label);
+    if (s.shuffle && s.labels) _playPause(canvas, c.translate(1.5 * s.iconScale, 0), Paint()..color = s.centerLabel ?? s.label);
   }
 
   /// + − ⏮ ⏭ autour de l'anneau d'un shuffle.

@@ -174,6 +174,8 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
     final look = widget.look;
     final w = look.size.width;
     final offset = _slide.value * w * nav.direction;
+    final leaving = nav.leaving;
+    final ownBars = leaving != null && _barShare(leaving) != _barShare(nav.page);
     return DefaultTextStyle(
       style: look.textStyle,
       child: _PowerOff(on: screenPower.value, look: look, child: _Backlight(lit: _lit, tint: look.unlit, child: ColoredBox(
@@ -197,32 +199,22 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
                       Positioned.fill(
                         left: offset - w * nav.direction,
                         right: -(offset - w * nav.direction),
-                        child: _framed(nav.leaving!),
+                        child: ownBars ? _withBar(nav.leaving!) : _framed(nav.leaving!),
                       ),
-                    Positioned.fill(left: offset, right: -offset, child: _framed(nav.page)),
+                    Positioned.fill(
+                      left: offset,
+                      right: -offset,
+                      child: ownBars ? _withBar(nav.page) : _framed(nav.page),
+                    ),
                   ],
                 ),
               ),
             ),
             // La barre de titre, par-dessus : elle s'arrête à l'image d'un
-            // menu scindé sur le côté, et s'allonge ou se raccourcit pendant
-            // qu'on passe d'une page à l'autre.
-            Positioned(
-              left: 0,
-              top: 0,
-              height: look.barHeight,
-              width: w *
-                  (nav.leaving == null
-                      ? _barShare(nav.page)
-                      : _barShare(nav.page) + (_barShare(nav.leaving!) - _barShare(nav.page)) * _slide.value.clamp(0.0, 1.0)),
-              child: look.statusBar(
-                title: nav.page.title,
-                playing: widget.player.playing,
-                hasTrack: widget.player.current != null,
-                nowPlaying: nav.page is NowPlayingPage,
-                locked: nav.locked,
-              ),
-            ),
+            // menu scindé sur le côté. Elle reste en place d'une page à
+            // l'autre, sauf si sa largeur change : chaque page glisse alors
+            // avec la sienne.
+            if (!ownBars) Positioned(left: 0, top: 0, height: look.barHeight, width: w * _barShare(nav.page), child: _bar(nav.page)),
           ],
         ),
       ))),
@@ -238,6 +230,28 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
     final parts = _split(p);
     return parts != null && parts.image.top == 0 ? parts.menu.width / widget.look.size.width : 1;
   }
+
+  Widget _bar(IpodPage p) => widget.look.statusBar(
+        title: p.title,
+        playing: widget.player.playing,
+        hasTrack: widget.player.current != null,
+        nowPlaying: p is NowPlayingPage,
+        locked: nav.locked,
+      );
+
+  /// La page et sa propre barre de titre, qui glissent ensemble.
+  Widget _withBar(IpodPage p) => Stack(
+        children: [
+          Positioned.fill(child: _framed(p)),
+          Positioned(
+            left: 0,
+            top: 0,
+            height: widget.look.barHeight,
+            width: widget.look.size.width * _barShare(p),
+            child: _bar(p),
+          ),
+        ],
+      );
 
   /// La page à sa place : sous la barre de titre, sauf un menu scindé, qui
   /// se place lui-même sur l'écran entier.

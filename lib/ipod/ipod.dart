@@ -8,7 +8,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:nativeapi/nativeapi.dart' show DisplayManager;
+import 'package:flutter/foundation.dart' show listEquals;
+import 'package:nativeapi/nativeapi.dart' show DisplayManager, Point, WindowShape;
 import 'package:window_manager/window_manager.dart';
 
 import '../core/player.dart';
@@ -48,19 +49,22 @@ final List<IpodModel> ipodModels = [
   const FirstGenModel(), // 2001
   const SecondGenModel(), // 2002
   const ThirdGenModel(), // 2003
-  for (final c in MiniColor.values) MiniModel(c), // janvier 2004
+  for (final c in MiniColor.gen1) MiniModel(c), // janvier 2004
   for (final c in FourthGenColor.values) FourthGenModel(c), // juillet 2004
   const PhotoModel(), // octobre 2004
   const Shuffle1Model(), // janvier 2005
+  for (final c in MiniColor.gen2s) MiniModel(c), // février 2005
   for (final c in Nano1Color.values) Nano1Model(c), // septembre 2005
   const VideoModel(), // octobre 2005
   const VideoModel(ClassicColor.noir),
+  const VideoModel(ClassicColor.u2), // juin 2006
   for (final c in nano2Colors) Nano2Model(c), // septembre 2006
   for (final c in shuffle2Colors) Shuffle2Model(c), // septembre 2006
   const ClassicModel(), // septembre 2007
   const ClassicModel(ClassicColor.noir),
   for (final c in NanoColor.values) NanoModel(c), // septembre 2007
   for (final c in nano4Colors) Nano4Model(c), // 2008
+  for (final c in nano5Colors) Nano5Model(c), // septembre 2009
   for (final c in shuffle4Colors) Shuffle4Model(c), // septembre 2010
 ];
 
@@ -116,6 +120,11 @@ class IpodStage extends StatefulWidget {
 
   final PlayerController player;
   final IpodModel? initial;
+
+  /// Pour les tests : l'iPod se glisse à la main dans la fenêtre, comme en
+  /// plein écran sous Windows.
+  @visibleForTesting
+  static bool debugDragInside = false;
 
   /// Le modèle qui s'affichera au lancement.
   static IpodModel get savedModel => _IpodStageState._saved();
@@ -204,6 +213,33 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _kick();
   }
 
+  // Fenêtre plein écran (Windows) : on tient l'iPod pour le glisser à la
+  // main, de gauche à droite ; lâché, il rejoint la place la plus proche.
+  bool _holding = false;
+  double _holdFrom = 0, _holdPlace = 0;
+
+  void _holdBegin(Offset pointer) {
+    if (!_canPlace) return;
+    _holding = true;
+    _holdFrom = pointer.dx;
+    _holdPlace = _place.value;
+    _place.velocity = 0;
+    _kick();
+  }
+
+  void _holdUpdate(Offset pointer) {
+    if (!_holding || _placeReach <= 0) return;
+    setState(() => _place.value = (_holdPlace + (pointer.dx - _holdFrom) / _placeReach).clamp(-1.0, 1.0));
+  }
+
+  void _holdEnd() {
+    if (!_holding) return;
+    _holding = false;
+    _placeTarget = _place.value.round().clamp(-1, 1);
+    if (_remember) Settings.setString(_placeKey, _placeNames[_placeTarget]!);
+    _kick();
+  }
+
   /// Décalage vertical du tiroir quand on le tire de travers : un ressort
   /// le ramène toujours dans l'axe.
   final _lift = Spring(0, stiffness: 420, damping: 0.8);
@@ -281,6 +317,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     super.initState();
     widget.player.setForcedShuffle(_shuffles(_model));
     if (_win != null) WidgetsBinding.instance.addPostFrameCallback((_) => _takeWindow());
+    _takeFullWindow();
     if (_remember) {
       // Au lancement, la prise vient se brancher, une fois l'iPod arrivé
       // (voir main.dart) ; l'écran s'allume au branchement.
@@ -314,6 +351,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     ipodLanded.removeListener(_landed);
     _liveTimer?.cancel();
     _dragSettle?.cancel();
+    _refit?.cancel();
     _nav.dispose();
     _drawerSnap.dispose();
     _deviceSnap.dispose();
@@ -344,8 +382,10 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       }
       if (_lift.isSettled) _lift.value = 0;
     }
-    _place.step(_placeTarget.toDouble(), dt);
-    if (_place.isSettled) _place.value = _placeTarget.toDouble();
+    if (!_holding) {
+      _place.step(_placeTarget.toDouble(), dt);
+      if (_place.isSettled) _place.value = _placeTarget.toDouble();
+    }
     for (final (peek, side) in [(_peekL, -1), (_peekR, 1)]) {
       // Les deux boutons d'un coin sortent ensemble, quel que soit celui
       // qu'on approche.
@@ -735,7 +775,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     // qu'une photo : débranché, en vol, rebranché. Impeller repeindrait
     // sinon à chaque image tout l'appareil, ombres floues comprises.
     final flying = _phase != _Swap.none && _phase != _Swap.poweringOff;
-    final moving = _dragging || !_open.isSettled || !_place.isSettled;
+    final moving = _dragging || _holding || !_open.isSettled || !_place.isSettled;
     _deviceSnap.allowSnapshotting = (moving && _phase == _Swap.none || flying) && !_hideDevice;
   }
 
@@ -964,8 +1004,13 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   EdgeInsets _devicePadding(double w, double h) =>
       _managedPadding(w, h) ??
       (_model.jackOnTop
-          ? _model.margin.copyWith(top: math.max(_model.margin.top, h * 0.2))
-          : _model.margin.copyWith(bottom: math.max(_model.margin.bottom, h * 0.2)));
+          ? _model.margin.copyWith(top: math.max(_model.margin.top, _cableRoom(h)))
+          : _model.margin.copyWith(bottom: math.max(_model.margin.bottom, _cableRoom(h))));
+
+  /// Hauteur gardée pour le câble. En plein écran (Windows) elle est
+  /// plafonnée : sur un portable (écran mis à l'échelle, peu de hauteur),
+  /// l'iPod garde ainsi presque toute sa taille.
+  double _cableRoom(double h) => _full != null ? math.min(h * 0.2, 110) : h * 0.2;
 
   /// Poignée cachée derrière un coin du haut de l'appareil [dev] : quand la
   /// souris approche de ce coin, elle glisse dehors ; cliquée ou tirée, le
@@ -1129,6 +1174,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                         player: widget.player,
                         nav: _nav,
                         onWindowDrag: _beginWindowDrag,
+                        onHoldBegin: _dragsInside ? _holdBegin : null,
+                        onHoldUpdate: _holdUpdate,
+                        onHoldEnd: _holdEnd,
                       ),
                   ),
                 ),
@@ -1184,6 +1232,22 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             // Rangé, il attend hors de la fenêtre, sa photo prête : rien de
             // lui (pas même son ombre) ne dépasse de derrière l'iPod.
             open == 0 ? Offset(right ? w + 2 * _shadowPad - (outer - drawerW) : -(outer + 2 * _shadowPad + drawerW), 0) : Offset.zero,
+          );
+
+          // Plein écran (Windows) : la fenêtre se découpe autour de l'iPod au
+          // repos, pour laisser les clics du bureau passer à côté.
+          _shapeWindow(
+            w,
+            h,
+            dev,
+            whole: _wantOpen ||
+                open != 0 ||
+                _dragging ||
+                _holding ||
+                _phase != _Swap.none ||
+                _geoFrom != null ||
+                !_place.isSettled ||
+                !ipodLanded.value,
           );
 
           if (_hideDevice) device = Opacity(opacity: 0, child: device);
