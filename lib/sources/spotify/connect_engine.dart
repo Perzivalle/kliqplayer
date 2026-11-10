@@ -30,11 +30,28 @@ class SpotifyConnectEngine extends PlaybackEngine {
   /// Spotify n'accepte qu'un nombre limité de morceaux à la fois.
   static const _window = 100;
 
-  /// Fin (exclue) des morceaux de [_queue] déjà donnés à Spotify, quand on
-  /// lui a donné une suite de morceaux : on lui donne les suivants un à un,
-  /// à mesure qu'il arrive au bout.
-  int _sentTo = 0;
+  /// Quand on a donné une suite de morceaux à Spotify : les rangs (dans
+  /// [_queue]) à jouer, dans l'ordre, et combien il en a déjà reçu. Les
+  /// suivants lui sont donnés un à un, à mesure qu'il arrive au bout.
+  List<int> _order = const [];
+  int _given = 0;
   bool _extending = false;
+
+  /// Spotify accepte une suite de morceaux (« uris ») puis ne joue rien :
+  /// vu le 9 novembre 2026 avec l'appli officielle, alors qu'un album ou
+  /// un ajout à la file passent. Une fois constaté, on mène la file à la
+  /// main ([_manual]) : chaque morceau est lancé dans son album, et le
+  /// suivant mis à la file de Spotify juste avant la fin.
+  bool _listsRefused = false;
+  bool _manual = false;
+
+  /// Avant de conclure que rien ne joue : une demande d'état toutes les…
+  static Duration settle = const Duration(milliseconds: 600);
+
+  /// Rang en cours dans [_queue] (-1 : inconnu, ou lancé ailleurs), et où
+  /// en était le morceau à la dernière réponse.
+  int _current = -1;
+  Duration _progress = Duration.zero;
 
   /// Ce qu'on sait de l'état, d'après la dernière réponse ou commande.
   bool _playing = false;
@@ -56,6 +73,8 @@ class SpotifyConnectEngine extends PlaybackEngine {
   void _emit(EngineUpdate u) {
     if (_disposed) return;
     if (u.playing != null) _playing = u.playing!;
+    if (u.index != null) _current = u.index!;
+    if (u.position != null) _progress = u.position!;
     onUpdate?.call(u);
   }
 
@@ -121,7 +140,10 @@ class SpotifyConnectEngine extends PlaybackEngine {
           _ => null,
         },
       ));
-      if (index != null && _playing) _extend(index);
+      if (index != null && _playing && track != null) {
+        final length = track.duration ?? Duration.zero;
+        _extend(index, left: length > Duration.zero ? length - _progress : null);
+      }
     } on SpotifyError catch (e) {
       if (e.status == 429) {
         _blockedUntil = DateTime.now().add(Duration(seconds: e.retryAfter ?? 30));
@@ -139,14 +161,18 @@ class SpotifyConnectEngine extends PlaybackEngine {
 
   /// Le dernier morceau donné à Spotify est en cours : on met le suivant
   /// de notre file à la suite, pour que la lecture ne s'arrête pas là.
-  Future<void> _extend(int index) async {
-    if (_extending || index != _sentTo - 1 || _sentTo >= _queue.length) return;
+  /// À la main, seulement vers la fin du morceau ([left] : ce qu'il en
+  /// reste) : ce qui est dans la file de Spotify ne s'en retire plus, et
+  /// passerait après le prochain morceau choisi.
+  Future<void> _extend(int index, {Duration? left}) async {
+    if (_extending || _given == 0 || _given >= _order.length || index != _order[_given - 1]) return;
+    if (_manual && left != null && left > const Duration(seconds: 12)) return;
     _extending = true;
     try {
-      await _api.post('/me/player/queue', query: {'uri': _queue[_sentTo].id});
-      _sentTo++;
+      await _api.post('/me/player/queue', query: {'uri': _queue[_order[_given]].id});
+      _given++;
     } catch (_) {
-      _sentTo = _queue.length; // refusé : on n'insiste pas
+      _given = _order.length; // refusé : on n'insiste pas
     } finally {
       _extending = false;
     }
@@ -196,45 +222,122 @@ class SpotifyConnectEngine extends PlaybackEngine {
   @override
   Future<void> open(List<Track> queue, int start, {String? uri}) async {
     _queue = queue;
-    _sentTo = queue.length; // (rien à compléter, sauf suite de morceaux coupée)
-    final Map<String, Object?> body;
-    if (uri != null) {
-      // L'album ou la liste tels que Spotify les connaît, à partir du
-      // morceau choisi.
-      body = {
-        'context_uri': uri,
-        if (queue.isNotEmpty) 'offset': {'uri': queue[start].id},
-      };
-    } else if (queue.length > _window && (_pendingShuffle ?? _shuffle)) {
-      // Trop de morceaux, en aléatoire : le morceau choisi, puis d'autres
-      // tirés au hasard dans toute la file (Spotify ne mélange que ce
-      // qu'on lui donne).
-      final others = [for (var i = 0; i < queue.length; i++) if (i != start) i]..shuffle();
-      body = {
-        'uris': [queue[start].id, for (final i in others.take(_window - 1)) queue[i].id],
-        'offset': {'position': 0},
-      };
-    } else {
-      // Une suite de morceaux : ceux autour du morceau choisi ; la suite
-      // sera donnée au fur et à mesure (voir [_extend]).
-      final from = math.max(0, start - 20);
-      final to = math.min(queue.length, from + _window);
-      _sentTo = to;
-      body = {
-        'uris': [for (final t in queue.sublist(from, to)) t.id],
-        'offset': {'position': start - from},
-      };
-    }
+    _order = const []; // (rien à compléter, sauf suite de morceaux)
+    _given = 0;
+    _manual = false;
     // L'appareil est prêt : ça joue tout de suite à l'écran. Sinon (l'appli
     // Spotify doit d'abord se lancer), le morceau attend à zéro : la barre
     // n'avance pas sans le son.
     final ready = account.deviceReady;
     _quiet();
     _emit(EngineUpdate(playing: ready, position: Duration.zero, index: queue.isEmpty ? null : start));
-    await _onThisPc((q) => _api.put('/me/player/play', query: q, body: body));
+    if (uri != null) {
+      // L'album ou la liste tels que Spotify les connaît, à partir du
+      // morceau choisi.
+      await _onThisPc((q) => _api.put('/me/player/play', query: q, body: {
+            'context_uri': uri,
+            if (queue.isNotEmpty) 'offset': {'uri': queue[start].id},
+          }));
+    } else {
+      await _openList(start);
+    }
     if (!ready) _emit(const EngineUpdate(playing: true, position: Duration.zero));
     await _applyPending();
     _soon();
+  }
+
+  /// Une suite de morceaux, sans album ni liste que Spotify connaisse.
+  Future<void> _openList(int start) async {
+    final queue = _queue;
+    final shuffled = _pendingShuffle ?? _shuffle;
+    if (!_listsRefused) {
+      final List<String> uris;
+      final int position;
+      if (queue.length > _window && shuffled) {
+        // Trop de morceaux, en aléatoire : le morceau choisi, puis d'autres
+        // tirés au hasard dans toute la file (Spotify ne mélange que ce
+        // qu'on lui donne).
+        final others = [for (var i = 0; i < queue.length; i++) if (i != start) i]..shuffle();
+        uris = [queue[start].id, for (final i in others.take(_window - 1)) queue[i].id];
+        position = 0;
+      } else {
+        // Ceux autour du morceau choisi ; la suite sera donnée au fur et à
+        // mesure (voir [_extend]).
+        final from = math.max(0, start - 20);
+        final to = math.min(queue.length, from + _window);
+        _order = [for (var i = from; i < queue.length; i++) i];
+        _given = to - from;
+        uris = [for (final t in queue.sublist(from, to)) t.id];
+        position = start - from;
+      }
+      await _onThisPc((q) => _api.put('/me/player/play', query: q, body: {
+            'uris': uris,
+            'offset': {'position': position},
+          }));
+      if (await _took(queue[start].id)) return;
+      _listsRefused = true;
+    }
+    _manual = true;
+    _order = shuffled
+        ? [start, ...[for (var i = 0; i < queue.length; i++) if (i != start) i]..shuffle()]
+        : [for (var i = start; i < queue.length; i++) i];
+    await _startManual(0);
+  }
+
+  /// Spotify a bien pris la suite de morceaux : le morceau choisi ([id])
+  /// est en cours.
+  Future<bool> _took(String id) async {
+    _commands++;
+    try {
+      for (var i = 0; i < 4; i++) {
+        await Future<void>.delayed(settle);
+        final item = (await _api.get('/me/player', {'additional_types': 'track'}))?['item'] as Map<String, Object?>?;
+        // (Remplacé par une autre édition du même morceau : « linked_from ».)
+        if (item != null && (item['uri'] == id || (item['linked_from'] as Map?)?['uri'] == id)) return true;
+      }
+      return false;
+    } catch (_) {
+      return true; // on n'en sait rien : on ne touche à rien
+    } finally {
+      _commands--;
+      _quiet();
+    }
+  }
+
+  /// À la main : lance le morceau de rang [pos] dans [_order], au sein de
+  /// son album (un contexte, que Spotify joue bien).
+  Future<void> _startManual(int pos) async {
+    final index = _order[pos];
+    final track = _queue[index];
+    _given = pos + 1;
+    _quiet();
+    _emit(EngineUpdate(playing: _playing, position: Duration.zero, index: index));
+    final Object? album;
+    _commands++;
+    try {
+      album = ((await _api.get('/tracks/${track.id.split(':').last}'))?['album'] as Map<String, Object?>?)?['uri'];
+    } finally {
+      _commands--;
+    }
+    await _onThisPc((q) => _api.put('/me/player/play', query: q, body: {
+          if (album != null) ...{
+            'context_uri': album,
+            'offset': {'uri': track.id},
+          } else
+            'uris': [track.id],
+        }));
+    _emit(const EngineUpdate(playing: true, position: Duration.zero));
+  }
+
+  /// À la main : la suite de la file, mélangée ou dans l'ordre, après ce
+  /// que Spotify a déjà reçu.
+  void _reorder(bool shuffled) {
+    if (!_manual || _given == 0) return;
+    final given = _order.sublist(0, _given);
+    final rest = shuffled
+        ? ([for (var i = 0; i < _queue.length; i++) if (!given.contains(i)) i]..shuffle())
+        : [for (var i = given.last + 1; i < _queue.length; i++) i];
+    _order = [...given, ...rest];
   }
 
   @override
@@ -263,6 +366,15 @@ class SpotifyConnectEngine extends PlaybackEngine {
 
   @override
   Future<void> next() async {
+    if (_manual) {
+      // Le suivant n'est pas encore dans la file de Spotify : on le lance.
+      final pos = _order.indexOf(_current);
+      if (pos >= 0 && pos + 1 < _order.length && _given == pos + 1) {
+        await _startManual(pos + 1);
+        _soon();
+        return;
+      }
+    }
     _quiet();
     await _api.post('/me/player/next');
     _soon();
@@ -270,6 +382,22 @@ class SpotifyConnectEngine extends PlaybackEngine {
 
   @override
   Future<void> previous() async {
+    if (_manual) {
+      // Comme Spotify : au début du morceau, le précédent (de notre file,
+      // pas de l'album) ; plus loin, le même depuis le début.
+      final pos = _order.indexOf(_current);
+      if (pos >= 0) {
+        if (pos > 0 && _progress < const Duration(seconds: 3)) {
+          await _startManual(pos - 1);
+        } else {
+          _quiet();
+          _emit(const EngineUpdate(position: Duration.zero));
+          await _api.put('/me/player/seek', query: {'position_ms': '0'});
+        }
+        _soon();
+        return;
+      }
+    }
     _quiet();
     await _api.post('/me/player/previous');
     _soon();
@@ -334,6 +462,7 @@ class SpotifyConnectEngine extends PlaybackEngine {
   @override
   Future<void> setShuffle(bool on) async {
     _shuffle = on;
+    _reorder(on);
     _quiet();
     try {
       await _api.put('/me/player/shuffle', query: {'state': '$on'});

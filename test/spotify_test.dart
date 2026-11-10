@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:lecteur/core/player.dart';
+import 'package:lecteur/sources/spotify/connect_engine.dart';
 import 'package:lecteur/sources/spotify/spotify_source.dart';
 
 Map<String, Object?> _track(String id, String name, int n, {Map<String, Object?>? album}) => {
@@ -44,6 +45,13 @@ class _FakeSpotify {
 
   /// Un titre liké de plus (ajouté depuis une autre appli).
   bool extraLiked = false;
+
+  /// Accepte une suite de morceaux (« uris ») mais ne la joue pas.
+  bool refusesLists = false;
+
+  /// Le morceau en cours (son uri), et chaque lecture demandée.
+  String? current;
+  final plays = <Map<String, Object?>>[];
 
   http.Client get client => MockClient((req) async {
         final path = req.url.path.replaceFirst('/v1', '');
@@ -107,9 +115,25 @@ class _FakeSpotify {
               return http.Response('{"error":{"status":404,"message":"Player command failed: No active device found","reason":"NO_ACTIVE_DEVICE"}}', 404);
             }
             deviceActive = true;
+            final play = (jsonDecode(req.body) as Map).cast<String, Object?>();
+            plays.add(play);
+            final offset = (play['offset'] as Map?) ?? const {};
+            current = switch (play['uris']) {
+              final List uris => refusesLists ? null : uris[offset['position'] as int? ?? 0] as String,
+              _ => offset['uri'] as String?,
+            };
             return http.Response('', 204);
           case 'GET /me/player':
-            return http.Response('', 204);
+            if (current == null) return http.Response('', 204);
+            body = {
+              'is_playing': true,
+              'progress_ms': 0,
+              'item': _track(current!.split(':').last, 'En cours', 1, album: _albumB),
+            };
+          case 'GET /tracks/a1' || 'GET /tracks/a2':
+            body = _track(path.split('/').last, 'Titre', 1, album: _albumA);
+          case 'GET /tracks/b1':
+            body = _track('b1', 'Liké', 4, album: _albumB);
           default:
             return http.Response('', 204);
         }
@@ -121,6 +145,8 @@ SpotifyAccount _account(_FakeSpotify fake) =>
     SpotifyAccount(clientId: 'test', client: fake.client)..auth.debugUseTokens(access: 'a', refresh: 'r');
 
 void main() {
+  setUp(() => SpotifyConnectEngine.settle = const Duration(milliseconds: 5));
+
   test('bibliothèque : albums enregistrés et titres likés, rangés par album', () async {
     final fake = _FakeSpotify();
     final lib = await SpotifySource(_account(fake)).load();
@@ -171,6 +197,44 @@ void main() {
       'uris': ['spotify:track:a1', 'spotify:track:a2', 'spotify:track:b1'],
       'offset': {'position': 2},
     });
+  });
+
+  test('une suite de morceaux acceptée mais pas jouée : chaque morceau lancé dans son album', () async {
+    final fake = _FakeSpotify()
+      ..deviceActive = true
+      ..refusesLists = true;
+    final player = PlayerController(SpotifySource(_account(fake)));
+    addTearDown(player.dispose);
+    await player.loadLibrary();
+    // (a1, a2, b1)
+    await player.playTracks(player.tracks, 1);
+    expect(fake.plays, hasLength(2), reason: 'les uris, puis le morceau dans son album');
+    expect(fake.plays.last, {
+      'context_uri': 'spotify:album:A',
+      'offset': {'uri': 'spotify:track:a2'},
+    });
+    expect(player.playing, isTrue);
+    expect(player.current?.title, 'Deux');
+
+    // Suivant : le suivant de notre file (un autre album), pas de l'album.
+    await player.next();
+    expect(fake.plays.last, {
+      'context_uri': 'spotify:album:B',
+      'offset': {'uri': 'spotify:track:b1'},
+    });
+    expect(player.current?.title, 'Liké');
+
+    // Précédent, au début du morceau : retour dans notre file.
+    await player.previous();
+    expect(fake.plays.last['offset'], {'uri': 'spotify:track:a2'});
+
+    // Une fois le refus constaté, on n'essaie plus les uris.
+    await player.playTracks(player.tracks, 0);
+    expect(fake.plays.last, {
+      'context_uri': 'spotify:album:A',
+      'offset': {'uri': 'spotify:track:a1'},
+    });
+    expect(fake.plays.where((p) => p.containsKey('uris')), hasLength(1));
   });
 
   test('pas d\'appareil du tout : un message, pas de plantage', () async {

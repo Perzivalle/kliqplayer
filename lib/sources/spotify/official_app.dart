@@ -63,6 +63,16 @@ class SpotifyApp {
   /// Elle tournera sans qu'on voie sa fenêtre.
   bool get hidden => !Platform.isLinux || _xvfb != null;
 
+  /// Un numéro d'écran X que personne n'utilise : ni verrou, ni prise
+  /// (Hyprland nomme la sienne « X0_ »).
+  static int _freeDisplay() {
+    bool there(String path) => FileSystemEntity.typeSync(path, followLinks: false) != FileSystemEntityType.notFound;
+    for (var n = 90; n < 190; n++) {
+      if (!there('/tmp/.X$n-lock') && !there('/tmp/.X11-unix/X$n') && !there('/tmp/.X11-unix/X${n}_')) return n;
+    }
+    throw StateError('Xvfb : aucun écran libre');
+  }
+
   static String get _stateDir => joinPath(configDir(), joinPath('lecteur', 'spotify-app'));
 
   TiedProcess? _display, _app;
@@ -81,18 +91,23 @@ class SpotifyApp {
       await Process.start(_command, _args, mode: ProcessStartMode.detached);
       return;
     }
-    // Un écran virtuel : Xvfb choisit un numéro libre et l'écrit sur sa
-    // sortie (-displayfd 1).
+    // Un écran virtuel, sous un numéro libre choisi ici. (Laissé choisir
+    // seul, Xvfb ne regarde pas les verrous : sous Hyprland il prenait :0,
+    // l'écran des applis X11 de la session, qui ne pouvaient plus s'ouvrir.)
+    final wanted = _freeDisplay();
     final display = await TiedProcess.start(
       xvfb,
-      ['-displayfd', '1', '-screen', '0', '1280x800x24', '-nolisten', 'tcp'],
+      [':$wanted', '-displayfd', '1', '-screen', '0', '1280x800x24', '-nolisten', 'tcp'],
       pidFile: File(joinPath(_stateDir, 'xvfb.pid')),
     );
+    // Prêt : il écrit son numéro sur sa sortie (-displayfd 1).
     final String number;
     try {
       number = (await display.firstLine.timeout(const Duration(seconds: 10))).trim();
+      if (number != '$wanted') throw StateError('Xvfb : $number');
     } catch (_) {
       display.kill();
+      _launched = DateTime(0);
       rethrow;
     }
     _display = display;
