@@ -266,7 +266,12 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       _handToSystem();
       return;
     }
-    setState(() => _heldCenter = _heldPointer - _grab);
+    final center = _heldPointer - _grab;
+    final dock = _heldDock, dev = _deviceShown;
+    if (dock != null && dev != null) {
+      _growIfLeaving(Rect.fromCenter(center: center, width: dev.width, height: dev.height), dock);
+    }
+    setState(() => _heldCenter = center);
   }
 
   void _holdEnd() {
@@ -295,7 +300,6 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   void _settleHome() {
     _backGiveUp?.cancel();
     _backFrom = null;
-    _unblankSoon();
     if (!_backHeld) return;
     _backHeld = false;
     if (mounted) setState(_kick);
@@ -426,6 +430,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _liveTimer?.cancel();
     _dragSettle?.cancel();
     _refit?.cancel();
+    _hiddenTooLong?.cancel();
     _backGiveUp?.cancel();
     _nav.dispose();
     _drawerSnap.dispose();
@@ -1308,8 +1313,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             _backFrom = null;
             _backGiveUp?.cancel();
             _backHeld = false;
-            _unblankSoon();
-            _kick();
+                    _kick();
           }
           if (gap != null) {
             _backX

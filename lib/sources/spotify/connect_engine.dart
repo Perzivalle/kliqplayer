@@ -90,13 +90,24 @@ class SpotifyConnectEngine extends PlaybackEngine {
   /// Spotify a demandé de ralentir (429) : rien avant cette heure.
   DateTime _blockedUntil = DateTime(0);
 
+  /// Durée du morceau en cours, d'après la dernière réponse.
+  Duration? _length;
+
   /// Prochaine demande : dans une seconde en lecture ; toutes les cinq
   /// secondes sinon (une lecture lancée ailleurs finit par se voir, sans
   /// interroger Spotify 86 400 fois par jour pour rien).
   void _schedule() {
     _timer?.cancel();
     if (_disposed) return;
-    var wait = Duration(seconds: _playing ? 1 : 5);
+    var wait = Duration(seconds: _playing ? 3 : 5);
+    // En lecture, la position avance toute seule à l'écran entre deux
+    // demandes ; mais on redemande dès la fin du morceau, pour passer au
+    // suivant sans retard.
+    final left = _length == null ? null : _length! - _progress;
+    if (_playing && left != null && left < wait) {
+      wait = left + const Duration(milliseconds: 400);
+      if (wait < const Duration(seconds: 1)) wait = const Duration(seconds: 1);
+    }
     if (_failures > 0) wait = Duration(seconds: math.min(60, 2 << math.min(_failures, 5)));
     final blocked = _blockedUntil.difference(DateTime.now());
     if (blocked > wait) wait = blocked;
@@ -125,6 +136,7 @@ class SpotifyConnectEngine extends PlaybackEngine {
       final device = st['device'] as Map<String, Object?>?;
       final index = track == null ? null : _queue.indexWhere((t) => t.id == track.id);
       if (st['shuffle_state'] case final bool on) _shuffle = on;
+      _length = track?.duration;
       _emit(EngineUpdate(
         playing: st['is_playing'] == true,
         position: Duration(milliseconds: (st['progress_ms'] as num?)?.toInt() ?? 0),

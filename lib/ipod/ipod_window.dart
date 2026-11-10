@@ -358,6 +358,7 @@ mixin _ManagedWindow on State<IpodStage> {
   /// main (elle n'est plus rangée nulle part) et propose ses zones.
   void _handToSystem() {
     _carried = true;
+    _grown = false;
     try {
       _full?.startDragging();
     } catch (_) {}
@@ -371,37 +372,79 @@ mixin _ManagedWindow on State<IpodStage> {
   /// l'écran) ; [dock] : la zone où il était rangé quand on l'a attrapé.
   void _dropHeld(Offset center, Offset pointer, Rect? dock) {
     final win = _full;
-    if (win == null || dock == null || dock.contains(pointer)) {
-      // Dans la fenêtre : elle ne change pas, il retrouve sa place.
+    final grown = _grown;
+    _grown = false;
+    if (win == null || dock == null) {
       _glideHome(center, _windowNow);
-      return;
+    } else if (dock.contains(pointer)) {
+      // Dans sa zone : il y retrouve sa place (la fenêtre la reprend, si
+      // elle l'avait quittée pour le laisser sortir).
+      if (grown) {
+        _hideUntil(dock.size);
+        try {
+          win.contentBounds = dock.toNative();
+        } catch (_) {}
+      }
+      _glideHome(center, grown ? dock : _windowNow);
+    } else {
+      // Sorti de sa zone : le plein écran, et lui au milieu.
+      _dock = null;
+      _recenter();
+      if (!grown) _fillHidden(win);
+      _glideHome(center, _windowNow);
     }
-    // Sorti de sa zone : le plein écran, et lui au milieu. Retailler la
-    // fenêtre étire un instant ce qu'elle montrait : on la masque d'abord
-    // (l'iPod, hors de sa zone, n'y était déjà presque plus visible), et
-    // elle ne reparaît qu'à sa nouvelle taille.
-    _dock = null;
-    _recenter();
-    _blank = true;
-    _applyShape(const [Offset.zero, Offset(1, 0), Offset(0, 1)], _stageSize);
-    final filled = fillWorkArea(win) ?? _windowNow;
-    _lastFill = filled.size;
-    _glideHome(center, filled);
   }
 
-  /// La fenêtre est masquée le temps de changer de taille.
-  bool _blank = false;
+  /// La fenêtre a quitté sa zone pour tout l'écran, le temps qu'on tienne
+  /// l'iPod.
+  bool _grown = false;
 
-  /// La fenêtre a pris sa nouvelle taille : elle reparaît, une fois les
-  /// premières images à cette taille affichées.
-  void _unblankSoon() {
-    if (!_blank) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_blank) return;
-        setState(() => _blank = false);
-      });
-    });
+  /// Tenu, l'iPod (en [device], à l'écran) arrive au bord de la zone [dock]
+  /// où la fenêtre est rangée : elle prend tout l'écran, pour qu'il reste
+  /// visible en en sortant.
+  void _growIfLeaving(Rect device, Rect dock) {
+    final win = _full;
+    if (win == null || _grown) return;
+    final safe = dock.deflate(24);
+    if (safe.contains(device.topLeft) && safe.contains(device.bottomRight)) return;
+    _grown = true;
+    _fillHidden(win);
+  }
+
+  /// Étend la fenêtre à la zone de travail. Retailler la fenêtre étire un
+  /// instant ce qu'elle montrait : on la masque d'abord, et elle ne
+  /// reparaît qu'à sa nouvelle taille.
+  void _fillHidden(Window win) {
+    try {
+      final area = _workAreaOf(_windowNow);
+      if (area != null && !area.isEmpty) _hideUntil(area.size);
+    } catch (_) {}
+    final filled = fillWorkArea(win);
+    if (filled != null) _lastFill = filled.size;
+  }
+
+  /// La fenêtre est masquée jusqu'à ce qu'elle ait cette taille.
+  Size? _hiddenUntil;
+  Timer? _hiddenTooLong;
+  bool _showing = false;
+
+  static const _nothing = [Offset.zero, Offset(1, 0), Offset(0, 1)];
+
+  void _hideUntil(Size size) {
+    _hiddenUntil = size;
+    _showing = false;
+    _applyShape(_nothing, _stageSize);
+    // (Si elle ne prend jamais cette taille, on ne la laisse pas masquée.)
+    _hiddenTooLong?.cancel();
+    _hiddenTooLong = Timer(const Duration(milliseconds: 800), _show);
+  }
+
+  void _show() {
+    _hiddenTooLong?.cancel();
+    if (_hiddenUntil == null) return;
+    _hiddenUntil = null;
+    _showing = false;
+    if (mounted) setState(() {});
   }
 
   /// Windows a la fenêtre en main (l'iPod a été amené en haut de l'écran).
@@ -523,8 +566,17 @@ mixin _ManagedWindow on State<IpodStage> {
     if (win == null) return;
     final size = Size(w, h);
     final all = Offset.zero & size;
-    if (_blank) {
-      _applyShape(const [Offset.zero, Offset(1, 0), Offset(0, 1)], size);
+    final hidden = _hiddenUntil;
+    if (hidden != null) {
+      _applyShape(_nothing, size);
+      // À sa nouvelle taille : elle reparaît une fois les premières images
+      // à cette taille affichées.
+      if (!_showing && (w - hidden.width).abs() < 2 && (h - hidden.height).abs() < 2) {
+        _showing = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _show());
+        });
+      }
       return;
     }
     if (whole) {

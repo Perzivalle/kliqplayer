@@ -251,7 +251,8 @@ class SpotifyAccount extends RemoteAccount {
       await a.launch();
       final until = DateTime.now().add(const Duration(seconds: 40));
       while (DateTime.now().isBefore(until)) {
-        await Future<void>.delayed(const Duration(seconds: 1));
+        // (Toutes les deux secondes : Spotify limite le nombre de demandes.)
+        await Future<void>.delayed(const Duration(seconds: 2));
         final list = await _online();
         final here = _thisPc(list) ??
             list.where((d) => d.type == 'Computer' && !before.any((b) => b.id == d.id)).firstOrNull;
