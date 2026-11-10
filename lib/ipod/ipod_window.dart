@@ -292,18 +292,14 @@ mixin _ManagedWindow on State<IpodStage> {
 
   late final Window? _full = _remember && Platform.isWindows ? _currentWindow() : null;
 
-  // Rangée par Windows dans une zone (Win+flèche, zones d'ancrage en haut
-  // de l'écran) : la fenêtre garde cette zone, et l'iPod y vit comme dans
-  // une tuile sous Linux. Agrandie (Win+Haut) ou sortie de sa zone, elle
-  // redevient le plein écran.
-  bool _docked = false;
-
+  // Tenir l'iPod, c'est tenir la fenêtre : Windows la déplace et propose ses
+  // zones d'ancrage. Rangée dans une zone (ou par Win+flèche), elle la garde,
+  // et l'iPod y vit comme dans une tuile sous Linux. Lâchée ailleurs,
+  // agrandie (Win+Haut) ou sortie de sa zone, elle redevient le plein écran :
+  // l'iPod retrouve la place qu'il avait (on le change de côté avec les
+  // boutons sous les poignées).
   /// Taille donnée en dernier à la fenêtre pour couvrir un écran.
   Size? _lastFill;
-
-  /// L'iPod se déplace dans la fenêtre quand on le tient (au lieu de
-  /// déplacer la fenêtre) : en plein écran, pas dans une zone.
-  bool get _dragsInside => (_full != null && !_docked) || IpodStage.debugDragInside;
 
   Timer? _refit;
   List<Offset>? _shape;
@@ -353,8 +349,6 @@ mixin _ManagedWindow on State<IpodStage> {
         if (win.isMaximized) win.unmaximize();
         _lastFill = (fillWorkArea(win) ?? area).size;
       }
-      final docked = fit == WindowFit.docked;
-      if (docked != _docked) setState(() => _docked = docked);
     } catch (_) {}
   }
 
@@ -378,14 +372,6 @@ mixin _ManagedWindow on State<IpodStage> {
     } catch (_) {
       return false;
     }
-  }
-
-  /// Tiré vers le haut pendant qu'on le tient : on passe la main à Windows,
-  /// qui déplace la fenêtre et propose ses zones d'ancrage.
-  void _handToSystem() {
-    try {
-      _full?.startDragging();
-    } catch (_) {}
   }
 
   /// Découpe la fenêtre ([w] × [h]) : entière si [whole], sinon autour de

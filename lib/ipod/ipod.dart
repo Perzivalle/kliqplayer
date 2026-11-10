@@ -122,11 +122,6 @@ class IpodStage extends StatefulWidget {
   final PlayerController player;
   final IpodModel? initial;
 
-  /// Pour les tests : l'iPod se glisse à la main dans la fenêtre, comme en
-  /// plein écran sous Windows.
-  @visibleForTesting
-  static bool debugDragInside = false;
-
   /// Le modèle qui s'affichera au lancement.
   static IpodModel get savedModel => _IpodStageState._saved();
 
@@ -211,45 +206,6 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     if (!_canPlace || place == _placeTarget) return;
     _placeTarget = place;
     if (_remember) Settings.setString(_placeKey, _placeNames[place]!);
-    _kick();
-  }
-
-  // Fenêtre plein écran (Windows) : on tient l'iPod pour le glisser à la
-  // main, de gauche à droite ; lâché, il rejoint la place la plus proche.
-  bool _holding = false;
-  Offset _holdFrom = Offset.zero;
-  double _holdPlace = 0;
-
-  /// On attrape l'appareil. Faux : ce n'est pas à nous de le déplacer (la
-  /// fenêtre est rangée dans une zone, ou ordinaire : c'est elle qu'on
-  /// déplace).
-  bool _holdBegin(Offset pointer) {
-    if (!_dragsInside) return false;
-    if (!_canPlace) return true; // tiroir sorti, échange : il ne bouge pas
-    _holding = true;
-    _holdFrom = pointer;
-    _holdPlace = _place.value;
-    _place.velocity = 0;
-    _kick();
-    return true;
-  }
-
-  void _holdUpdate(Offset pointer) {
-    if (!_holding || _placeReach <= 0) return;
-    // Tiré franchement vers le haut : c'est la fenêtre qu'on veut ranger.
-    if (_full != null && _holdFrom.dy - pointer.dy > 70) {
-      _holdEnd();
-      _handToSystem();
-      return;
-    }
-    setState(() => _place.value = (_holdPlace + (pointer.dx - _holdFrom.dx) / _placeReach).clamp(-1.0, 1.0));
-  }
-
-  void _holdEnd() {
-    if (!_holding) return;
-    _holding = false;
-    _placeTarget = _place.value.round().clamp(-1, 1);
-    if (_remember) Settings.setString(_placeKey, _placeNames[_placeTarget]!);
     _kick();
   }
 
@@ -395,10 +351,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       }
       if (_lift.isSettled) _lift.value = 0;
     }
-    if (!_holding) {
-      _place.step(_placeTarget.toDouble(), dt);
-      if (_place.isSettled) _place.value = _placeTarget.toDouble();
-    }
+    _place.step(_placeTarget.toDouble(), dt);
+    if (_place.isSettled) _place.value = _placeTarget.toDouble();
     for (final (peek, side) in [(_peekL, -1), (_peekR, 1)]) {
       // Les deux boutons d'un coin sortent ensemble, quel que soit celui
       // qu'on approche.
@@ -788,7 +742,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     // qu'une photo : débranché, en vol, rebranché. Impeller repeindrait
     // sinon à chaque image tout l'appareil, ombres floues comprises.
     final flying = _phase != _Swap.none && _phase != _Swap.poweringOff;
-    final moving = _dragging || _holding || !_open.isSettled || !_place.isSettled;
+    final moving = _dragging || !_open.isSettled || !_place.isSettled;
     _deviceSnap.allowSnapshotting = (moving && _phase == _Swap.none || flying) && !_hideDevice;
   }
 
@@ -1187,9 +1141,6 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                         player: widget.player,
                         nav: _nav,
                         onWindowDrag: _beginWindowDrag,
-                        onHoldBegin: _holdBegin,
-                        onHoldUpdate: _holdUpdate,
-                        onHoldEnd: _holdEnd,
                       ),
                   ),
                 ),
@@ -1256,7 +1207,6 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             whole: _wantOpen ||
                 open != 0 ||
                 _dragging ||
-                _holding ||
                 _phase != _Swap.none ||
                 _geoFrom != null ||
                 !_place.isSettled ||

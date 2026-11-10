@@ -1,37 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:lecteur/core/player.dart';
-import 'package:lecteur/ipod/classic.dart';
 import 'package:lecteur/ipod/ipod.dart';
-
-/// Une fenêtre bien plus large que l'iPod, comme en plein écran sous Windows.
-const _window = Size(1400, 800);
-
-Future<void> _show(WidgetTester tester) async {
-  tester.view
-    ..physicalSize = _window
-    ..devicePixelRatio = 1;
-  addTearDown(tester.view.reset);
-  IpodStage.debugDragInside = true;
-  addTearDown(() => IpodStage.debugDragInside = false);
-  await tester.pumpWidget(
-    MaterialApp(
-      home: Material(
-        type: MaterialType.transparency,
-        child: IpodStage(player: PlayerController.preview(), initial: const ClassicModel()),
-      ),
-    ),
-  );
-  await _settle(tester);
-}
-
-Future<void> _settle(WidgetTester tester) async {
-  for (var i = 0; i < 150; i++) {
-    await tester.pump(const Duration(milliseconds: 16));
-  }
-}
-
-Rect _device(WidgetTester tester) => tester.getRect(find.byType(IpodDevice));
 
 void main() {
   group('découpe de la fenêtre', () {
@@ -108,39 +77,6 @@ void main() {
 
     test('plus grande que l\'écran où elle arrive : on la recale', () {
       expect(windowFit(const Rect.fromLTWH(0, 0, 2560, 1392), area, const Size(2560, 1392)), WindowFit.refit);
-    });
-  });
-
-  group('glisser l\'iPod à la main', () {
-    testWidgets('il suit le pointeur, puis rejoint la place la plus proche', (tester) async {
-      await _show(tester);
-      final centered = _device(tester);
-      expect(centered.center.dx, closeTo(_window.width / 2, 1));
-
-      // Attrapé par le boîtier (au-dessus de la molette, à côté de l'écran).
-      final grab = Offset(centered.left + 12, centered.top + centered.height * 0.5);
-      final gesture = await tester.startGesture(grab);
-      await gesture.moveBy(const Offset(-30, 0));
-      await gesture.moveBy(const Offset(-270, 0));
-      await tester.pump();
-      // Tenu : il est là où on l'a mené, entre le milieu et la gauche.
-      final held = _device(tester);
-      expect(held.center.dx, lessThan(centered.center.dx - 200));
-      expect(held.left, greaterThan(40));
-
-      await gesture.up();
-      await _settle(tester);
-      // Lâché plus près de la gauche : il s'y range.
-      expect(_device(tester).left, lessThan(40));
-
-      // Un petit geste ne suffit pas : il revient à sa place.
-      final left = _device(tester);
-      final again = await tester.startGesture(Offset(left.left + 12, left.top + left.height * 0.5));
-      await again.moveBy(const Offset(30, 0));
-      await again.moveBy(const Offset(60, 0));
-      await again.up();
-      await _settle(tester);
-      expect(_device(tester).left, closeTo(left.left, 0.5));
     });
   });
 }
