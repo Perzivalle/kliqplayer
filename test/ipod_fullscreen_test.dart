@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:lecteur/core/player.dart';
+import 'package:lecteur/ipod/classic.dart';
 import 'package:lecteur/ipod/ipod.dart';
 
 void main() {
@@ -77,6 +79,55 @@ void main() {
 
     test('plus grande que l\'écran où elle arrive : on la recale', () {
       expect(windowFit(const Rect.fromLTWH(0, 0, 2560, 1392), area, const Size(2560, 1392)), WindowFit.refit);
+    });
+  });
+
+  group('lâché après avoir été tenu', () {
+    const window = Size(1400, 800);
+
+    Future<void> settle(WidgetTester tester) async {
+      for (var i = 0; i < 200; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+    }
+
+    testWidgets('l\'iPod part d\'où on l\'a posé et glisse jusqu\'à sa place', (tester) async {
+      tester.view
+        ..physicalSize = window
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            type: MaterialType.transparency,
+            child: IpodStage(player: PlayerController.preview(), initial: const ClassicModel()),
+          ),
+        ),
+      );
+      await settle(tester);
+      final home = tester.getRect(find.byType(IpodDevice));
+
+      // Lâché 300 à droite et 120 plus bas que sa place, dans la même fenêtre.
+      final dynamic stage = tester.state(find.byType(IpodStage));
+      stage.debugGlideHome(home.center + const Offset(300, 120), Offset.zero & window);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      final start = tester.getRect(find.byType(IpodDevice));
+      expect(start.center.dx, greaterThan(home.center.dx + 250));
+      expect(start.center.dy, greaterThan(home.center.dy + 90));
+
+      // En chemin : entre les deux.
+      for (var i = 0; i < 8; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      final midway = tester.getRect(find.byType(IpodDevice));
+      expect(midway.center.dx, lessThan(start.center.dx));
+      expect(midway.center.dx, greaterThan(home.center.dx));
+
+      await settle(tester);
+      final end = tester.getRect(find.byType(IpodDevice));
+      expect(end.center.dx, closeTo(home.center.dx, 0.5));
+      expect(end.center.dy, closeTo(home.center.dy, 0.5));
     });
   });
 }

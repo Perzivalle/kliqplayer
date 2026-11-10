@@ -128,6 +128,16 @@ mixin _ManagedWindow on State<IpodStage> {
   _Geo? get _geoShown;
   bool get _remember;
 
+  /// L'appareil dans la fenêtre, à la dernière image.
+  Rect? get _deviceShown;
+
+  /// L'appareil, qu'on vient de lâcher en [from] (son centre, à l'écran),
+  /// glisse jusqu'à sa place dans la fenêtre, qui va occuper [window].
+  void _glideHome(Offset from, Rect window);
+
+  /// L'appareil revient au milieu de la fenêtre.
+  void _recenter();
+
   // --- Fenêtre réglée par l'appli (Windows, macOS) ---------------------------
   //
   // Sous Windows et macOS, l'appli place et taille elle-même sa fenêtre
@@ -294,12 +304,20 @@ mixin _ManagedWindow on State<IpodStage> {
 
   // Tenir l'iPod, c'est tenir la fenêtre : Windows la déplace et propose ses
   // zones d'ancrage. Rangée dans une zone (ou par Win+flèche), elle la garde,
-  // et l'iPod y vit comme dans une tuile sous Linux. Lâchée ailleurs,
-  // agrandie (Win+Haut) ou sortie de sa zone, elle redevient le plein écran :
-  // l'iPod retrouve la place qu'il avait (on le change de côté avec les
-  // boutons sous les poignées).
+  // et l'iPod y vit comme dans une tuile sous Linux. Lâché ailleurs :
+  // - dans la fenêtre (le plein écran, ou la zone qu'il occupait), il glisse
+  //   jusqu'à la place qu'il avait ;
+  // - hors de sa zone, la fenêtre redevient le plein écran et il en rejoint
+  //   le milieu.
+  // (On le change de côté avec les boutons sous les poignées.)
   /// Taille donnée en dernier à la fenêtre pour couvrir un écran.
   Size? _lastFill;
+
+  /// La zone où Windows a rangé la fenêtre (null : plein écran).
+  Rect? _dock;
+
+  /// On a vu la fenêtre tenue à la souris depuis qu'elle bouge.
+  bool _handHeld = false;
 
   Timer? _refit;
   List<Offset>? _shape;
@@ -337,18 +355,45 @@ mixin _ManagedWindow on State<IpodStage> {
     // Encore tenue à la souris (on hésite au-dessus des zones d'ancrage) :
     // on attend qu'elle soit lâchée, sans la lui reprendre des mains.
     if (_mouseHeld()) {
-      _refit = Timer(const Duration(milliseconds: 200), _windowSettled);
+      _handHeld = true;
+      _refit = Timer(const Duration(milliseconds: 60), _windowSettled);
       return;
     }
+    // Lâchée à l'instant (et pas déplacée au clavier) : l'iPod rejoindra sa
+    // place en glissant.
+    final dropped = _handHeld;
+    _handHeld = false;
     try {
       final now = win.contentBounds.toRect();
       final area = _workAreaOf(now);
       if (area == null || area.isEmpty) return;
-      final fit = win.isMaximized ? WindowFit.refit : windowFit(now, area, _lastFill);
-      if (fit == WindowFit.refit) {
-        if (win.isMaximized) win.unmaximize();
-        _lastFill = (fillWorkArea(win) ?? area).size;
+      final maximized = win.isMaximized;
+      final fit = maximized ? WindowFit.refit : windowFit(now, area, _lastFill);
+      if (fit == WindowFit.docked) {
+        _dock = now;
+        return;
       }
+      if (fit == WindowFit.fills) {
+        _dock = null;
+        return;
+      }
+      if (maximized) win.unmaximize();
+      final device = _deviceShown;
+      final center = device == null ? null : now.topLeft + device.center;
+      final dock = _dock;
+      if (dropped && dock != null && center != null && dock.contains(center)) {
+        // Lâché dans la zone qu'il occupait : la fenêtre la reprend.
+        win.contentBounds = dock.toNative();
+        _glideHome(center, dock);
+        return;
+      }
+      // Sorti de sa zone : le plein écran, et l'iPod au milieu. Sinon (déjà
+      // en plein écran), il retrouve la place qu'il avait.
+      if (dock != null) _recenter();
+      _dock = null;
+      final filled = fillWorkArea(win) ?? area;
+      _lastFill = filled.size;
+      if (dropped && center != null) _glideHome(center, filled);
     } catch (_) {}
   }
 
