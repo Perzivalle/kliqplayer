@@ -38,7 +38,38 @@ class _IpodDeviceState extends State<IpodDevice> {
     super.dispose();
   }
 
+  /// Le verrou est mis : molette, boutons et touches ne font plus rien.
+  bool get _locked => widget.model.hasScreen && _nav.locked;
+
+  /// L'interrupteur de la tranche : le verrou, ou sur un shuffle (qui n'a
+  /// pas d'écran à verrouiller) le choix entre lecture dans l'ordre et
+  /// aléatoire.
+  bool get _switchOn => widget.model.hasScreen ? _nav.locked : !widget.player.forcedShuffle;
+
+  void _flipSwitch() {
+    WheelClick.instance.play();
+    if (widget.model.hasScreen) {
+      _nav.toggleLock();
+    } else {
+      final ordered = widget.player.forcedShuffle;
+      Settings.setString('shuffle.order', ordered ? 'on' : 'off');
+      widget.player.setForcedShuffle(!ordered);
+      _blink();
+    }
+  }
+
   KeyEventResult _onKey(FocusNode _, KeyEvent e) {
+    if (_locked) {
+      // Les touches du baladeur sont prises (sans effet) ; les autres
+      // (Espace, T, Échap) passent.
+      final keys = _nav.keys;
+      final ours = {
+        LogicalKeyboardKey.arrowRight, LogicalKeyboardKey.arrowLeft, LogicalKeyboardKey.arrowUp,
+        LogicalKeyboardKey.arrowDown, LogicalKeyboardKey.enter, LogicalKeyboardKey.numpadEnter,
+        LogicalKeyboardKey.backspace, keys.up, keys.down, keys.enter, keys.back,
+      };
+      return ours.contains(e.logicalKey) ? KeyEventResult.handled : KeyEventResult.ignored;
+    }
     if (e is KeyDownEvent) _nav.touch();
     // ← → se comportent comme les côtés de la molette : appui bref pour
     // changer de morceau, appui long pour avancer / reculer.
@@ -104,6 +135,7 @@ class _IpodDeviceState extends State<IpodDevice> {
   }
 
   void _scroll(int delta) {
+    if (_locked) return;
     _nav.touch();
     // Sans écran (shuffle), la molette de la souris règle le volume.
     if (!widget.model.hasScreen) {
@@ -127,6 +159,7 @@ class _IpodDeviceState extends State<IpodDevice> {
   /// Bouton enfoncé : le clic sonne tout de suite, l'action attend le
   /// relâchement (ou la fin du délai pour une recherche).
   void _down(WheelZone zone) {
+    if (_locked) return;
     _nav.touch();
     if (zone == WheelZone.none || _held != null) return;
     WheelClick.instance.play();
@@ -233,6 +266,7 @@ class _IpodDeviceState extends State<IpodDevice> {
                 child: CustomPaint(painter: m.body),
               ),
             ),
+            ?_holdTouch(m),
             if (m.led case final x?)
               Positioned(
                 left: x - 7,
@@ -290,7 +324,32 @@ class _IpodDeviceState extends State<IpodDevice> {
       bottom: h.onTop ? null : -HoldPainter.depth,
       width: h.width,
       height: HoldPainter.depth,
-      child: CustomPaint(painter: HoldPainter(h)),
+      child: ListenableBuilder(
+        listenable: Listenable.merge([_nav, widget.player]),
+        builder: (context, _) => CustomPaint(painter: HoldPainter(h, on: _switchOn)),
+      ),
+    );
+  }
+
+  /// Où on clique pour le pousser : le bord du boîtier, juste sous lui (ce
+  /// qui dépasse est trop fin, et hors du boîtier).
+  Widget? _holdTouch(IpodModel m) {
+    final h = m.hold;
+    if (h == null) return null;
+    return Positioned(
+      left: h.x - h.width / 2 - 4,
+      top: h.onTop ? 0 : null,
+      bottom: h.onTop ? null : 0,
+      width: h.width + 8,
+      height: 12,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          key: const ValueKey('hold'),
+          behavior: HitTestBehavior.opaque,
+          onTap: _flipSwitch,
+        ),
+      ),
     );
   }
 }

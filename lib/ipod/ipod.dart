@@ -37,6 +37,11 @@ part 'ipod_device.dart';
 part 'ipod_painters.dart';
 part 'ipod_window.dart';
 
+/// Un shuffle joue dans le désordre, sauf si son interrupteur est sur
+/// « dans l'ordre » (retenu d'une fois sur l'autre).
+bool _shuffles(IpodModel m) => !m.hasScreen && Settings.getString('shuffle.order') != 'on';
+
+
 /// Tous les modèles et leurs teintes, dans l'ordre du tiroir : par date de
 /// sortie.
 final List<IpodModel> ipodModels = [
@@ -274,7 +279,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   @override
   void initState() {
     super.initState();
-    widget.player.setForcedShuffle(!_model.hasScreen);
+    widget.player.setForcedShuffle(_shuffles(_model));
     if (_win != null) WidgetsBinding.instance.addPostFrameCallback((_) => _takeWindow());
     if (_remember) {
       // Au lancement, la prise vient se brancher, une fois l'iPod arrivé
@@ -765,7 +770,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     final anchor = _anchor;
     if (anchor != null) _anchor = Rect.fromCenter(center: anchor.center, width: m.size.width, height: m.size.height);
     _nav.fitLook(m.look);
-    widget.player.setForcedShuffle(!m.hasScreen);
+    widget.player.setForcedShuffle(_shuffles(m));
     if (m.size != _model.size && _geoShown != null) {
       _geoFrom = _geoShown;
       _morph

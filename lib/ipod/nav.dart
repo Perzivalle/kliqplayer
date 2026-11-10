@@ -20,10 +20,30 @@ sealed class IpodPage {
   String get title;
 }
 
+/// Ce que montre la moitié « image » d'un menu scindé (Classic, nano 3G
+/// et 4G) quand la ligne est sélectionnée.
+enum MenuPreview { covers, settings, nowPlaying }
+
+/// Mise en page d'un menu : lignes simples ; scindé (le menu d'un côté,
+/// une image de l'autre, sur les écrans qui le font) ; ou lignes hautes
+/// (albums avec leur vignette et l'artiste dessous).
+enum MenuKind { normal, split, tall }
+
 class MenuEntry {
-  const MenuEntry(this.label, {this.open, this.action, this.value, this.checked});
+  const MenuEntry(this.label,
+      {this.open, this.action, this.value, this.checked, this.subtitle, this.art, this.preview = MenuPreview.covers});
 
   final String label;
+
+  /// Seconde ligne (l'artiste d'un album), sur les lignes hautes.
+  final String? subtitle;
+
+  /// Vignette (la pochette d'un album), sur les lignes hautes : null tant
+  /// qu'elle n'est pas lue.
+  final Uint8List? Function()? art;
+
+  /// Image d'un menu scindé pour cette ligne.
+  final MenuPreview preview;
 
   /// Valeur affichée à droite (Réglages : « Non », « Tous »…), relue à
   /// chaque affichage.
@@ -40,7 +60,11 @@ class MenuEntry {
 }
 
 class MenuPage extends IpodPage {
-  MenuPage(this.title, List<MenuEntry> Function() builder, {this.live = false, this.music = false}) : _builder = builder;
+  MenuPage(this.title, List<MenuEntry> Function() builder,
+      {this.live = false, this.music = false, this.kind = MenuKind.normal})
+      : _builder = builder;
+
+  final MenuKind kind;
 
   @override
   final String title;
@@ -97,7 +121,38 @@ class CoverFlowPage extends IpodPage {
   final trackTopSpring = Spring(0, stiffness: 900, damping: 1);
 }
 
-enum NowPlayingMode { progress, volume, scrub }
+/// Ce que montre le bas de l'écran « En lecture ». Le bouton central fait
+/// passer de l'un à l'autre, selon le modèle ([ScreenLook.centerCycle]) :
+/// recherche dans le morceau, note en étoiles, pochette en grand, lecture
+/// aléatoire.
+enum NowPlayingMode { progress, volume, scrub, rating, art, shuffle }
+
+/// La recherche (Musique › Recherche) : une réglette de lettres parcourue
+/// à la molette, le bouton central ajoute la lettre ; les morceaux trouvés
+/// s'affichent au-dessus, « OK » ouvre leur liste.
+class SearchPage extends IpodPage {
+  @override
+  String get title => tr('Recherche');
+
+  static const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+
+  /// Cases après les lettres : espace, effacer, terminer.
+  static const space = 36, delete = 37, done = 38, cells = 39;
+
+  static String cellLabel(int i) => switch (i) {
+        space => '␣',
+        delete => '⌫',
+        done => 'OK',
+        _ => letters[i],
+      };
+
+  String query = '';
+  int cell = 0;
+  final cellSpring = Spring(0, stiffness: 1400, damping: 1);
+
+  /// Les morceaux trouvés pour [query].
+  List<Track> results = const [];
+}
 
 /// Durées possibles du rétroéclairage, en secondes (0 : toujours allumé).
 const backlightChoices = [0, 2, 5, 10, 15, 20, 30];
@@ -125,9 +180,7 @@ class NowPlayingPage extends IpodPage {
 /// Navigation dans les menus, pilotée par la molette et le clavier.
 /// L'écran ne fait que dessiner cet état en l'animant.
 class IpodNav extends ChangeNotifier {
-  IpodNav(this.player, {required ScreenLook look})
-      : visibleRows = look.visibleRows,
-        coverFlow = look.coverFlow {
+  IpodNav(this.player, {required this.look}) : coverFlow = look.coverFlow {
     stack = [_root()];
     backlight = int.tryParse(Settings.getString('ipod.backlight') ?? '') ?? 10;
     keys = KeyLayout.values.asNameMap()[Settings.getString('ipod.keys')] ?? KeyLayout.hjkl;
@@ -152,7 +205,7 @@ class IpodNav extends ChangeNotifier {
   void _onPlayer() {
     if (player.libraryVersion == _libraryVersion) return;
     _libraryVersion = player.libraryVersion;
-    final at = stack.indexWhere((p) => p is CoverFlowPage || (p is MenuPage && p.music));
+    final at = stack.indexWhere((p) => p is CoverFlowPage || p is SearchPage || (p is MenuPage && p.music));
     if (at < 1) return;
     final top = stack.last;
     stack.removeRange(at, stack.length);
@@ -163,8 +216,27 @@ class IpodNav extends ChangeNotifier {
 
   final PlayerController player;
 
-  /// Nombre de lignes visibles dans un menu (dépend de l'écran du modèle).
-  int visibleRows;
+  /// L'écran du modèle en main : il décide du nombre de lignes, des menus
+  /// scindés, de ce que fait le bouton central sur « En lecture »…
+  ScreenLook look;
+
+  /// Nombre de lignes visibles dans un menu simple.
+  int get visibleRows => look.visibleRows;
+
+  /// Nombre de lignes visibles de [p] (moins dans un menu scindé à la
+  /// verticale ou à lignes hautes).
+  int rowsOf(MenuPage p) => look.rowsFor(p.kind);
+
+  // --- Verrou (Hold) -------------------------------------------------------------
+
+  /// Le verrou est mis : molette et boutons ne font plus rien, un cadenas
+  /// s'affiche dans la barre de titre.
+  bool locked = false;
+
+  void toggleLock() {
+    locked = !locked;
+    notifyListeners();
+  }
 
   /// L'écran sait afficher Cover Flow (écran couleur).
   bool coverFlow;
@@ -176,11 +248,21 @@ class IpodNav extends ChangeNotifier {
 
   DateTime lastInput = clock.now();
 
-  bool get lit => backlight == 0 || clock.now().difference(lastInput) < Duration(seconds: backlight);
+  bool get lit => !_dark && (backlight == 0 || clock.now().difference(lastInput) < Duration(seconds: backlight));
+
+  /// Éteint à la main (entrée « Rétroéclairage » du menu principal des
+  /// écrans monochromes), jusqu'au prochain geste.
+  bool _dark = false;
+
+  void darken() {
+    _dark = true;
+    notifyListeners();
+  }
 
   /// Une main sur l'appareil : l'écran se rallume.
   void touch() {
     final wasLit = lit;
+    _dark = false;
     lastInput = clock.now();
     if (!wasLit) notifyListeners();
   }
@@ -189,22 +271,20 @@ class IpodNav extends ChangeNotifier {
   /// recadrée pour son nombre de lignes. Sans Cover Flow (écran
   /// monochrome), on en ressort.
   void fitLook(ScreenLook look) {
+    this.look = look;
     coverFlow = look.coverFlow;
     if (!coverFlow) {
       final at = stack.indexWhere((p) => p is CoverFlowPage);
       if (at > 0) {
         stack.removeRange(at, stack.length);
         leaving = null;
-        notifyListeners();
       }
     }
-    final rows = look.visibleRows;
-    if (rows == visibleRows) return;
-    visibleRows = rows;
+    if (!look.centerCycle.contains(mode) && mode != NowPlayingMode.volume) mode = NowPlayingMode.progress;
     for (final p in stack.whereType<MenuPage>()) {
+      final rows = rowsOf(p);
       if (p.selected >= p.top + rows) p.top = p.selected - rows + 1;
-      final count = p.entries.length;
-      p.top = p.top.clamp(0, math.max(0, count - rows));
+      p.top = p.top.clamp(0, math.max(0, p.entries.length - rows));
       p.topSpring
         ..value = p.top.toDouble()
         ..velocity = 0;
@@ -268,7 +348,23 @@ class IpodNav extends ChangeNotifier {
         if (sel == p.selected) return false;
         p.selected = sel;
         if (sel < p.top) p.top = sel;
-        if (sel >= p.top + visibleRows) p.top = sel - visibleRows + 1;
+        final rows = rowsOf(p);
+        if (sel >= p.top + rows) p.top = sel - rows + 1;
+      case final SearchPage p:
+        final cell = (p.cell + delta).clamp(0, SearchPage.cells - 1);
+        if (cell == p.cell) return false;
+        p.cell = cell;
+      case NowPlayingPage() when mode == NowPlayingMode.rating:
+        final track = player.current;
+        if (track == null) return false;
+        final stars = (player.rating(track) + delta.sign).clamp(0, 5);
+        _setMode(NowPlayingMode.rating, const Duration(seconds: 4));
+        if (stars == player.rating(track)) return false;
+        player.setRating(track, stars);
+      case NowPlayingPage() when mode == NowPlayingMode.shuffle:
+        _setMode(NowPlayingMode.shuffle, const Duration(seconds: 4));
+        if (player.shuffle == delta > 0) return false;
+        player.setShuffle(delta > 0);
       case NowPlayingPage():
         if (mode == NowPlayingMode.scrub) {
           final total = player.duration.inMilliseconds;
@@ -319,13 +415,43 @@ class IpodNav extends ChangeNotifier {
           ..value = p.trackTop.toDouble()
           ..velocity = 0;
         notifyListeners();
+      case final SearchPage p:
+        switch (p.cell) {
+          case SearchPage.done:
+            if (p.results.isNotEmpty) _push(_tracks(p.query.trim(), p.results));
+            return;
+          case SearchPage.delete:
+            if (p.query.isNotEmpty) p.query = p.query.substring(0, p.query.length - 1);
+          case SearchPage.space:
+            if (p.query.isNotEmpty && !p.query.endsWith(' ')) p.query += ' ';
+          default:
+            if (p.query.length < 24) p.query += SearchPage.letters[p.cell];
+        }
+        p.results = _search(p.query);
+        notifyListeners();
       case NowPlayingPage():
-        _setMode(
-          mode == NowPlayingMode.scrub ? NowPlayingMode.progress : NowPlayingMode.scrub,
-          const Duration(seconds: 4),
-        );
+        // Le bouton central passe d'un affichage au suivant, puis revient
+        // à la progression.
+        final cycle = look.centerCycle;
+        final at = cycle.indexOf(mode) + 1;
+        if (at < cycle.length) {
+          _setMode(cycle[at], Duration(seconds: cycle[at] == NowPlayingMode.art ? 3600 : 4));
+        } else {
+          mode = NowPlayingMode.progress;
+        }
         notifyListeners();
     }
+  }
+
+  /// Les morceaux dont le titre, l'artiste ou l'album contient [query].
+  List<Track> _search(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return const [];
+    bool has(String s) => s.toLowerCase().contains(q);
+    return [
+      for (final t in player.tracks)
+        if (has(t.title) || has(t.artist) || has(t.album)) t,
+    ]..sort((a, b) => _cmp(a.title, b.title));
   }
 
   void menu() {
@@ -363,27 +489,45 @@ class IpodNav extends ChangeNotifier {
 
   // --- Menus ---------------------------------------------------------------
 
-  MenuPage _root() => MenuPage(tr('Lecteur'), live: true, () => [
+  MenuPage _root() => MenuPage(tr('Lecteur'), live: true, kind: MenuKind.split, () => [
         // Ce qui n'a pas marché (pas d'appareil Spotify…) ; valider l'efface.
         if (player.notice case final notice?)
           MenuEntry(notice, action: player.dismissNotice),
         MenuEntry(tr('Musique'), open: _music),
-        MenuEntry(tr('Réglages'), open: _settings),
+        MenuEntry(tr('Réglages'), open: _settings, preview: MenuPreview.settings),
         MenuEntry(tr('Morceau au hasard'), action: () {
           if (player.tracks.isEmpty) return;
           _play(player.tracks, math.Random().nextInt(player.tracks.length));
         }),
-        if (player.current != null) MenuEntry(tr('En lecture'), open: NowPlayingPage.new),
+        // Sur les écrans monochromes, le rétroéclairage s'éteint d'ici.
+        if (look.mono) MenuEntry(tr('Rétroéclairage'), action: darken),
+        if (player.current != null)
+          MenuEntry(tr('En lecture'), open: NowPlayingPage.new, preview: MenuPreview.nowPlaying),
       ]);
 
-  MenuPage _music() => MenuPage(tr('Musique'), live: true, () => [
+  MenuPage _music() => MenuPage(tr('Musique'), live: true, kind: MenuKind.split, () => [
         if (coverFlow && player.albums.isNotEmpty)
           MenuEntry('Cover Flow', open: () => CoverFlowPage(math.max(0, player.currentAlbum))),
         MenuEntry(tr('Listes de lecture'), open: _playlists),
         MenuEntry(tr('Artistes'), open: _artists),
         MenuEntry(tr('Albums'), open: () => _albumList(tr('Albums'), _sortedAlbums(null))),
         MenuEntry(tr('Morceaux'), open: _songs),
+        // (Seulement si les fichiers en donnent : Spotify n'en a pas par morceau.)
+        if (player.tracks.any((t) => t.genre != null)) MenuEntry(tr('Genres'), open: _genres),
+        MenuEntry(tr('Recherche'), open: SearchPage.new),
       ]);
+
+  MenuPage _genres() => MenuPage(tr('Genres'), music: true, () {
+        final names = <String, String>{};
+        for (final t in player.tracks) {
+          if (t.genre case final g?) names.putIfAbsent(g.toLowerCase(), () => g);
+        }
+        final sorted = names.values.toList()..sort(_cmp);
+        return [
+          for (final g in sorted)
+            MenuEntry(g, open: () => _tracks(g, [for (final t in player.tracks) if (t.genre?.toLowerCase() == g.toLowerCase()) t])),
+        ];
+      });
 
   MenuPage _playlists() => MenuPage(tr('Listes de lecture'), music: true, () => [
         MenuEntry(tr('Ajouts récents'), open: () => _tracks(tr('Ajouts récents'), player.recentlyAdded(25))),
@@ -421,7 +565,7 @@ class IpodNav extends ChangeNotifier {
   /// une bibliothèque.
   MenuPage? _settingsPage;
 
-  MenuPage _settings() => _settingsPage = MenuPage(tr('Réglages'), live: true, () => [
+  MenuPage _settings() => _settingsPage = MenuPage(tr('Réglages'), live: true, kind: MenuKind.split, () => [
         MenuEntry(tr('À propos'), open: _about),
         MenuEntry(
           tr('Bibliothèque'),
@@ -537,7 +681,7 @@ class IpodNav extends ChangeNotifier {
     at = math.max(0, at);
     page
       ..selected = at
-      ..top = math.max(0, at - visibleRows + 1);
+      ..top = math.max(0, at - rowsOf(page) + 1);
     page.selSpring.value = at.toDouble();
     page.topSpring.value = page.top.toDouble();
   }
@@ -710,8 +854,17 @@ class IpodNav extends ChangeNotifier {
         ]);
   }
 
-  MenuPage _albumList(String title, List<int> ids) =>
-      MenuPage(title, music: true, () => [for (final i in ids) MenuEntry(player.albums[i].title, open: () => _album(i))]);
+  /// Des albums : sur les écrans qui le montrent, chacun avec sa vignette
+  /// et son artiste.
+  MenuPage _albumList(String title, List<int> ids) => MenuPage(title, music: true, kind: MenuKind.tall, () => [
+        for (final i in ids)
+          MenuEntry(
+            player.albums[i].title,
+            subtitle: player.albums[i].artist,
+            art: () => player.albumCover(i),
+            open: () => _album(i),
+          ),
+      ]);
 
   List<Track> _albumTracks(Album a) => player.tracks.sublist(a.firstIndex, a.firstIndex + a.trackCount);
 

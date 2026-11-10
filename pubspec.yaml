@@ -42,3 +42,7 @@ flutter:
           weight: 500
         - asset: assets/fonts/NotoSans-Bold.ttf
           weight: 700
+    # Police des écrans des 1re et 2e générations (recréation de Chicago).
+    - family: ChicagoFLF
+      fonts:
+        - asset: assets/fonts/ChicagoFLF.ttf

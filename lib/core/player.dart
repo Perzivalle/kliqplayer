@@ -453,6 +453,26 @@ class PlayerController extends ChangeNotifier {
     return list.take(count).toList();
   }
 
+  // --- Notes en étoiles (écran « En lecture ») ---------------------------------
+
+  static final _ratingsStore = JsonStore('ratings.json');
+
+  /// (Sous `flutter test`, chaque lecteur a les siennes.)
+  late final Map<String, Object?> _ratings = JsonStore.inTest ? {} : _ratingsStore.values;
+
+  /// La note de [t], de 0 (aucune) à 5 étoiles.
+  int rating(Track t) => switch (_ratings[t.id]) { final int n => n.clamp(0, 5), _ => 0 };
+
+  void setRating(Track t, int stars) {
+    if (stars <= 0) {
+      _ratings.remove(t.id);
+    } else {
+      _ratings[t.id] = stars.clamp(1, 5);
+    }
+    _ratingsStore.changed();
+    notifyListeners();
+  }
+
   void _countPlay(Track t) {
     _plays[t.id] = _playsOf(t) + 1;
     _playsStore.changed();

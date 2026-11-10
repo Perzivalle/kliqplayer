@@ -15,6 +15,7 @@ class Track {
     this.duration,
     this.added,
     this.artworkUrl,
+    this.genre,
   });
 
   /// Identifiant pour la source : chemin du fichier, ou « spotify:track:… ».
@@ -32,6 +33,9 @@ class Track {
 
   /// Pochette en ligne (les fichiers, eux, ont la leur dedans ou à côté).
   final String? artworkUrl;
+
+  /// Genre, quand le fichier en donne un (menu Musique › Genres).
+  final String? genre;
 
   @override
   String toString() => '$artist — $title';

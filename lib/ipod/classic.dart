@@ -1,6 +1,9 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:clock/clock.dart';
+import 'package:flutter/material.dart' hide RepeatMode;
 
 import '../core/player.dart';
 import 'look.dart';
@@ -168,7 +171,7 @@ class VideoModel extends IpodModel {
       };
 
   @override
-  ScreenLook get look => const ClassicLook();
+  ScreenLook get look => const ClassicLook(ui: ColorUi.video);
 
   @override
   CustomPainter get body => BodyPainter(color, _screen.inflate(6), true);
@@ -346,11 +349,54 @@ const double _barH = 22;
 const _ink = Color(0xFF111111);
 const _font = 'Noto Sans';
 
+/// Les deux interfaces des écrans couleur : celle de 2004-2006 (iPod
+/// photo, 5e génération, nano 1G et 2G), et celle de 2007 (Classic, nano
+/// 3G et 4G) avec ses menus scindés, Cover Flow et les albums en vignettes.
+enum ColorUi { video, classic }
+
 class ClassicLook extends ScreenLook {
-  const ClassicLook({this.portrait = false});
+  const ClassicLook({this.portrait = false, this.ui = ColorUi.classic});
 
   /// Écran vertical, 240 × 320 (nano de 4e génération).
   final bool portrait;
+
+  final ColorUi ui;
+
+  bool get _modern => ui == ColorUi.classic;
+
+  @override
+  double get barHeight => _barH;
+
+  @override
+  int rowsFor(MenuKind kind) => switch (kind) {
+        MenuKind.tall when _modern => portrait ? 7 : 5,
+        _ => visibleRows,
+      };
+
+  @override
+  double rowHeightFor(MenuKind kind) =>
+      kind == MenuKind.tall && _modern ? (size.height - _barH) / rowsFor(kind) : rowHeight;
+
+  @override
+  ({Rect menu, Rect image})? split(Size screen) {
+    // (Pas sur l'écran vertical du nano 4G : menu pleine largeur.)
+    if (!_modern || portrait) return null;
+    // L'image prend toute la hauteur : la barre de titre s'arrête à elle.
+    final w = screen.width / 2;
+    return (
+      menu: Rect.fromLTRB(0, _barH, w, screen.height),
+      image: Rect.fromLTRB(w, 0, screen.width, screen.height),
+    );
+  }
+
+  @override
+  Widget preview(MenuEntry entry, PlayerController player, {required bool active}) =>
+      _Preview(kind: entry.preview, seed: entry.label, player: player, active: active);
+
+  @override
+  List<NowPlayingMode> get centerCycle => _modern
+      ? const [NowPlayingMode.scrub, NowPlayingMode.rating, NowPlayingMode.shuffle]
+      : const [NowPlayingMode.scrub, NowPlayingMode.art, NowPlayingMode.rating];
 
   @override
   Size get size => portrait ? const Size(240, 320) : const Size(320, 240);
@@ -375,13 +421,19 @@ class ClassicLook extends ScreenLook {
   Color get nowPlayingBackground => portrait ? const Color(0xFF0E0F12) : background;
 
   @override
-  bool get coverFlow => true;
+  bool get coverFlow => _modern;
 
   @override
-  Widget statusBar({required String title, required bool playing, required bool hasTrack, bool nowPlaying = false}) =>
+  Widget statusBar({
+    required String title,
+    required bool playing,
+    required bool hasTrack,
+    bool nowPlaying = false,
+    bool locked = false,
+  }) =>
       portrait && nowPlaying
-          ? _DarkStatusBar(title: title, playing: playing, hasTrack: hasTrack)
-          : _StatusBar(title: title, playing: playing, hasTrack: hasTrack);
+          ? _DarkStatusBar(title: title, playing: playing, hasTrack: hasTrack, locked: locked)
+          : _StatusBar(title: title, playing: playing, hasTrack: hasTrack, locked: locked, modern: _modern);
 
   @override
   Widget highlight() => const DecoratedBox(
@@ -397,7 +449,8 @@ class ClassicLook extends ScreenLook {
       );
 
   @override
-  Widget row(MenuEntry entry, {required bool selected}) => _Row(entry: entry, selected: selected);
+  Widget row(MenuEntry entry, {required bool selected, MenuKind kind = MenuKind.normal}) =>
+      _Row(entry: entry, selected: selected, tall: kind == MenuKind.tall && _modern);
 
   @override
   CustomPainter scrollbar(double start, double extent) => _ScrollbarPainter(start, extent);
@@ -409,20 +462,41 @@ class ClassicLook extends ScreenLook {
 
   @override
   Widget nowPlaying(PlayerController player, NowPlayingMode mode) =>
-      portrait ? _NowPlayingPortrait(player: player, mode: mode) : _NowPlaying(player: player, mode: mode);
+      portrait ? _NowPlayingPortrait(player: player, mode: mode) : _NowPlaying(player: player, mode: mode, modern: _modern);
 }
 
 // --- Barre de titre ----------------------------------------------------------
 
 class _StatusBar extends StatelessWidget {
-  const _StatusBar({required this.title, required this.playing, required this.hasTrack});
+  const _StatusBar({
+    required this.title,
+    required this.playing,
+    required this.hasTrack,
+    required this.locked,
+    required this.modern,
+  });
 
   final String title;
   final bool playing;
   final bool hasTrack;
+  final bool locked;
+
+  /// Interface de 2007 : le titre à gauche, l'icône de lecture à côté de
+  /// la batterie. Avant : le titre au milieu, l'icône à gauche.
+  final bool modern;
 
   @override
   Widget build(BuildContext context) {
+    const blue = Color(0xFF2E6FCB);
+    final text = Text(
+      title,
+      maxLines: 1,
+      softWrap: false,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+    );
+    final play = Icon(playing ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 15, color: blue);
+    const lock = Icon(Icons.lock_rounded, size: 11, color: Color(0xFF4A4F55));
     return Container(
       height: _barH,
       decoration: const BoxDecoration(
@@ -435,27 +509,20 @@ class _StatusBar extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          // Entre l'icône de lecture et la batterie ; coupé par « … » si trop long.
-          Positioned.fill(
-            left: 26,
-            right: 38,
-            child: Center(
-              child: Text(
-                title,
-                maxLines: 1,
-                softWrap: false,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-              ),
+          if (modern) ...[
+            Positioned.fill(
+              left: 8,
+              right: 38.0 + (hasTrack ? 16 : 0) + (locked ? 14 : 0),
+              child: Align(alignment: Alignment.centerLeft, child: text),
             ),
-          ),
-          if (hasTrack)
-            Positioned(
-              left: 6,
-              top: 0,
-              bottom: 0,
-              child: Icon(playing ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 15, color: const Color(0xFF2E6FCB)),
-            ),
+            if (hasTrack) Positioned(right: 34, top: 0, bottom: 0, child: play),
+            if (locked) Positioned(right: hasTrack ? 51 : 36, top: 0, bottom: 0, child: lock),
+          ] else ...[
+            // Entre l'icône de lecture et la batterie ; coupé par « … » si trop long.
+            Positioned.fill(left: 26, right: locked ? 50 : 38, child: Center(child: text)),
+            if (hasTrack) Positioned(left: 6, top: 0, bottom: 0, child: play),
+            if (locked) const Positioned(right: 36, top: 0, bottom: 0, child: lock),
+          ],
           const Positioned(right: 7, top: 6, child: CustomPaint(size: Size(24, 10), painter: _BatteryPainter())),
         ],
       ),
@@ -466,11 +533,12 @@ class _StatusBar extends StatelessWidget {
 /// Barre noire de l'écran « En lecture » du nano 4G : titre blanc, l'icône
 /// de lecture à côté de la batterie.
 class _DarkStatusBar extends StatelessWidget {
-  const _DarkStatusBar({required this.title, required this.playing, required this.hasTrack});
+  const _DarkStatusBar({required this.title, required this.playing, required this.hasTrack, required this.locked});
 
   final String title;
   final bool playing;
   final bool hasTrack;
+  final bool locked;
 
   @override
   Widget build(BuildContext context) {
@@ -506,6 +574,8 @@ class _DarkStatusBar extends StatelessWidget {
               bottom: 0,
               child: Icon(playing ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 15, color: const Color(0xFFE9EBEE)),
             ),
+          if (locked)
+            const Positioned(left: 7, top: 0, bottom: 0, child: Icon(Icons.lock_rounded, size: 11, color: Color(0xFFE9EBEE))),
           const Positioned(right: 7, top: 6, child: CustomPaint(size: Size(24, 10), painter: _BatteryPainter())),
         ],
       ),
@@ -538,14 +608,55 @@ class _BatteryPainter extends CustomPainter {
 }
 
 class _Row extends StatelessWidget {
-  const _Row({required this.entry, required this.selected});
+  const _Row({required this.entry, required this.selected, this.tall = false});
 
   final MenuEntry entry;
   final bool selected;
 
+  /// Ligne haute : la vignette de l'album, son titre, et l'artiste dessous.
+  final bool tall;
+
   @override
   Widget build(BuildContext context) {
     final color = selected ? Colors.white : _ink;
+    if (tall) {
+      return Padding(
+        padding: const EdgeInsets.only(left: 5, right: 4),
+        child: LayoutBuilder(builder: (context, box) {
+          final art = box.maxHeight - 8;
+          return Row(
+            children: [
+              _Artwork(bytes: entry.art?.call(), size: art),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Marquee(entry.label, active: selected, style: TextStyle(color: color)),
+                    if (entry.subtitle case final sub?) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        sub,
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                          color: selected ? const Color(0xFFE3EEFB) : const Color(0xFF6A6F75),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (entry.open != null) Icon(Icons.chevron_right_rounded, size: 18, color: color),
+            ],
+          );
+        }),
+      );
+    }
     final value = entry.value?.call();
     return Padding(
       padding: const EdgeInsets.only(left: 8, right: 4),
@@ -613,10 +724,13 @@ String _time(Duration d) {
 }
 
 class _NowPlaying extends StatelessWidget {
-  const _NowPlaying({required this.player, required this.mode});
+  const _NowPlaying({required this.player, required this.mode, required this.modern});
 
   final PlayerController player;
   final NowPlayingMode mode;
+
+  /// Interface de 2007 : la pochette de biais, avec son reflet.
+  final bool modern;
 
   @override
   Widget build(BuildContext context) {
@@ -624,11 +738,17 @@ class _NowPlaying extends StatelessWidget {
     if (track == null) {
       return Center(child: Text(tr('Aucun morceau')));
     }
+    // La pochette en grand (bouton central, 5e génération et consorts).
+    if (mode == NowPlayingMode.art) {
+      return LayoutBuilder(
+        builder: (context, box) => Center(child: _Artwork(bytes: player.cover, size: box.maxHeight - 14)),
+      );
+    }
     // Rang dans ce qui a été lancé (l'album, la liste…), comme sur un vrai
     // iPod ; rien si le morceau a été lancé ailleurs (appli Spotify).
     final position = player.queueIndex >= 0 ? trOf(player.queueIndex + 1, player.nowPlaying.length) : '';
 
-    const art = 116.0;
+    final art = modern ? 108.0 : 116.0;
     return Stack(
       children: [
         Positioned(
@@ -636,7 +756,12 @@ class _NowPlaying extends StatelessWidget {
           top: 5,
           child: Text(position, style: const TextStyle(fontSize: 11, color: Color(0xFF4A4F55))),
         ),
-        Positioned(left: 10, top: 24, child: _Artwork(bytes: player.cover, size: art)),
+        // L'aléatoire et la répétition, s'ils sont mis.
+        Positioned(right: 8, top: 4, child: _PlayIcons(player: player, color: const Color(0xFF2E6FCB), size: 13)),
+        if (modern)
+          Positioned(left: 12, top: 22, child: _TiltedArtwork(bytes: player.cover, size: art))
+        else
+          Positioned(left: 10, top: 24, child: _Artwork(bytes: player.cover, size: art)),
         Positioned(
           left: 10 + art + 12,
           right: 8,
@@ -659,13 +784,344 @@ class _NowPlaying extends StatelessWidget {
           height: 36,
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 180),
-            child: mode == NowPlayingMode.volume
-                ? _VolumeBar(key: const ValueKey('vol'), volume: player.volume / 100)
-                : _Progress(key: const ValueKey('prog'), player: player, scrub: mode == NowPlayingMode.scrub),
+            child: switch (mode) {
+              NowPlayingMode.volume => _VolumeBar(key: const ValueKey('vol'), volume: player.volume / 100),
+              NowPlayingMode.rating => _Stars(
+                  key: const ValueKey('stars'),
+                  stars: player.rating(track),
+                  size: 22,
+                  on: const Color(0xFF2E6FCB),
+                  off: const Color(0xFFB4B9BF),
+                ),
+              NowPlayingMode.shuffle => _ShuffleChoice(key: const ValueKey('shuffle'), on: player.shuffle, color: _ink),
+              _ => _Progress(key: const ValueKey('prog'), player: player, scrub: mode == NowPlayingMode.scrub),
+            },
           ),
         ),
       ],
     );
+  }
+}
+
+/// Les icônes aléatoire et répétition de l'écran « En lecture ».
+class _PlayIcons extends StatelessWidget {
+  const _PlayIcons({required this.player, required this.color, required this.size});
+
+  final PlayerController player;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (player.shuffling) Icon(Icons.shuffle_rounded, size: size, color: color),
+          if (player.repeat != RepeatMode.off)
+            Padding(
+              padding: const EdgeInsets.only(left: 3),
+              child: Icon(
+                player.repeat == RepeatMode.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
+                size: size,
+                color: color,
+              ),
+            ),
+        ],
+      );
+}
+
+/// La note du morceau : cinq étoiles, pleines jusqu'à [stars], des points
+/// au-delà (la molette en ajoute ou en retire).
+class _Stars extends StatelessWidget {
+  const _Stars({super.key, required this.stars, required this.size, required this.on, required this.off});
+
+  final int stars;
+  final double size;
+  final Color on, off;
+
+  @override
+  Widget build(BuildContext context) => Align(
+        alignment: Alignment.topCenter,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < 5; i++)
+              SizedBox(
+                width: size + 4,
+                height: size,
+                child: Center(
+                  child: i < stars
+                      ? Icon(Icons.star_rounded, size: size, color: on)
+                      : DecoratedBox(
+                          decoration: BoxDecoration(color: off, shape: BoxShape.circle),
+                          child: SizedBox.square(dimension: size * 0.22),
+                        ),
+                ),
+              ),
+          ],
+        ),
+      );
+}
+
+/// Lecture aléatoire, réglée depuis « En lecture » (la molette la met ou
+/// l'enlève).
+class _ShuffleChoice extends StatelessWidget {
+  const _ShuffleChoice({super.key, required this.on, required this.color, this.fontSize = 13});
+
+  final bool on;
+  final Color color;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) => Align(
+        alignment: Alignment.topCenter,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.shuffle_rounded, size: fontSize + 3, color: color),
+            const SizedBox(width: 6),
+            Text(
+              '${tr('Lecture aléatoire')} : ${on ? tr('Morceaux') : tr('Non')}',
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(fontSize: fontSize, color: color),
+            ),
+          ],
+        ),
+      );
+}
+
+/// La pochette tournée d'un quart vers la droite, et son reflet sur le
+/// fond blanc (Classic, nano 3G).
+class _TiltedArtwork extends StatelessWidget {
+  const _TiltedArtwork({required this.bytes, required this.size});
+
+  final dynamic bytes;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    const reflection = 34.0;
+    return Transform(
+      alignment: Alignment.centerLeft,
+      transform: Matrix4.identity()
+        ..setEntry(3, 2, 0.0016)
+        ..rotateY(-0.38),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _Artwork(bytes: bytes, size: size),
+          const SizedBox(height: 1),
+          SizedBox(
+            width: size,
+            height: reflection,
+            child: ClipRect(
+              child: Stack(
+                children: [
+                  // La pochette à l'envers : son bas touche le bas de l'autre.
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    child: Transform.scale(scaleY: -1, child: _Artwork(bytes: bytes, size: size)),
+                  ),
+                  // …qui se perd dans le blanc.
+                  const Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Color(0x99FFFFFF), Color(0xFFFFFFFF)],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// L'image d'un menu scindé : la pochette d'un album qui glisse lentement,
+/// remplacée par une autre de temps en temps ; la pochette en cours pour
+/// « En lecture » ; un engrenage pour les Réglages.
+class _Preview extends StatefulWidget {
+  const _Preview({
+    required this.kind,
+    required this.seed,
+    required this.player,
+    required this.active,
+  });
+
+  final MenuPreview kind;
+
+  /// La ligne du menu : chacune commence par un album différent.
+  final String seed;
+  final PlayerController player;
+
+  /// Écran allumé : l'image bouge.
+  final bool active;
+
+  @override
+  State<_Preview> createState() => _PreviewState();
+}
+
+class _PreviewState extends State<_Preview> {
+  /// Durée d'une pochette, en secondes.
+  static const _stay = 9;
+
+  Timer? _timer;
+  DateTime _start = clock.now();
+  Object? _shown;
+  int _serial = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(_Preview old) {
+    super.didUpdateWidget(old);
+    if (old.seed != widget.seed || old.kind != widget.kind) _start = clock.now();
+    _sync();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  /// Vingt images par seconde suffisent à un glissement aussi lent, et
+  /// seulement tant que l'écran est allumé.
+  void _sync() {
+    final moving = widget.active && widget.kind != MenuPreview.settings;
+    if (moving == (_timer != null)) return;
+    _timer?.cancel();
+    _timer = moving
+        ? Timer.periodic(const Duration(milliseconds: 50), (_) {
+            if (mounted) setState(() {});
+          })
+        : null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final player = widget.player;
+    final t = clock.now().difference(_start).inMilliseconds / 1000;
+    final Widget image;
+    final Object key;
+    switch (widget.kind) {
+      case MenuPreview.settings:
+        key = 'réglages';
+        image = DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFF2F4F6), Color(0xFFC3C9D0)],
+            ),
+          ),
+          child: LayoutBuilder(
+            builder: (context, box) => Center(
+              child: Icon(Icons.settings_rounded, size: math.min(96, box.maxHeight * 0.72), color: const Color(0xFF8A929B)),
+            ),
+          ),
+        );
+      case MenuPreview.nowPlaying:
+        key = 'en lecture';
+        image = _Pan(bytes: player.cover, phase: (t % (_stay * 2)) / (_stay * 2), back: false);
+      case MenuPreview.covers:
+        final count = player.albums.length;
+        if (count == 0) {
+          key = 'vide';
+          image = const _Pan(bytes: null, phase: 0, back: false);
+        } else {
+          final turn = t ~/ _stay;
+          final seed = widget.seed.codeUnits.fold(0, (a, b) => a + b);
+          int album(int n) => (seed * 7 + n * 37) % count;
+          player.albumCover(album(turn + 1)); // la suivante se prépare
+          key = album(turn);
+          image = _Pan(bytes: player.albumCover(album(turn)), phase: (t % _stay) / _stay, back: turn.isOdd);
+        }
+    }
+    // Un numéro neuf à chaque changement d'image : la même peut revenir
+    // pendant que la précédente s'efface encore.
+    if (key != _shown) {
+      _shown = key;
+      _serial++;
+    }
+    return ClipRect(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 700),
+            child: KeyedSubtree(key: ValueKey(_serial), child: image),
+          ),
+          // L'ombre du menu sur l'image, le long de leur bord commun.
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: SizedBox(
+              width: 7,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [Color(0x59000000), Color(0x00000000)]),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Une pochette plus grande que son cadre, qui le traverse lentement en
+/// biais ([phase] de 0 à 1 ; [back] : dans l'autre sens).
+class _Pan extends StatelessWidget {
+  const _Pan({required this.bytes, required this.phase, required this.back});
+
+  final dynamic bytes;
+  final double phase;
+  final bool back;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, box) {
+      if (bytes == null) {
+        return const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFE9ECEF), Color(0xFFB9BFC6)],
+            ),
+          ),
+          child: Center(child: Icon(Icons.music_note_rounded, size: 72, color: Colors.white)),
+        );
+      }
+      final side = math.max(box.maxWidth, box.maxHeight) * 1.25;
+      final p = back ? 1 - phase : phase;
+      return ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.topLeft,
+          minWidth: side,
+          maxWidth: side,
+          minHeight: side,
+          maxHeight: side,
+          child: Transform.translate(
+            offset: Offset(-(side - box.maxWidth) * p, -(side - box.maxHeight) * (0.15 + 0.7 * p)),
+            child: Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true, filterQuality: FilterQuality.medium),
+          ),
+        ),
+      );
+    });
   }
 }
 
@@ -720,9 +1176,19 @@ class _NowPlayingPortrait extends StatelessWidget {
             height: 14,
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 180),
-              child: mode == NowPlayingMode.volume
-                  ? _VolumeLine(key: const ValueKey('vol'), volume: player.volume / 100)
-                  : _ProgressLine(key: const ValueKey('prog'), player: player, scrub: mode == NowPlayingMode.scrub),
+              child: switch (mode) {
+                NowPlayingMode.volume => _VolumeLine(key: const ValueKey('vol'), volume: player.volume / 100),
+                NowPlayingMode.rating => _Stars(
+                    key: const ValueKey('stars'),
+                    stars: player.rating(track),
+                    size: 14,
+                    on: _white,
+                    off: const Color(0xFF8A8F96),
+                  ),
+                NowPlayingMode.shuffle =>
+                  _ShuffleChoice(key: const ValueKey('shuffle'), on: player.shuffle, color: _white, fontSize: 10.5),
+                _ => _ProgressLine(key: const ValueKey('prog'), player: player, scrub: mode == NowPlayingMode.scrub),
+              },
             ),
           ),
         ],
@@ -789,15 +1255,15 @@ class _Artwork extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Widget image = bytes == null
-        ? const DecoratedBox(
-            decoration: BoxDecoration(
+        ? DecoratedBox(
+            decoration: const BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [Color(0xFFE9ECEF), Color(0xFFB9BFC6)],
               ),
             ),
-            child: Center(child: Icon(Icons.music_note_rounded, size: 48, color: Colors.white)),
+            child: Center(child: Icon(Icons.music_note_rounded, size: math.min(48, size * 0.42), color: Colors.white)),
           )
         : Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true, filterQuality: FilterQuality.medium);
     return SizedBox(

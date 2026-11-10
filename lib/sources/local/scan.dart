@@ -55,6 +55,7 @@ Library _scan(String rootPath, String unknownArtist) {
         discNumber: meta.discNumber,
         duration: meta.duration,
         added: added,
+        genre: _genre(meta.genres),
       ));
       final albumArtist = meta.albumArtist?.trim() ?? '';
       if (albumArtist.isNotEmpty) albumOf[entity.path] = '${album.toLowerCase()}\u0000${albumArtist.toLowerCase()}';
@@ -124,4 +125,12 @@ String _basename(String path) {
   final name = lastSegment(path);
   final dot = name.lastIndexOf('.');
   return dot > 0 ? name.substring(0, dot) : name;
+}
+
+/// Le premier genre donné par les tags (null : aucun).
+String? _genre(List<String> genres) {
+  for (final g in genres) {
+    if (g.trim().isNotEmpty) return g.trim();
+  }
+  return null;
 }

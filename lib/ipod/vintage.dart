@@ -12,6 +12,9 @@ import 'wheel.dart';
 /// Écran monochrome des premières générations : 160 × 128, 6 lignes.
 const _monoLook = MiniLook(size: Size(160, 128), visibleRows: 6);
 
+/// Les deux premières générations : la police Chicago, pas encore de notes.
+const _chicagoLook = MiniLook(size: Size(160, 128), visibleRows: 6, font: 'ChicagoFLF', ratings: false);
+
 /// La 1re génération (2001) : molette mécanique qui tourne vraiment,
 /// entourée de quatre boutons, écran monochrome, façade blanche.
 class FirstGenModel extends IpodModel {
@@ -75,7 +78,7 @@ class FirstGenModel extends IpodModel {
   HoldSwitch? get hold => const HoldSwitch(330);
 
   @override
-  ScreenLook get look => _monoLook;
+  ScreenLook get look => _chicagoLook;
 
   @override
   CustomPainter get body => const _WhiteBodyPainter(_size, _radius, _screen);
@@ -149,7 +152,7 @@ class SecondGenModel extends IpodModel {
   HoldSwitch? get hold => const HoldSwitch(330);
 
   @override
-  ScreenLook get look => _monoLook;
+  ScreenLook get look => _chicagoLook;
 
   @override
   CustomPainter get body => const _WhiteBodyPainter(_size, _radius, _screen);
@@ -397,7 +400,7 @@ class PhotoModel extends IpodModel {
   HoldSwitch? get hold => const HoldSwitch(346);
 
   @override
-  ScreenLook get look => const ClassicLook();
+  ScreenLook get look => const ClassicLook(ui: ColorUi.video);
 
   @override
   CustomPainter get body => const _WhiteBodyPainter(_size, _radius, _screen);
@@ -500,7 +503,7 @@ class Nano1Model extends IpodModel {
   };
 
   @override
-  ScreenLook get look => const ClassicLook();
+  ScreenLook get look => const ClassicLook(ui: ColorUi.video);
 
   @override
   CustomPainter get body => switch (color) {

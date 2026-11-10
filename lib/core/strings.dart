@@ -50,6 +50,9 @@ const _strings = <String, List<String>>{
   'Tous': ['All', 'Todo', 'Alle'],
   'Ajouts récents': ['Recently Added', 'Añadido recientemente', 'Zuletzt hinzugefügt'],
   'Les plus écoutés': ['Top Played', 'Más escuchadas', 'Meistgespielt'],
+  'Genres': ['Genres', 'Géneros', 'Genres'],
+  'Recherche': ['Search', 'Buscar', 'Suchen'],
+  'Choisir des lettres': ['Pick letters', 'Elige letras', 'Buchstaben wählen'],
   // Réglages
   'À propos': ['About', 'Información', 'Info'],
   'Bibliothèque': ['Library', 'Biblioteca', 'Mediathek'],

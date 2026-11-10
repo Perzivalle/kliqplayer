@@ -143,6 +143,7 @@ void main() {
       'assets/fonts/NotoSans-Bold.ttf',
     ]);
     final flutterRoot = Platform.environment['FLUTTER_ROOT'] ?? '${Platform.environment['HOME']}/development/flutter';
+    await _loadFont('ChicagoFLF', ['assets/fonts/ChicagoFLF.ttf']);
     await _loadFont('MaterialIcons', ['$flutterRoot/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf']);
   });
 
@@ -172,6 +173,49 @@ void main() {
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_volume.png'));
       await _key(tester, LogicalKeyboardKey.enter); // avance rapide
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_scrub.png'));
+    });
+
+    testWidgets('albums : vignette et artiste', (tester) async {
+      await _show(tester, IpodStage(player: _player(index: 0), initial: model));
+      await _key(tester, LogicalKeyboardKey.enter); // Musique
+      await _key(tester, LogicalKeyboardKey.arrowDown, 3);
+      await _key(tester, LogicalKeyboardKey.enter); // Albums
+      await _key(tester, LogicalKeyboardKey.arrowDown);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_albums.png'));
+    });
+
+    testWidgets('recherche', (tester) async {
+      await _show(tester, IpodStage(player: _player(index: 0), initial: model));
+      await _key(tester, LogicalKeyboardKey.enter); // Musique
+      await _key(tester, LogicalKeyboardKey.arrowDown, 9); // tout en bas
+      await _key(tester, LogicalKeyboardKey.enter); // Recherche
+      await _key(tester, LogicalKeyboardKey.arrowDown, 4);
+      await _key(tester, LogicalKeyboardKey.enter); // E
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_search.png'));
+    });
+
+    testWidgets('en lecture : étoiles, puis aléatoire', (tester) async {
+      await _show(tester, IpodStage(player: _player(index: 5, position: const Duration(minutes: 1, seconds: 23)), initial: model));
+      await _key(tester, LogicalKeyboardKey.arrowDown, 3);
+      await _key(tester, LogicalKeyboardKey.enter); // En lecture
+      await _key(tester, LogicalKeyboardKey.enter); // recherche dans le morceau
+      await _key(tester, LogicalKeyboardKey.enter); // note
+      await _key(tester, LogicalKeyboardKey.arrowDown, 3);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_rating.png'));
+      await _key(tester, LogicalKeyboardKey.enter); // aléatoire
+      await _key(tester, LogicalKeyboardKey.arrowDown);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_shuffle.png'));
+    });
+
+    testWidgets('verrou : cadenas, et plus rien ne répond', (tester) async {
+      await _show(tester, IpodStage(player: _player(index: 0), initial: model));
+      await tester.tap(find.byKey(const ValueKey('hold')));
+      await _frames(tester);
+      await _key(tester, LogicalKeyboardKey.arrowDown, 2); // sans effet
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_locked.png'));
+      await tester.tap(find.byKey(const ValueKey('hold')));
+      await _key(tester, LogicalKeyboardKey.arrowDown);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_unlocked.png'));
     });
 
     testWidgets('bouton enfoncé', (tester) async {
@@ -207,7 +251,7 @@ void main() {
 
     testWidgets('en lecture', (tester) async {
       await _show(tester, IpodStage(player: _player(index: 5, position: const Duration(minutes: 1, seconds: 23)), initial: model));
-      await _key(tester, LogicalKeyboardKey.arrowDown, 3);
+      await _key(tester, LogicalKeyboardKey.arrowDown, 4); // (après « Rétroéclairage »)
       await _key(tester, LogicalKeyboardKey.enter); // En lecture
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/mini_now_playing.png'));
       await _key(tester, LogicalKeyboardKey.arrowDown); // volume
@@ -223,6 +267,40 @@ void main() {
       await _key(tester, LogicalKeyboardKey.arrowDown, 3);
       await _key(tester, LogicalKeyboardKey.enter); // Répéter : Non → Un
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_settings.png'));
+    });
+
+    testWidgets('recherche (Mini)', (tester) async {
+      await _show(tester, IpodStage(player: _player(index: 0), initial: const MiniModel()));
+      await _key(tester, LogicalKeyboardKey.enter); // Musique
+      await _key(tester, LogicalKeyboardKey.arrowDown, 9);
+      await _key(tester, LogicalKeyboardKey.enter); // Recherche
+      await _key(tester, LogicalKeyboardKey.arrowDown, 11);
+      await _key(tester, LogicalKeyboardKey.enter); // L
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/mini_search.png'));
+    });
+
+    testWidgets('pochette en grand (5e génération)', (tester) async {
+      await _show(
+        tester,
+        IpodStage(player: _player(index: 5, position: const Duration(minutes: 1, seconds: 23)), initial: const VideoModel()),
+      );
+      await _key(tester, LogicalKeyboardKey.arrowDown, 3);
+      await _key(tester, LogicalKeyboardKey.enter); // En lecture
+      await _key(tester, LogicalKeyboardKey.enter); // recherche dans le morceau
+      await _key(tester, LogicalKeyboardKey.enter); // pochette
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/gen5_art.png'));
+    });
+
+    testWidgets('shuffle : l\'interrupteur passe de l\'aléatoire à l\'ordre', (tester) async {
+      final player = _player(index: 0);
+      await _show(tester, IpodStage(player: player, initial: Shuffle2Model(shuffle2Colors.first)));
+      expect(player.forcedShuffle, isTrue);
+      await tester.tap(find.byKey(const ValueKey('hold')));
+      await _frames(tester);
+      expect(player.forcedShuffle, isFalse, reason: 'dans l\'ordre');
+      await tester.tap(find.byKey(const ValueKey('hold')));
+      await _frames(tester);
+      expect(player.forcedShuffle, isTrue); // (et la préférence est remise)
     });
 
     testWidgets('Réglages (Mini)', (tester) async {
@@ -412,7 +490,8 @@ void main() {
           tester,
           IpodStage(player: _player(index: 5, position: const Duration(minutes: 1, seconds: 23)), initial: model),
         );
-        await _key(tester, LogicalKeyboardKey.arrowDown, 3);
+        // (Les écrans monochromes ont « Rétroéclairage » avant « En lecture ».)
+        await _key(tester, LogicalKeyboardKey.arrowDown, model.look.mono ? 4 : 3);
         await _key(tester, LogicalKeyboardKey.enter);
         await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/${name}_now_playing.png'));
       });

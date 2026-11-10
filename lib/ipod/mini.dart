@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide RepeatMode;
 
 import '../core/player.dart';
 import 'look.dart';
@@ -311,7 +311,26 @@ const double _barH = 18;
 /// Écran monochrome rétroéclairé, à deux tons. Par défaut celui du Mini
 /// (138 × 110, 5 lignes) ; les premières générations en ont un plus grand.
 class MiniLook extends ScreenLook {
-  const MiniLook({this.size = const Size(138, 110), this.visibleRows = 5});
+  const MiniLook({this.size = const Size(138, 110), this.visibleRows = 5, this.font = _font, this.ratings = true});
+
+  /// Police de l'écran : Chicago sur les deux premières générations.
+  final String font;
+
+  /// On peut noter le morceau en étoiles (à partir de la 3e génération).
+  final bool ratings;
+
+  @override
+  bool get mono => true;
+
+  @override
+  double get barHeight => _barH;
+
+  @override
+  Color get selectedInk => _lcd;
+
+  @override
+  List<NowPlayingMode> get centerCycle =>
+      ratings ? const [NowPlayingMode.scrub, NowPlayingMode.rating] : const [NowPlayingMode.scrub];
 
   @override
   final Size size;
@@ -326,8 +345,10 @@ class MiniLook extends ScreenLook {
   double get scrollbarWidth => 6;
 
   @override
-  TextStyle get textStyle =>
-      const TextStyle(fontFamily: _font, color: _ink, fontSize: 11.5, fontWeight: FontWeight.w700, height: 1);
+  TextStyle get textStyle => font == _font
+      ? const TextStyle(fontFamily: _font, color: _ink, fontSize: 11.5, fontWeight: FontWeight.w700, height: 1)
+      // (Chicago n'a qu'une graisse, déjà épaisse.)
+      : TextStyle(fontFamily: font, color: _ink, fontSize: 11.5, fontWeight: FontWeight.w400, height: 1);
 
   @override
   Color get background => _lcd;
@@ -337,7 +358,13 @@ class MiniLook extends ScreenLook {
   Color get unlit => const Color(0x7A4E5A5E);
 
   @override
-  Widget statusBar({required String title, required bool playing, required bool hasTrack, bool nowPlaying = false}) =>
+  Widget statusBar({
+    required String title,
+    required bool playing,
+    required bool hasTrack,
+    bool nowPlaying = false,
+    bool locked = false,
+  }) =>
       Container(
         height: _barH,
         decoration: const BoxDecoration(
@@ -347,7 +374,7 @@ class MiniLook extends ScreenLook {
           children: [
             Positioned.fill(
               left: 16,
-              right: 22,
+              right: locked ? 31 : 22,
               child: Center(
                 child: Text(
                   title,
@@ -365,6 +392,7 @@ class MiniLook extends ScreenLook {
                 bottom: 0,
                 child: Icon(playing ? Icons.play_arrow : Icons.pause, size: 11, color: _ink),
               ),
+            if (locked) const Positioned(right: 21, top: 0, bottom: 0, child: Icon(Icons.lock, size: 9, color: _ink)),
             const Positioned(right: 4, top: 5, child: CustomPaint(size: Size(15, 7), painter: _BatteryPainter())),
           ],
         ),
@@ -374,7 +402,7 @@ class MiniLook extends ScreenLook {
   Widget highlight() => const ColoredBox(color: _ink);
 
   @override
-  Widget row(MenuEntry entry, {required bool selected}) {
+  Widget row(MenuEntry entry, {required bool selected, MenuKind kind = MenuKind.normal}) {
     final color = selected ? _lcd : _ink;
     final value = entry.value?.call();
     return Padding(
@@ -492,7 +520,18 @@ class _NowPlaying extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(position, style: const TextStyle(fontSize: 8.5)),
+          // Le rang, et à droite l'aléatoire et la répétition s'ils sont mis.
+          Row(
+            children: [
+              Expanded(child: Text(position, style: const TextStyle(fontSize: 8.5))),
+              if (player.shuffling) const Icon(Icons.shuffle, size: 9, color: _ink),
+              if (player.repeat != RepeatMode.off)
+                Padding(
+                  padding: const EdgeInsets.only(left: 2),
+                  child: Icon(player.repeat == RepeatMode.one ? Icons.repeat_one : Icons.repeat, size: 9, color: _ink),
+                ),
+            ],
+          ),
           const SizedBox(height: 6),
           line(track.title, const TextStyle(fontSize: 11.5)),
           const SizedBox(height: 4),
@@ -502,9 +541,11 @@ class _NowPlaying extends StatelessWidget {
           const Spacer(),
           SizedBox(
             height: 22,
-            child: mode == NowPlayingMode.volume
-                ? _volume(player.volume / 100)
-                : _progress(player, mode == NowPlayingMode.scrub),
+            child: switch (mode) {
+              NowPlayingMode.volume => _volume(player.volume / 100),
+              NowPlayingMode.rating => _stars(player.rating(track)),
+              _ => _progress(player, mode == NowPlayingMode.scrub),
+            },
           ),
         ],
       ),
@@ -528,6 +569,26 @@ class _NowPlaying extends StatelessWidget {
       ],
     );
   }
+
+  /// La note : cinq étoiles, pleines jusqu'à [stars], des points au-delà.
+  Widget _stars(int stars) => Align(
+        alignment: Alignment.topCenter,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < 5; i++)
+              SizedBox(
+                width: 13,
+                height: 12,
+                child: Center(
+                  child: i < stars
+                      ? const Icon(Icons.star, size: 12, color: _ink)
+                      : const SizedBox(width: 2.5, height: 2.5, child: ColoredBox(color: _ink)),
+                ),
+              ),
+          ],
+        ),
+      );
 
   Widget _volume(double v) => Row(
         crossAxisAlignment: CrossAxisAlignment.start,

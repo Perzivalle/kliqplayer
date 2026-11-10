@@ -15,6 +15,33 @@ abstract class ScreenLook {
   int get visibleRows;
   double get scrollbarWidth;
 
+  /// Lignes visibles et hauteur d'une ligne selon la mise en page du menu
+  /// (un écran qui ne scinde rien les traite tous pareil).
+  int rowsFor(MenuKind kind) => visibleRows;
+  double rowHeightFor(MenuKind kind) => rowHeight;
+
+  /// Hauteur de la barre de titre.
+  double get barHeight;
+
+  /// Dans un menu scindé : où tient la liste, et où l'image, sur l'écran
+  /// entier ([screen], barre de titre comprise : une image sur le côté
+  /// monte jusqu'en haut, et la barre ne couvre alors que la liste).
+  /// Null : pas de menus scindés.
+  ({Rect menu, Rect image})? split(Size screen) => null;
+
+  /// L'image d'un menu scindé pour la ligne sélectionnée. [active] : l'écran
+  /// est allumé (sinon elle ne bouge plus).
+  Widget preview(MenuEntry entry, PlayerController player, {required bool active}) => const SizedBox();
+
+  /// Écran monochrome.
+  bool get mono => false;
+
+  /// Ce que le bouton central fait défiler sur « En lecture ».
+  List<NowPlayingMode> get centerCycle => const [NowPlayingMode.scrub];
+
+  /// Couleur du texte sur la ligne sélectionnée.
+  Color get selectedInk => Colors.white;
+
   /// Style de texte par défaut et fond de l'écran.
   TextStyle get textStyle;
   Color get background;
@@ -31,11 +58,18 @@ abstract class ScreenLook {
   /// Voile posé sur l'écran quand le rétroéclairage s'éteint.
   Color get unlit => const Color(0xC8000000);
 
-  Widget statusBar({required String title, required bool playing, required bool hasTrack, bool nowPlaying = false});
+  /// [locked] : le verrou est mis (un cadenas).
+  Widget statusBar({
+    required String title,
+    required bool playing,
+    required bool hasTrack,
+    bool nowPlaying = false,
+    bool locked = false,
+  });
 
   /// Bandeau de la ligne sélectionnée.
   Widget highlight();
-  Widget row(MenuEntry entry, {required bool selected});
+  Widget row(MenuEntry entry, {required bool selected, MenuKind kind = MenuKind.normal});
   CustomPainter scrollbar(double start, double extent);
   Widget empty();
   Widget nowPlaying(PlayerController player, NowPlayingMode mode);

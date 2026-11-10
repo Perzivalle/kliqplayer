@@ -16,9 +16,14 @@ class _LiveJackPainter extends CustomPainter {
 
 /// Le curseur du verrou, qui dépasse à peine de la tranche.
 class HoldPainter extends CustomPainter {
-  const HoldPainter(this.hold);
+  const HoldPainter(this.hold, {this.on = false});
 
   final HoldSwitch hold;
+
+  /// Poussé : le curseur se décale et découvre la marque orange.
+  final bool on;
+
+  static const _orange = Color(0xFFF2861A);
 
   /// Ce qui dépasse de la tranche.
   static const double depth = 3;
@@ -48,9 +53,12 @@ class HoldPainter extends CustomPainter {
             ).createShader(dome),
         );
         canvas.restore();
+        if (on) canvas.drawRect(Rect.fromLTWH(-3, h - 1.4, 3, 1.9), Paint()..color = _orange);
       case HoldKind.plastic || HoldKind.metal:
+        final shift = on ? w * 0.3 : 0.0;
+        if (on) canvas.drawRect(Rect.fromLTWH(0.5, h * 0.45, shift, h * 0.55 + 0.5), Paint()..color = _orange);
         final knob = RRect.fromRectAndCorners(
-          Rect.fromLTWH(0, 0, w, h + 0.5),
+          Rect.fromLTWH(shift, 0, w - shift, h + 0.5),
           topLeft: const Radius.circular(1.5),
           topRight: const Radius.circular(1.5),
         );
@@ -79,7 +87,7 @@ class HoldPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant HoldPainter old) => old.hold != hold;
+  bool shouldRepaint(covariant HoldPainter old) => old.hold != hold || old.on != on;
 }
 
 /// Ne laisse voir que ce qui est au-delà de [x], du côté où sort le tiroir.
