@@ -1332,18 +1332,19 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             open == 0 ? Offset(right ? w + 2 * _shadowPad - (outer - drawerW) : -(outer + 2 * _shadowPad + drawerW), 0) : Offset.zero,
           );
 
-          // Plein écran (Windows) : la fenêtre se découpe autour de l'iPod au
-          // repos, pour laisser les clics du bureau passer à côté.
+          // Plein écran (Windows) : la fenêtre se découpe autour de l'iPod,
+          // pour laisser les clics du bureau passer à côté. Quand on le
+          // tient, la découpe le suit au lieu de s'ouvrir en grand : agrandir
+          // d'un coup la découpe à tout l'écran laisse voir, le temps d'une
+          // image, ce que Windows avait gardé de ces zones (des éclats).
           _shapeWindow(
             w,
             h,
-            dev,
+            // (Tenu ou en train de revenir : là où on le voit.)
+            dev.shift(back),
             whole: _wantOpen ||
                 open != 0 ||
                 _dragging ||
-                back != Offset.zero ||
-                _backHeld ||
-                _backFrom != null ||
                 _phase != _Swap.none ||
                 _geoFrom != null ||
                 !_place.isSettled ||
