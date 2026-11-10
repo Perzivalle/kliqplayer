@@ -23,8 +23,9 @@ class IpodDevice extends StatefulWidget {
 
   /// On tient l'appareil pour le glisser dans la fenêtre (plein écran, sous
   /// Windows) au lieu de déplacer la fenêtre : position du pointeur à
-  /// l'écran, du début à la fin.
-  final ValueChanged<Offset>? onHoldBegin;
+  /// l'écran, du début à la fin. [onHoldBegin] répond faux quand la scène
+  /// ne s'en charge pas : c'est alors la fenêtre qu'on déplace.
+  final bool Function(Offset pointer)? onHoldBegin;
   final ValueChanged<Offset>? onHoldUpdate;
   final VoidCallback? onHoldEnd;
 
@@ -278,10 +279,12 @@ class _IpodDeviceState extends State<IpodDevice> {
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onPanStart: (d) => widget.onHoldBegin != null ? widget.onHoldBegin!(d.globalPosition) : _moveWindow(),
-                onPanUpdate: widget.onHoldBegin == null ? null : (d) => widget.onHoldUpdate?.call(d.globalPosition),
-                onPanEnd: widget.onHoldBegin == null ? null : (_) => widget.onHoldEnd?.call(),
-                onPanCancel: widget.onHoldBegin == null ? null : () => widget.onHoldEnd?.call(),
+                onPanStart: (d) {
+                  if (!(widget.onHoldBegin?.call(d.globalPosition) ?? false)) _moveWindow();
+                },
+                onPanUpdate: (d) => widget.onHoldUpdate?.call(d.globalPosition),
+                onPanEnd: (_) => widget.onHoldEnd?.call(),
+                onPanCancel: () => widget.onHoldEnd?.call(),
                 child: CustomPaint(painter: m.body),
               ),
             ),

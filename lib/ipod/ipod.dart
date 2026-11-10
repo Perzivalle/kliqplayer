@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' show Timeline;
+import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -216,20 +217,32 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   // Fenêtre plein écran (Windows) : on tient l'iPod pour le glisser à la
   // main, de gauche à droite ; lâché, il rejoint la place la plus proche.
   bool _holding = false;
-  double _holdFrom = 0, _holdPlace = 0;
+  Offset _holdFrom = Offset.zero;
+  double _holdPlace = 0;
 
-  void _holdBegin(Offset pointer) {
-    if (!_canPlace) return;
+  /// On attrape l'appareil. Faux : ce n'est pas à nous de le déplacer (la
+  /// fenêtre est rangée dans une zone, ou ordinaire : c'est elle qu'on
+  /// déplace).
+  bool _holdBegin(Offset pointer) {
+    if (!_dragsInside) return false;
+    if (!_canPlace) return true; // tiroir sorti, échange : il ne bouge pas
     _holding = true;
-    _holdFrom = pointer.dx;
+    _holdFrom = pointer;
     _holdPlace = _place.value;
     _place.velocity = 0;
     _kick();
+    return true;
   }
 
   void _holdUpdate(Offset pointer) {
     if (!_holding || _placeReach <= 0) return;
-    setState(() => _place.value = (_holdPlace + (pointer.dx - _holdFrom) / _placeReach).clamp(-1.0, 1.0));
+    // Tiré franchement vers le haut : c'est la fenêtre qu'on veut ranger.
+    if (_full != null && _holdFrom.dy - pointer.dy > 70) {
+      _holdEnd();
+      _handToSystem();
+      return;
+    }
+    setState(() => _place.value = (_holdPlace + (pointer.dx - _holdFrom.dx) / _placeReach).clamp(-1.0, 1.0));
   }
 
   void _holdEnd() {
@@ -1174,7 +1187,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                         player: widget.player,
                         nav: _nav,
                         onWindowDrag: _beginWindowDrag,
-                        onHoldBegin: _dragsInside ? _holdBegin : null,
+                        onHoldBegin: _holdBegin,
                         onHoldUpdate: _holdUpdate,
                         onHoldEnd: _holdEnd,
                       ),

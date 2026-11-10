@@ -78,6 +78,39 @@ void main() {
     });
   });
 
+  group('rangée par Windows, ou seulement déplacée', () {
+    const area = Rect.fromLTWH(0, 0, 1920, 1032);
+    const fill = Size(1920, 1032);
+
+    test('elle couvre la zone de travail (même agrandie, à quelques points près) : plein écran', () {
+      expect(windowFit(area, area, fill), WindowFit.fills);
+      expect(windowFit(area.inflate(8), area, fill), WindowFit.fills);
+    });
+
+    test('rangée à gauche, dans un quart ou dans une colonne : elle y reste', () {
+      expect(windowFit(const Rect.fromLTWH(0, 0, 960, 1032), area, fill), WindowFit.docked);
+      expect(windowFit(const Rect.fromLTWH(960, 516, 960, 516), area, fill), WindowFit.docked);
+      expect(windowFit(const Rect.fromLTWH(1280, 0, 640, 1032), area, fill), WindowFit.docked);
+    });
+
+    test('rangée en haut ou en bas (toute la largeur, la moitié de la hauteur) : elle y reste', () {
+      expect(windowFit(const Rect.fromLTWH(0, 0, 1920, 516), area, fill), WindowFit.docked);
+    });
+
+    test('passée sur un écran plus grand en gardant sa taille : on la recale', () {
+      const bigger = Rect.fromLTWH(1920, 0, 2560, 1392);
+      expect(windowFit(const Rect.fromLTWH(2240, 180, 1920, 1032), bigger, fill), WindowFit.refit);
+    });
+
+    test('sortie de sa zone à la souris, à sa taille de plein écran : on la recale', () {
+      expect(windowFit(const Rect.fromLTWH(300, 120, 1920, 1032), area, fill), WindowFit.refit);
+    });
+
+    test('plus grande que l\'écran où elle arrive : on la recale', () {
+      expect(windowFit(const Rect.fromLTWH(0, 0, 2560, 1392), area, const Size(2560, 1392)), WindowFit.refit);
+    });
+  });
+
   group('glisser l\'iPod à la main', () {
     testWidgets('il suit le pointeur, puis rejoint la place la plus proche', (tester) async {
       await _show(tester);

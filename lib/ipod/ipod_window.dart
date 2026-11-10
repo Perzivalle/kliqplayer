@@ -16,22 +16,56 @@ Rect? workAreaFor(Rect window, List<({Rect bounds, Rect work})> screens) {
 
 /// Étend [window] à toute la zone de travail de son écran (Windows) : la
 /// fenêtre, transparente et sans bord, est la scène où l'iPod se déplace.
-void fillWorkArea(Window window) {
+Rect? fillWorkArea(Window window) {
   try {
     final now = window.contentBounds.toRect();
-    final area = workAreaFor(now, [
+    final area = _workAreaOf(now);
+    if (area == null || area.isEmpty) return null;
+    final exact = (now.left - area.left).abs() < 0.5 &&
+        (now.top - area.top).abs() < 0.5 &&
+        (now.right - area.right).abs() < 0.5 &&
+        (now.bottom - area.bottom).abs() < 0.5;
+    if (!exact) window.contentBounds = area.toNative();
+    return area;
+  } catch (_) {
+    return null;
+  }
+}
+
+Rect? _workAreaOf(Rect window) => workAreaFor(window, [
       for (final d in DisplayManager.instance.getAll())
         (bounds: d.position.toOffset() & d.size.toSize(), work: d.workArea.toRect()),
     ]);
-    if (area == null || area.isEmpty) return;
-    if ((now.left - area.left).abs() < 0.5 &&
-        (now.top - area.top).abs() < 0.5 &&
-        (now.right - area.right).abs() < 0.5 &&
-        (now.bottom - area.bottom).abs() < 0.5) {
-      return;
-    }
-    window.contentBounds = area.toNative();
-  } catch (_) {}
+
+/// Ce qu'est devenue la fenêtre plein écran après que Windows l'a déplacée
+/// ou retaillée.
+enum WindowFit {
+  /// Elle couvre la zone de travail : rien à faire.
+  fills,
+
+  /// Windows l'a rangée dans une zone (Win+flèche, zones d'ancrage) : elle y
+  /// reste, l'iPod vit dedans.
+  docked,
+
+  /// Ailleurs sans avoir été rangée (autre écran, sortie de sa zone, écran
+  /// qui change) : on la recale sur la zone de travail.
+  refit,
+}
+
+/// Où en est la fenêtre, en [now], sur un écran dont la zone de travail est
+/// [area]. [lastFill] : la taille qu'on lui a donnée en dernier pour couvrir
+/// un écran. Rangée, elle est nettement plus petite que la zone de travail ;
+/// si elle a gardé la taille d'un plein écran, c'est qu'elle a seulement
+/// changé de place.
+@visibleForTesting
+WindowFit windowFit(Rect now, Rect area, Size? lastFill) {
+  bool near(double a, double b) => (a - b).abs() <= 12;
+  if (near(now.left, area.left) && near(now.top, area.top) && near(now.right, area.right) && near(now.bottom, area.bottom)) {
+    return WindowFit.fills;
+  }
+  final kept = lastFill != null && near(now.width, lastFill.width) && near(now.height, lastFill.height);
+  final smaller = now.width < area.width * 0.92 || now.height < area.height * 0.92;
+  return smaller && !kept ? WindowFit.docked : WindowFit.refit;
 }
 
 /// Contour d'un seul tenant qui englobe [zones] (des rectangles qui se
@@ -258,17 +292,26 @@ mixin _ManagedWindow on State<IpodStage> {
 
   late final Window? _full = _remember && Platform.isWindows ? _currentWindow() : null;
 
+  // Rangée par Windows dans une zone (Win+flèche, zones d'ancrage en haut
+  // de l'écran) : la fenêtre garde cette zone, et l'iPod y vit comme dans
+  // une tuile sous Linux. Agrandie (Win+Haut) ou sortie de sa zone, elle
+  // redevient le plein écran.
+  bool _docked = false;
+
+  /// Taille donnée en dernier à la fenêtre pour couvrir un écran.
+  Size? _lastFill;
+
   /// L'iPod se déplace dans la fenêtre quand on le tient (au lieu de
-  /// déplacer la fenêtre).
-  bool get _dragsInside => _full != null || IpodStage.debugDragInside;
+  /// déplacer la fenêtre) : en plein écran, pas dans une zone.
+  bool get _dragsInside => (_full != null && !_docked) || IpodStage.debugDragInside;
 
   Timer? _refit;
   List<Offset>? _shape;
   Size? _shapeFor;
 
-  /// La fenêtre est prête : au premier plan si on l'a demandé, et recalée
-  /// sur la zone de travail quand elle change d'écran (Win+Maj+flèche) ou
-  /// que l'écran change (résolution, barre des tâches).
+  /// La fenêtre est prête : au premier plan si on l'a demandé ; et à chaque
+  /// fois qu'elle bouge ou change de taille, on regarde ce qu'elle est
+  /// devenue.
   void _takeFullWindow() {
     final win = _full;
     if (win == null) return;
@@ -281,11 +324,67 @@ mixin _ManagedWindow on State<IpodStage> {
     onTop();
     windowOnTop.addListener(onTop);
     try {
+      _lastFill = win.contentBounds.toRect().size;
       win.addListener((e) {
         if (!mounted || (e is! WindowMovedEvent && e is! WindowResizedEvent)) return;
         _refit?.cancel();
-        _refit = Timer(const Duration(milliseconds: 300), () => fillWorkArea(win));
+        _refit = Timer(const Duration(milliseconds: 300), _windowSettled);
       });
+    } catch (_) {}
+  }
+
+  /// La fenêtre ne bouge plus : rangée dans une zone, elle y reste ; sinon
+  /// elle couvre la zone de travail de son écran.
+  void _windowSettled() {
+    final win = _full;
+    if (win == null || !mounted) return;
+    // Encore tenue à la souris (on hésite au-dessus des zones d'ancrage) :
+    // on attend qu'elle soit lâchée, sans la lui reprendre des mains.
+    if (_mouseHeld()) {
+      _refit = Timer(const Duration(milliseconds: 200), _windowSettled);
+      return;
+    }
+    try {
+      final now = win.contentBounds.toRect();
+      final area = _workAreaOf(now);
+      if (area == null || area.isEmpty) return;
+      final fit = win.isMaximized ? WindowFit.refit : windowFit(now, area, _lastFill);
+      if (fit == WindowFit.refit) {
+        if (win.isMaximized) win.unmaximize();
+        _lastFill = (fillWorkArea(win) ?? area).size;
+      }
+      final docked = fit == WindowFit.docked;
+      if (docked != _docked) setState(() => _docked = docked);
+    } catch (_) {}
+  }
+
+  static final int Function(int)? _keyState = () {
+    if (!Platform.isWindows) return null;
+    try {
+      return ffi.DynamicLibrary.open('user32.dll')
+          .lookupFunction<ffi.Int16 Function(ffi.Int32), int Function(int)>('GetAsyncKeyState');
+    } catch (_) {
+      return null;
+    }
+  }();
+
+  /// Un bouton de la souris est enfoncé (gauche ou droit : ils peuvent être
+  /// inversés).
+  static bool _mouseHeld() {
+    final state = _keyState;
+    if (state == null) return false;
+    try {
+      return state(0x01) & 0x8000 != 0 || state(0x02) & 0x8000 != 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Tiré vers le haut pendant qu'on le tient : on passe la main à Windows,
+  /// qui déplace la fenêtre et propose ses zones d'ancrage.
+  void _handToSystem() {
+    try {
+      _full?.startDragging();
     } catch (_) {}
   }
 
