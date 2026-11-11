@@ -30,7 +30,7 @@
   a:hover { text-decoration: underline; }
   :focus-visible { outline: 3px solid #7ab8f5; outline-offset: 2px; }
   .wrap { max-width: 980px; margin: 0 auto; padding-inline: 20px; }
-  /* Narrower windows get the same page, scaled down (zoom set by the script below); only phones reflow.
+  /* Narrower windows and phones get the same page, scaled down (zoom set by the script below).
      Viewport units inside are divided by --z so they keep meaning "of the window". */
   html { zoom: var(--z, 1); }
 
@@ -146,11 +146,6 @@
   .slot:hover .pocket img, .slot:focus-visible .pocket img { transform: translateY(-7px) scale(1.07); filter: drop-shadow(0 10px 10px rgba(0,0,0,.7)); }
   .slot[aria-pressed="true"] .pocket img { opacity: 0; } /* taken out: the pocket stays empty, like in the app */
   .slot-label { font: 600 8.5px/1.2 "Source Sans 3", sans-serif; letter-spacing: .2em; text-transform: uppercase; color: #8b8d90; text-shadow: 0 -1px 0 #000; }
-  @media (max-width: 599px) {
-    .cabinet { grid-template-columns: 1fr; }
-    .stage-frame { height: 360px; }
-    .foam { grid-template-columns: repeat(3, 1fr); }
-  }
 
   /* Features */
   .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; }
@@ -201,12 +196,6 @@
   }
   .wheel .center:active { background: linear-gradient(#e4e6e9, #fafafa); }
 
-  @media (max-width: 599px) {
-    .features, .downloads { grid-template-columns: 1fr; gap: 36px; }
-    .feature { border-left: 0; padding: 0; }
-    .hero h1 { font-size: clamp(40px, 11vw, 72px); }
-    .head h2 { font-size: clamp(30px, 8vw, 46px); }
-  }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 </style>
 </head>
@@ -314,10 +303,9 @@
 <script src="img/drawer/models.js"></script>
 <script>
   // Same layout at any desktop width: below 1020 px the page is zoomed out rather than rearranged.
-  // Phones (under 600 px) get the one-column layout instead.
   const fit = () => {
     const w = innerWidth;
-    document.documentElement.style.setProperty('--z', w >= 1020 || w < 600 ? 1 : (w / 1020).toFixed(4));
+    document.documentElement.style.setProperty('--z', w >= 1020 ? 1 : (w / 1020).toFixed(4));
   };
   fit();
   addEventListener('resize', fit);
