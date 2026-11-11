@@ -32,11 +32,14 @@ void main() {
   for (final model in ipodModels) {
     testWidgets(model.id, (tester) async {
       final player = PlayerController.preview(
-        tracks: [const Track(id: '/x/a.mp3', title: 'Song', artist: 'Artist', album: 'Album')],
-        albums: [const Album(title: 'Album', artist: 'Artist', firstIndex: 0, trackCount: 1)],
+        tracks: [const Track(id: '/x/a.mp3', title: 'Shelter from the Storm', artist: 'Bob Dylan', album: 'Hard Rain')],
+        albums: [const Album(title: 'Hard Rain', artist: 'Bob Dylan', firstIndex: 0, trackCount: 1)],
         index: 0,
+        // La moitié droite du menu (classic, nano 3G) montre les pochettes.
+        albumCovers: {0: File('site/img/covers/silver.jpg').readAsBytesSync()},
       );
       await showStage(tester, player, model);
+      await decode(tester);
       final device = tester.getRect(find.byType(IpodDevice));
       // Ses coins arrondis, à l'échelle où il est dessiné (le tiroir rangé dépasse derrière).
       final corner = model.cornerRadius * device.width / model.size.width;
