@@ -97,8 +97,9 @@ Future<void> showStage(WidgetTester tester, PlayerController player, IpodModel m
 }
 
 /// Écrit l'image en PNG : la zone [crop] (coordonnées d'écran), ou tout ce
-/// qui n'est pas transparent.
-Future<void> capture(WidgetTester tester, String path, {Rect? crop, double scale = studioScale}) async {
+/// qui n'est pas transparent. [corner] : la zone est découpée avec ces coins
+/// arrondis (ce qui dépasse derrière, comme le tiroir rangé, disparaît).
+Future<void> capture(WidgetTester tester, String path, {Rect? crop, double? corner, double scale = studioScale}) async {
   final boundary = tester.renderObject<RenderRepaintBoundary>(find.byKey(_boundary));
   final bytes = await tester.runAsync(() async {
     final full = await boundary.toImage(pixelRatio: scale);
@@ -106,7 +107,9 @@ Future<void> capture(WidgetTester tester, String path, {Rect? crop, double scale
         ? Rect.fromLTRB(crop.left * scale, crop.top * scale, crop.right * scale, crop.bottom * scale)
         : await _opaqueBounds(full);
     final rec = ui.PictureRecorder();
-    Canvas(rec).drawImageRect(full, src, Offset.zero & src.size, Paint());
+    final canvas = Canvas(rec);
+    if (corner != null) canvas.clipRRect(RRect.fromRectAndRadius(Offset.zero & src.size, Radius.circular(corner * scale)));
+    canvas.drawImageRect(full, src, Offset.zero & src.size, Paint());
     final image = await rec.endRecording().toImage(src.width.round(), src.height.round());
     return (await image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
   });

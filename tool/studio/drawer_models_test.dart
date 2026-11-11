@@ -37,7 +37,10 @@ void main() {
         index: 0,
       );
       await showStage(tester, player, model);
-      await capture(tester, '$_out/${model.id}.png', crop: tester.getRect(find.byType(IpodDevice)), scale: 2.5);
+      final device = tester.getRect(find.byType(IpodDevice));
+      // Ses coins arrondis, à l'échelle où il est dessiné (le tiroir rangé dépasse derrière).
+      final corner = model.cornerRadius * device.width / model.size.width;
+      await capture(tester, '$_out/${model.id}.png', crop: device, corner: corner, scale: 2.5);
       list.add({
         'id': model.id,
         'family': model.family,
