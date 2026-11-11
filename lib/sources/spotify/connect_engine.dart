@@ -7,7 +7,7 @@ import '../../core/settings.dart';
 import 'api.dart';
 import 'spotify_source.dart';
 
-/// Lecture par Spotify Connect : TinyPod est la télécommande d'un appareil
+/// Lecture par Spotify Connect : KliqPlayer est la télécommande d'un appareil
 /// Spotify (appli Spotify, spotifyd, enceinte…) qui, lui, joue le son.
 ///
 /// Spotify ne prévient de rien : l'état est demandé chaque seconde en

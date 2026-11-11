@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-/// Un programme lancé en arrière-plan qui vit et meurt avec TinyPod : si
-/// TinyPod disparaît sans prévenir (fenêtre fermée par le gestionnaire de
+/// Un programme lancé en arrière-plan qui vit et meurt avec KliqPlayer : si
+/// KliqPlayer disparaît sans prévenir (fenêtre fermée par le gestionnaire de
 /// fenêtres, plantage), un petit gardien `sh` l'arrête quand même.
 /// (Sous Windows, pas de gardien : il est arrêté à la sortie normale.)
 class TiedProcess {
@@ -47,7 +47,7 @@ class TiedProcess {
         r'"$@" & child=$!; trap "kill $child 2>/dev/null" TERM INT; '
             r'while kill -0 $PARENT 2>/dev/null && kill -0 $child 2>/dev/null; do sleep 1; done; '
             r'kill $child 2>/dev/null; wait $child',
-        'tinypod-tied',
+        'kliqplayer-tied',
         executable,
         ...args,
       ], environment: {...?environment, 'PARENT': '$pid'});
@@ -74,7 +74,7 @@ class TiedProcess {
       final old = int.tryParse(await pidFile.readAsString());
       if (old == null || old == pid) return;
       final ps = await Process.run('ps', ['-p', '$old', '-o', 'command=']);
-      if ('${ps.stdout}'.contains('tinypod-tied')) Process.killPid(old);
+      if ('${ps.stdout}'.contains('kliqplayer-tied')) Process.killPid(old);
     } catch (_) {}
   }
 

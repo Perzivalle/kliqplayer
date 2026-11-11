@@ -159,7 +159,7 @@ class SpotifyAuth {
         }
         req.response
           ..headers.contentType = ContentType.html
-          ..write('<!doctype html><meta charset="utf-8"><title>TinyPod</title>'
+          ..write('<!doctype html><meta charset="utf-8"><title>KliqPlayer</title>'
               '<body style="font-family:sans-serif;text-align:center;margin-top:20vh">'
               '<h2>${code != null ? tr('Connecté à Spotify') : tr('Connexion annulée')}</h2>'
               '<p>${tr('Vous pouvez fermer cet onglet.')}</p>');

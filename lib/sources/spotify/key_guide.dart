@@ -41,7 +41,7 @@ String spotifyKeyGuide() {
     <li>${t.open}<br><a class="button" href="https://developer.spotify.com/dashboard/create" target="_blank" rel="noopener">${t.openButton}</a></li>
     <li>${t.form}
       <dl>
-        <dt>App name</dt><dd>TinyPod</dd>
+        <dt>App name</dt><dd>KliqPlayer</dd>
         <dt>App description</dt><dd>${t.description}</dd>
         <dt>Redirect URI</dt><dd><code id="uri">$uri</code><button class="copy" onclick="navigator.clipboard.writeText('$uri'); this.textContent = '${t.copied}'">${t.copy}</button><br><small>${t.already}</small></dd>
         <dt>APIs used</dt><dd>Web API</dd>
@@ -76,7 +76,7 @@ typedef _Guide = ({
 
 const _texts = <Lang, _Guide>{
   Lang.fr: (
-    title: 'Votre clé Spotify pour TinyPod',
+    title: 'Votre clé Spotify pour KliqPlayer',
     lead: 'Spotify demande à chacun sa propre clé d’appli. C’est gratuit, ça prend cinq minutes et ce n’est à faire qu’une fois. Il faut un compte Spotify Premium.',
     open: 'Ouvrez le tableau de bord de Spotify et connectez-vous avec votre compte.',
     openButton: 'Ouvrir le tableau de bord',
@@ -87,11 +87,11 @@ const _texts = <Lang, _Guide>{
     already: 'Elle est déjà dans votre presse-papiers : il suffit de la coller, puis de cliquer sur « Add ».',
     save: 'Acceptez les conditions, puis cliquez sur « Save ».',
     clientId: 'Sur la page de votre appli, copiez le <strong>Client ID</strong>.',
-    back: 'Revenez dans TinyPod : <strong>Réglages › Bibliothèque › Spotify › Coller la clé</strong>, puis <strong>Se connecter</strong>.',
-    note: 'Le Client ID n’est pas un mot de passe : seul, il ne donne accès à rien. TinyPod le garde sur cet ordinateur.',
+    back: 'Revenez dans KliqPlayer : <strong>Réglages › Bibliothèque › Spotify › Coller la clé</strong>, puis <strong>Se connecter</strong>.',
+    note: 'Le Client ID n’est pas un mot de passe : seul, il ne donne accès à rien. KliqPlayer le garde sur cet ordinateur.',
   ),
   Lang.en: (
-    title: 'Your Spotify key for TinyPod',
+    title: 'Your Spotify key for KliqPlayer',
     lead: 'Spotify asks every user for their own app key. It is free, takes five minutes and only has to be done once. You need a Spotify Premium account.',
     open: 'Open the Spotify dashboard and sign in with your account.',
     openButton: 'Open the dashboard',
@@ -102,11 +102,11 @@ const _texts = <Lang, _Guide>{
     already: 'It is already in your clipboard: paste it, then click “Add”.',
     save: 'Accept the terms, then click “Save”.',
     clientId: 'On your app’s page, copy the <strong>Client ID</strong>.',
-    back: 'Back in TinyPod: <strong>Settings › Library › Spotify › Paste Key</strong>, then <strong>Sign In</strong>.',
-    note: 'The Client ID is not a password: on its own it gives access to nothing. TinyPod keeps it on this computer.',
+    back: 'Back in KliqPlayer: <strong>Settings › Library › Spotify › Paste Key</strong>, then <strong>Sign In</strong>.',
+    note: 'The Client ID is not a password: on its own it gives access to nothing. KliqPlayer keeps it on this computer.',
   ),
   Lang.es: (
-    title: 'Tu clave de Spotify para TinyPod',
+    title: 'Tu clave de Spotify para KliqPlayer',
     lead: 'Spotify pide a cada usuario su propia clave de aplicación. Es gratis, lleva cinco minutos y solo se hace una vez. Necesitas una cuenta Spotify Premium.',
     open: 'Abre el panel de Spotify e inicia sesión con tu cuenta.',
     openButton: 'Abrir el panel',
@@ -117,11 +117,11 @@ const _texts = <Lang, _Guide>{
     already: 'Ya está en tu portapapeles: pégala y haz clic en «Add».',
     save: 'Acepta las condiciones y haz clic en «Save».',
     clientId: 'En la página de tu aplicación, copia el <strong>Client ID</strong>.',
-    back: 'Vuelve a TinyPod: <strong>Ajustes › Biblioteca › Spotify › Pegar clave</strong> y después <strong>Iniciar sesión</strong>.',
-    note: 'El Client ID no es una contraseña: por sí solo no da acceso a nada. TinyPod lo guarda en este ordenador.',
+    back: 'Vuelve a KliqPlayer: <strong>Ajustes › Biblioteca › Spotify › Pegar clave</strong> y después <strong>Iniciar sesión</strong>.',
+    note: 'El Client ID no es una contraseña: por sí solo no da acceso a nada. KliqPlayer lo guarda en este ordenador.',
   ),
   Lang.de: (
-    title: 'Dein Spotify-Schlüssel für TinyPod',
+    title: 'Dein Spotify-Schlüssel für KliqPlayer',
     lead: 'Spotify verlangt von jedem Nutzer einen eigenen App-Schlüssel. Das ist kostenlos, dauert fünf Minuten und ist nur einmal nötig. Du brauchst ein Spotify-Premium-Konto.',
     open: 'Öffne das Spotify-Dashboard und melde dich mit deinem Konto an.',
     openButton: 'Dashboard öffnen',
@@ -132,7 +132,7 @@ const _texts = <Lang, _Guide>{
     already: 'Sie liegt schon in deiner Zwischenablage: einfügen und auf „Add“ klicken.',
     save: 'Akzeptiere die Bedingungen und klicke auf „Save“.',
     clientId: 'Kopiere auf der Seite deiner App die <strong>Client ID</strong>.',
-    back: 'Zurück in TinyPod: <strong>Einstellungen › Mediathek › Spotify › Schlüssel einfügen</strong>, dann <strong>Anmelden</strong>.',
-    note: 'Die Client ID ist kein Passwort: Allein gibt sie auf nichts Zugriff. TinyPod speichert sie auf diesem Computer.',
+    back: 'Zurück in KliqPlayer: <strong>Einstellungen › Mediathek › Spotify › Schlüssel einfügen</strong>, dann <strong>Anmelden</strong>.',
+    note: 'Die Client ID ist kein Passwort: Allein gibt sie auf nichts Zugriff. KliqPlayer speichert sie auf diesem Computer.',
   ),
 };

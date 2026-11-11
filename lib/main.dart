@@ -27,7 +27,7 @@ Future<void> main() async {
     window
       ..titleBarStyle = TitleBarStyle.hidden
       ..backgroundColor = Colors.transparent.toNative()
-      ..title = 'Lecteur';
+      ..title = 'KliqPlayer';
     if (Platform.isWindows) {
       // Windows dessine une ombre rectangulaire autour de chaque fenêtre :
       // autour d'une fenêtre transparente, elle trahirait le cadre. Et, faute
@@ -177,7 +177,7 @@ class _LecteurAppState extends State<LecteurApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Lecteur',
+      title: 'KliqPlayer',
       color: Colors.transparent,
       theme: ThemeData(
         brightness: Brightness.dark,

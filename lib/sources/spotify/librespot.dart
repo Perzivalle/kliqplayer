@@ -8,7 +8,7 @@ import '../../core/tied_process.dart';
 
 /// Le lecteur Spotify intégré : librespot (client Spotify Connect libre,
 /// https://github.com/librespot-org/librespot), lancé en arrière-plan.
-/// TinyPod devient lui-même un appareil Spotify, « TinyPod » : plus besoin
+/// KliqPlayer devient lui-même un appareil Spotify, « KliqPlayer » : plus besoin
 /// d'ouvrir l'appli Spotify.
 ///
 /// librespot existe pour Linux, macOS et Windows : on le prend à côté de
@@ -20,9 +20,9 @@ class Librespot {
   Librespot._(this.binary);
 
   /// Nom de l'appareil, tel qu'il apparaît dans Spotify.
-  static const deviceName = 'TinyPod';
+  static const deviceName = 'KliqPlayer';
 
-  /// Port du retour de sa connexion (différent de celui de TinyPod).
+  /// Port du retour de sa connexion (différent de celui de KliqPlayer).
   static const oauthPort = 43820;
 
   /// librespot s'il est installé, sinon null.

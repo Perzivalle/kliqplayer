@@ -55,7 +55,7 @@ class MediaKitEngine extends PlaybackEngine {
     ]);
   }
 
-  final _player = Player(configuration: const PlayerConfiguration(title: 'Lecteur'));
+  final _player = Player(configuration: const PlayerConfiguration(title: 'KliqPlayer'));
   final List<StreamSubscription<Object?>> _subs = [];
   int _index = -1;
 

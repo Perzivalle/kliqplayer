@@ -13,7 +13,7 @@
 #
 # Chaque conteneur a son propre dossier personnel (dans
 # ~/.local/share/lecteur-envs/) : réglages et bibliothèque de l'appli
-# restent à part. L'appli est montée en lecture seule dans /opt/tinypod, la
+# restent à part. L'appli est montée en lecture seule dans /opt/kliqplayer, la
 # musique dans /music. Construire d'abord : flutter build linux --release
 set -euo pipefail
 
@@ -54,7 +54,7 @@ create() {
   if podman container exists "$name" 2>/dev/null; then return; fi
   [[ -d $bundle ]] || { echo "Pas de paquet : flutter build linux --release" >&2; exit 1; }
   mkdir -p "$envs/$1"
-  local vols=(--volume "$bundle:/opt/tinypod:ro")
+  local vols=(--volume "$bundle:/opt/kliqplayer:ro")
   [[ -d $music ]] && vols+=(--volume "$music:/music:ro")
   echo "== Création de $name ($(image "$1"))"
   distrobox create --yes --name "$name" --image "$(image "$1")" \
@@ -66,8 +66,8 @@ check() {
   echo "== $1 : bibliothèques"
   # Celles qui manquent, et libmpv (chargée au lancement, absente des NEEDED).
   distrobox enter "lecteur-$1" -- sh -c '
-    missing=$(for f in /opt/tinypod/lecteur /opt/tinypod/lib/*.so*; do
-      LD_LIBRARY_PATH=/opt/tinypod/lib ldd "$f" 2>/dev/null | grep "not found"
+    missing=$(for f in /opt/kliqplayer/lecteur /opt/kliqplayer/lib/*.so*; do
+      LD_LIBRARY_PATH=/opt/kliqplayer/lib ldd "$f" 2>/dev/null | grep "not found"
     done | sort -u | grep -v libjvm)
     if [ -n "$missing" ]; then echo "MANQUANT :"; echo "$missing"; else echo "ok, rien ne manque"; fi
     # Chargées au lancement (absentes des NEEDED).
@@ -81,8 +81,8 @@ run() {
   echo "== $1 : lancement (Ctrl+C pour quitter)"
   # Le conteneur partage les processus de la machine : l'appli survivrait
   # à ce script (on n'arrête que celle de test, pas celle installée).
-  trap "pkill -f '^/opt/tinypod/lecteur' 2>/dev/null; true" EXIT INT TERM
-  distrobox enter "lecteur-$1" -- env LECTEUR_MUSIC=/music /opt/tinypod/lecteur
+  trap "pkill -f '^/opt/kliqplayer/lecteur' 2>/dev/null; true" EXIT INT TERM
+  distrobox enter "lecteur-$1" -- env LECTEUR_MUSIC=/music /opt/kliqplayer/lecteur
 }
 
 main() {

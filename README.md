@@ -1,6 +1,6 @@
-# Lecteur
+# KliqPlayer
 
-Lecteur de musique local pour Linux (Flutter + media_kit) en forme d'iPod à molette, qui flotte seul
+KliqPlayer : lecteur de musique local pour Linux (Flutter + media_kit) en forme d'iPod à molette, qui flotte seul
 dans une fenêtre transparente. Quinze modèles, de la 1re génération (2001) au shuffle 4G (2010), dessinés
 d'après les vrais, avec des animations par ressorts façon iOS. Les shuffle n'ont pas d'écran : leur anneau
 règle le volume (+ −), change de morceau (⏮ ⏭) et lance la lecture (au centre), et ils jouent

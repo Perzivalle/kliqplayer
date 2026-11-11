@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/sources/spotify/official_app.dart';
 
-/// Comment TinyPod lance l'appli Spotify sous Windows, selon la façon dont
+/// Comment KliqPlayer lance l'appli Spotify sous Windows, selon la façon dont
 /// elle est installée.
 void main() {
   const appData = r'C:\Users\moi\AppData\Roaming';

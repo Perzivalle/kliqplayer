@@ -29,7 +29,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // la première image : la fenêtre n'apparaît qu'à ce moment-là.
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(440, 740);
-  if (!window.Create(L"Lecteur", origin, size)) {
+  if (!window.Create(L"KliqPlayer", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

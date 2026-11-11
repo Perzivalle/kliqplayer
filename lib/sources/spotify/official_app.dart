@@ -4,12 +4,12 @@ import 'dart:io';
 import '../../core/paths.dart';
 import '../../core/tied_process.dart';
 
-/// L'appli Spotify officielle, lancée par TinyPod quand aucun appareil
+/// L'appli Spotify officielle, lancée par KliqPlayer quand aucun appareil
 /// n'est prêt : c'est elle qui joue le son, sans qu'on ait à l'ouvrir.
 ///
 /// Sous Linux, si Xvfb est installé, elle tourne sur un écran virtuel (qui
 /// n'existe qu'en mémoire) : on ne voit jamais sa fenêtre. Elle vit alors
-/// avec TinyPod et s'arrête avec lui, ce qui laisse ouvrir son Spotify
+/// avec KliqPlayer et s'arrête avec lui, ce qui laisse ouvrir son Spotify
 /// habituel ensuite. Sous macOS, elle est lancée masquée ; sous Windows,
 /// réduite.
 class SpotifyApp {
@@ -127,7 +127,7 @@ class SpotifyApp {
     _launched = DateTime.now();
     final xvfb = _xvfb;
     if (xvfb == null) {
-      // Visible, indépendante de TinyPod, comme si on l'avait ouverte.
+      // Visible, indépendante de KliqPlayer, comme si on l'avait ouverte.
       await Process.start(_command, _args, mode: ProcessStartMode.detached);
       return;
     }

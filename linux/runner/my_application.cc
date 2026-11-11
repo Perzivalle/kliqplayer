@@ -26,7 +26,7 @@ static void my_application_activate(GApplication* application) {
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
   // Fenêtre sans décoration et transparente : seul le baladeur est visible.
-  gtk_window_set_title(window, "Lecteur");
+  gtk_window_set_title(window, "KliqPlayer");
   gtk_window_set_decorated(window, FALSE);
   GdkScreen* screen = gtk_window_get_screen(window);
   GdkVisual* visual = gdk_screen_get_rgba_visual(screen);

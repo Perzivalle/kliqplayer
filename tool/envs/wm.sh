@@ -31,7 +31,7 @@ home="$HOME/.local/share/lecteur-envs/wm"
 box=lecteur-wm
 size=${WM_SIZE:-1280x800}
 w=${size%x*} h=${size#*x}
-app="env LECTEUR_MUSIC=/music /opt/tinypod/lecteur"
+app="env LECTEUR_MUSIC=/music /opt/kliqplayer/lecteur"
 
 pkgs="sway swaybg labwc weston xorg-server-xephyr xorg-server-xvfb xorg-xwayland openbox i3-wm picom
       foot xorg-xauth xorg-xsetroot grim xorg-xwd imagemagick gtk3 mpv libpulse alsa-lib mesa noto-fonts"
@@ -42,7 +42,7 @@ create() {
   podman container exists $box 2>/dev/null && return
   [[ -d $bundle ]] || { echo "Pas de paquet : flutter build linux --release" >&2; exit 1; }
   mkdir -p "$home"
-  local vols=(--volume "$bundle:/opt/tinypod:ro")
+  local vols=(--volume "$bundle:/opt/kliqplayer:ro")
   [[ -d $music ]] && vols+=(--volume "$music:/music:ro")
   distrobox create --yes --name $box --image docker.io/library/archlinux:latest \
     --home "$home" "${vols[@]}" --additional-packages "$(echo $pkgs)"
@@ -66,7 +66,7 @@ create
 # les arrête pas. On arrête nous-mêmes ce qu'on a lancé (l'appli de test,
 # jamais celle installée) ; le gestionnaire de fenêtres X11 suit son serveur.
 cleanup() {
-  pkill -f '^/opt/tinypod/lecteur' 2>/dev/null || true
+  pkill -f '^/opt/kliqplayer/lecteur' 2>/dev/null || true
   pkill -f '^(Xephyr|Xvfb) :7 ' 2>/dev/null || true
   pkill -f '^sway -c /tmp/' 2>/dev/null || true
   pkill -f '^labwc -s ' 2>/dev/null || true

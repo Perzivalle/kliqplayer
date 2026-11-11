@@ -256,7 +256,7 @@ class SpotifyAccount extends RemoteAccount {
     return null;
   }
 
-  /// L'appareil de ce PC, qui joue toujours le son de TinyPod (même si le
+  /// L'appareil de ce PC, qui joue toujours le son de KliqPlayer (même si le
   /// compte jouait ailleurs, sur le téléphone : la lecture revient ici).
   /// L'appli Spotify est lancée, cachée, s'il le faut.
   ///
