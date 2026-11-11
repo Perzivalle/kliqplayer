@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KliqPlayer</title>
+<meta name="description" content="KliqPlayer is a click-wheel music player that floats on your desktop. 17 models from 2001 to 2010, real clicks, your own music or Spotify.">
+<link rel="icon" href="img/icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1d1d1f;
+    --grey: #6e6e73;
+    --hair: #d6d6d6;
+    --link: #0070c9;
+    --page: #ffffff;
+    --floor: #f2f2f2;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 400 17px/1.5 "Lucida Grande", "Source Sans 3", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
+  }
+  h1, h2, h3 { font-family: "Source Sans 3", "Myriad Pro", "Helvetica Neue", sans-serif; letter-spacing: -.01em; }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  :focus-visible { outline: 3px solid #7ab8f5; outline-offset: 2px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding-inline: 20px; }
+  /* Narrower windows get the same page, scaled down (zoom set by the script below); only phones reflow.
+     Viewport units inside are divided by --z so they keep meaning "of the window". */
+  html { zoom: var(--z, 1); }
+
+  /* 2010 glossy grey bar */
+  .bar { padding-top: 18px; }
+  .bar ul {
+    display: flex; list-style: none; margin: 0; padding: 0; height: 38px; border-radius: 5px; overflow: hidden;
+    background: linear-gradient(#8a8a8a, #6a6a6a 49%, #5a5a5a 51%, #6c6c6c);
+    box-shadow: 0 1px 2px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  .bar li { flex: 1; border-left: 1px solid rgba(0,0,0,.25); box-shadow: inset 1px 0 0 rgba(255,255,255,.15); }
+  .bar li:first-child { flex: 0 0 64px; border-left: 0; box-shadow: none; }
+  .bar a {
+    display: grid; place-items: center; height: 100%; color: #fff; font-size: 13px;
+    text-shadow: 0 -1px 0 rgba(0,0,0,.5);
+  }
+  .bar a:hover { text-decoration: none; background: linear-gradient(#6a6a6a, #4a4a4a); }
+  .bar img { width: 22px; height: 22px; }
+
+  /* Product shots: placeholder frames with a floor reflection, swapped for photos later */
+  .shot { position: relative; margin: 0; }
+  .shot .ph {
+    display: grid; place-items: center; text-align: center; padding: 16px;
+    border-radius: 14px; font-size: 13px; color: var(--grey);
+    background: linear-gradient(160deg, #fff, #ececec);
+    border: 1px dashed #c4c4c4;
+  }
+  /* Soft floor shadow under the device (photos will add their own mirror image) */
+  .shot.reflect .ph { position: relative; }
+  .shot.reflect .ph::after {
+    content: ""; position: absolute; left: 10%; right: 10%; bottom: -14px; height: 14px;
+    background: radial-gradient(closest-side, rgba(0,0,0,.16), transparent);
+  }
+  .shot figcaption { margin-top: 10px; font-size: 13px; color: var(--grey); text-align: center; }
+
+  /* Hero */
+  .hero { text-align: center; padding-block: 56px 0; position: relative; }
+  .hero::before {
+    content: ""; position: absolute; inset: 120px 15% auto; height: 420px; z-index: -1;
+    background: radial-gradient(closest-side, rgba(0,124,217,.12), transparent);
+  }
+  .hero h1 { font-size: 72px; font-weight: 300; line-height: 1.02; margin: 0 0 12px; }
+  .hero p.lead { font-size: 21px; color: var(--grey); margin: 0 auto 34px; max-width: 40ch; }
+  /* Every nano 5th gen side by side, nearly as wide as the window, earbud cables hanging below.
+     Laid out in units of a 916 × 326 drawing (nine 116-wide renders, 100 apart) so it all scales together. */
+  .lineup-scroll { margin-inline: calc(50% - 50vw / var(--z, 1)); }
+  .lineup-wrap { position: relative; width: min(94vw / var(--z, 1), 1500px); aspect-ratio: 916 / 326; margin: 0 auto; }
+  .lineup { position: relative; z-index: 1; display: flex; list-style: none; margin: 0; padding: 0; }
+  .lineup li { flex: 0 0 calc(116 / 916 * 100%); margin-left: calc(-16 / 916 * 100%); }
+  .lineup li:first-child { margin-left: 0; }
+  .lineup img { display: block; width: 100%; height: auto; }
+  .cables { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+  /* Blue 2010 button */
+  .btn {
+    display: inline-block; padding: 9px 22px; border-radius: 999px; color: #fff; font-size: 15px;
+    background: linear-gradient(#6cb3fa, #2a7fe0 50%, #1a6fd4 51%, #3d8fe8);
+    border: 1px solid #1660b9; box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 1px 2px rgba(0,0,0,.25);
+    text-shadow: 0 -1px 0 rgba(0,0,0,.3);
+  }
+  .btn:hover { text-decoration: none; filter: brightness(1.06); }
+  .more::after { content: " ›"; }
+
+  /* Sections */
+  section { padding-block: 70px; border-top: 1px solid var(--hair); }
+  .head { text-align: center; margin-bottom: 44px; }
+  .head h2 { font-size: 46px; font-weight: 300; margin: 0 0 8px; }
+  .head p { color: var(--grey); font-size: 19px; margin: 0 auto; max-width: 46ch; }
+
+  /* The drawer: the app's own tray, big. Pointing at a pocket lifts that iPod; clicking takes it out
+     and plugs it in on the stage beside it, with its colours to pick from. */
+  .cabinet { display: grid; grid-template-columns: 320px 1fr; gap: 36px; align-items: center; }
+  .stage { display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .stage-frame { height: 440px; width: 100%; display: flex; align-items: flex-end; justify-content: center; }
+  .stage-frame img {
+    height: calc(var(--mm) * 3.8px); max-height: 100%; max-width: 100%; object-fit: contain; filter: drop-shadow(0 12px 16px rgba(0,0,0,.25));
+    transition: transform .35s cubic-bezier(.2, .8, .2, 1), opacity .25s;
+  }
+  .stage-frame img.leaving { transform: translateY(-24px) scale(.96); opacity: 0; }
+  .stage-frame img.arriving { transform: translateY(36px); opacity: 0; transition: none; }
+  .stage h3 { font-size: 26px; font-weight: 300; margin: 18px 0 0; }
+  .stage .year { color: var(--grey); margin: 0 0 14px; font-size: 15px; }
+  .tints { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; min-height: 26px; }
+  .tints button {
+    width: 22px; height: 22px; border-radius: 50%; border: 0; padding: 0; cursor: pointer; background: var(--c);
+    box-shadow: inset 0 -3px 5px rgba(0,0,0,.25), inset 0 3px 4px rgba(255,255,255,.55), 0 1px 2px rgba(0,0,0,.35);
+  }
+  .tints button[aria-pressed="true"] { outline: 2px solid #8a8a8a; outline-offset: 3px; }
+  .tint-name { color: var(--grey); font-size: 13px; margin: 8px 0 0; min-height: 1.4em; }
+
+  .tray {
+    padding: 14px; border-radius: 16px;
+    background: linear-gradient(100deg, #b4b7ba, #e6e7e8 28%, #cdd0d2 55%, #a5a8ab);
+    box-shadow: 0 18px 30px -14px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.7), inset 0 -1px 2px rgba(0,0,0,.25);
+  }
+  .foam {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 18px 10px; padding: 22px 16px 16px; border-radius: 8px;
+    background-color: #121314;
+    background-image: radial-gradient(rgba(255,255,255,.07) .8px, transparent 1.2px), radial-gradient(rgba(255,255,255,.04) .8px, transparent 1.2px);
+    background-size: 7px 7px, 11px 11px; background-position: 0 0, 3px 5px;
+    box-shadow: inset 0 4px 12px rgba(0,0,0,.9), inset 0 0 0 1px rgba(0,0,0,.6);
+  }
+  .slot { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 9px; border: 0; background: none; padding: 0; cursor: pointer; font: inherit; }
+  .pocket {
+    display: grid; place-items: center; padding: 5px; border-radius: 9px; background: #070707;
+    box-shadow: inset 0 3px 8px rgba(0,0,0,.95), 0 1px 0 rgba(255,255,255,.06);
+  }
+  .pocket img {
+    display: block; height: calc(var(--mm) * 1.05px); width: auto;
+    transition: transform .25s cubic-bezier(.2, .8, .2, 1), filter .25s, opacity .2s;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,.6));
+  }
+  .slot:hover .pocket img, .slot:focus-visible .pocket img { transform: translateY(-7px) scale(1.07); filter: drop-shadow(0 10px 10px rgba(0,0,0,.7)); }
+  .slot[aria-pressed="true"] .pocket img { opacity: 0; } /* taken out: the pocket stays empty, like in the app */
+  .slot-label { font: 600 8.5px/1.2 "Source Sans 3", sans-serif; letter-spacing: .2em; text-transform: uppercase; color: #8b8d90; text-shadow: 0 -1px 0 #000; }
+  @media (max-width: 599px) {
+    .cabinet { grid-template-columns: 1fr; }
+    .stage-frame { height: 360px; }
+    .foam { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  /* Features */
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; }
+  .feature { padding: 0 26px; border-left: 1px solid var(--hair); }
+  .feature:first-child { border-left: 0; }
+  .feature-img { position: relative; aspect-ratio: 1; margin-bottom: 18px; }
+  .feature-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 8px 12px rgba(0,0,0,.2)); }
+  .feature-img video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .feature h3 { font-size: 21px; font-weight: 600; margin: 0 0 6px; }
+  .feature p { margin: 0; color: var(--grey); font-size: 15px; }
+
+  /* Download */
+  .downloads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; text-align: center; }
+  .dl {
+    padding: 28px 18px; border-radius: 10px; border: 1px solid var(--hair);
+    background: linear-gradient(#fff, #f4f4f4);
+  }
+  .dl.mine { border-color: #7ab8f5; box-shadow: 0 0 0 3px rgba(122,184,245,.35); }
+  .dl h3 { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
+  .dl p { color: var(--grey); font-size: 14px; margin: 0 0 18px; }
+
+  footer { background: var(--floor); border-top: 1px solid var(--hair); padding-block: 22px 40px; font-size: 12px; color: var(--grey); }
+
+  /* A click wheel to play with: it only clicks */
+  .wheel-box {
+    display: grid; place-items: center; aspect-ratio: 1; margin-bottom: 18px; border-radius: 14px;
+    background: linear-gradient(100deg, #b9bbbd, #e4e5e6 30%, #cfd0d2 55%, #a7a9ab);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.6), inset 0 -1px 2px rgba(0,0,0,.15);
+  }
+  .wheel {
+    position: relative; width: 66%; aspect-ratio: 1; border-radius: 50%;
+    background: radial-gradient(circle at 50% 30%, #ffffff, #eef0f2 60%, #dfe2e6);
+    box-shadow: 0 1px 0 rgba(255,255,255,.7), inset 0 1px 1px #fff, inset 0 -2px 4px rgba(0,0,0,.08), 0 0 0 1px rgba(0,0,0,.12);
+    touch-action: none; user-select: none; cursor: grab;
+  }
+  .wheel:active { cursor: grabbing; }
+  .wheel button {
+    position: absolute; border: 0; background: none; padding: 0; cursor: pointer;
+    font: 700 10px "Source Sans 3", sans-serif; letter-spacing: .08em; color: #a3acb4;
+  }
+  .wheel .menu { top: 9%; left: 50%; transform: translateX(-50%); font-size: 12px; }
+  .wheel .prev { left: 9%; top: 50%; transform: translateY(-50%); line-height: 0; }
+  .wheel .next { right: 9%; top: 50%; transform: translateY(-50%); line-height: 0; }
+  .wheel .play { bottom: 9%; left: 50%; transform: translateX(-50%); line-height: 0; }
+  .wheel .center {
+    left: 32%; top: 32%; width: 36%; height: 36%; border-radius: 50%;
+    background: linear-gradient(#fafafa, #e4e6e9); box-shadow: inset 0 1px 1px #fff, 0 0 0 1px #cfd3d7;
+  }
+  .wheel .center:active { background: linear-gradient(#e4e6e9, #fafafa); }
+
+  @media (max-width: 599px) {
+    .features, .downloads { grid-template-columns: 1fr; gap: 36px; }
+    .feature { border-left: 0; padding: 0; }
+    .hero h1 { font-size: clamp(40px, 11vw, 72px); }
+    .head h2 { font-size: clamp(30px, 8vw, 46px); }
+  }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+
+<header class="wrap bar">
+  <nav aria-label="Main">
+    <ul>
+      <li><a href="#top" aria-label="KliqPlayer home"><img src="img/icon.svg" alt=""></a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#models">Models</a></li>
+      <li><a href="#download">Download</a></li>
+    </ul>
+  </nav>
+</header>
+
+<main>
+  <section class="wrap hero" id="top" style="border-top:0">
+    <h1>Your first iPod.<br>Your music.<br>Right on your desktop.</h1>
+    <p class="lead">KliqPlayer is a click-wheel music player that floats on your desktop. Access your Spotify library or use your own local music.</p>
+    <div class="lineup-scroll"><div class="lineup-wrap">
+    <ul class="lineup" aria-label="nano 5th gen in nine colours, each with its album">
+      <li><img src="img/nano5/web/silver.webp" alt="iPod nano 5th gen, silver, playing Hard Rain"></li>
+      <li><img src="img/nano5/web/black.webp" alt="iPod nano 5th gen, black, playing Red"></li>
+      <li><img src="img/nano5/web/purple.webp" alt="iPod nano 5th gen, purple, playing Bryter Layter"></li>
+      <li><img src="img/nano5/web/blue.webp" alt="iPod nano 5th gen, blue, playing Red Queen to Gryphon Three"></li>
+      <li><img src="img/nano5/web/green.webp" alt="iPod nano 5th gen, green, playing Close to the Edge"></li>
+      <li><img src="img/nano5/web/yellow.webp" alt="iPod nano 5th gen, yellow, playing Magical Mystery Tour"></li>
+      <li><img src="img/nano5/web/orange.webp" alt="iPod nano 5th gen, orange, playing Songs in the Key of Life"></li>
+      <li><img src="img/nano5/web/pink.webp" alt="iPod nano 5th gen, pink, playing Three Imaginary Boys"></li>
+      <li><img src="img/nano5/web/red.webp" alt="iPod nano 5th gen, red, playing French Exit"></li>
+    </ul>
+    <svg class="cables" viewBox="0 0 916 326" aria-hidden="true"></svg>
+    </div></div>
+  </section>
+
+  <section class="wrap" id="features">
+    <div class="head">
+      <h2>It feels like the real one.</h2>
+      <p>Not a skin. Every wheel, button and screen is redrawn to behave like the device you remember.</p>
+    </div>
+    <div class="features">
+      <div class="feature">
+        <div class="wheel-box">
+          <div class="wheel" role="group" aria-label="Click wheel: turn it to hear it click">
+            <button class="menu" aria-label="Menu">MENU</button>
+            <button class="prev" aria-label="Previous"><svg viewBox="0 0 12 10" width="16" height="13" aria-hidden="true"><path d="M0 0h1.6v10H0zM1.6 5 7 0v10zM6.6 5 12 0v10z" fill="currentColor"/></svg></button>
+            <button class="next" aria-label="Next"><svg viewBox="0 0 12 10" width="16" height="13" aria-hidden="true"><path d="M10.4 0H12v10h-1.6zM10.4 5 5 0v10zM5.4 5 0 0v10z" fill="currentColor"/></svg></button>
+            <button class="play" aria-label="Play or pause"><svg viewBox="0 0 13 10" width="17" height="13" aria-hidden="true"><path d="M0 0l6 5-6 5zM8 0h1.8v10H8zM11.2 0H13v10h-1.8z" fill="currentColor"/></svg></button>
+            <button class="center" aria-label="Select"></button>
+          </div>
+        </div>
+        <h3>A click wheel…</h3>
+        <p>Scroll with your trackpad or mouse and hear the tick under your thumb. Try this one.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-img"><video autoplay muted loop playsinline poster="img/features/web/drawer.webp"
+          aria-label="A cursor pulls the drawer out of a blue nano 5th gen, picks the mini, and the two iPods swap">
+          <source src="img/features/drawer.webm" type="video/webm"><source src="img/features/drawer.mp4" type="video/mp4"></video></div>
+        <h3>A drawer…</h3>
+        <p>Pull the drawer, pick another one. It unplugs, swaps, and plugs back into the earbud cable.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-img"><img src="img/features/web/now_playing.webp" alt="A silver classic playing Sir Duke by Stevie Wonder, with its album art"></div>
+        <h3>A Spotify account or your own music…</h3>
+        <p>Your own folder (MP3, FLAC, AAC, OGG, WAV, playlists), or your Spotify Premium library.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap" id="models">
+    <div class="head">
+      <h2>Seventeen models. 2001 to 2010.</h2>
+      <p>Each one with the screen, the menus and the colours it shipped with.</p>
+    </div>
+    <div class="cabinet">
+      <div class="stage">
+        <div class="stage-frame"><img alt=""></div>
+        <h3 aria-live="polite"></h3>
+        <p class="year"></p>
+        <div class="tints" role="group" aria-label="Colours"></div>
+        <p class="tint-name"></p>
+      </div>
+      <div class="tray"><div class="foam" role="group" aria-label="All the models"></div></div>
+    </div>
+  </section>
+
+  <section class="wrap" id="download">
+    <div class="head">
+      <h2>Plug it in.</h2>
+      <p>Free. No account needed for your own music.</p>
+    </div>
+    <div class="downloads">
+      <div class="dl" data-os="mac"><h3>Mac</h3><p>macOS 12 or later</p><a class="btn" href="https://github.com/Perzivalle/kliqplayer/releases/latest/download/KliqPlayer-macos.zip">Download</a></div>
+      <div class="dl" data-os="windows"><h3>Windows</h3><p>Windows 10 or 11, 64-bit</p><a class="btn" href="https://github.com/Perzivalle/kliqplayer/releases/latest/download/KliqPlayer-windows-x64.zip">Download</a></div>
+      <div class="dl" data-os="linux"><h3>Linux</h3><p>x86-64, X11 or Wayland</p><a class="btn" href="https://github.com/Perzivalle/kliqplayer/releases/latest/download/KliqPlayer-linux-x64.tar.gz">Download</a></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">© 2026 KliqPlayer. Not affiliated with or endorsed by Apple Inc. iPod is a trademark of Apple Inc.</div>
+</footer>
+
+<script src="img/drawer/models.js"></script>
+<script>
+  // Same layout at any desktop width: below 1020 px the page is zoomed out rather than rearranged.
+  // Phones (under 600 px) get the one-column layout instead.
+  const fit = () => {
+    const w = innerWidth;
+    document.documentElement.style.setProperty('--z', w >= 1020 || w < 600 ? 1 : (w / 1020).toFixed(4));
+  };
+  fit();
+  addEventListener('resize', fit);
+
+  // The drawer. Every model in every colour, rendered by tool/studio/drawer_models_test.dart, listed in
+  // img/drawer/models.js. Heights in mm keep the real proportions between models.
+  const heights = { gen1: 102, gen2: 102, gen3: 104, mini: 91, gen4: 104, photo: 104, shuffle1: 84, mini2: 91, nano1: 90,
+    gen5: 104, nano2: 90, shuffle2: 27, classic: 104, nano: 70, nano4: 91, nano5: 91, shuffle4: 29 };
+  const families = [];
+  for (const m of window.KLIQ_MODELS) {
+    let f = families.find(f => f.id === m.family);
+    if (!f) families.push(f = { id: m.family, name: m.name, year: m.year, tints: [] });
+    f.tints.push(m);
+  }
+  const foam = document.querySelector('.foam'), stage = document.querySelector('.stage');
+  const stageImg = stage.querySelector('.stage-frame img'), tints = stage.querySelector('.tints');
+  const img = (m, slot) => `img/drawer/web/${m.id}${slot ? '_slot' : ''}.webp`; // same render, two sizes
+  foam.innerHTML = families.map(f => `<button class="slot" data-family="${f.id}" aria-pressed="false" aria-label="${f.name}, ${f.year}"
+      style="--mm:${heights[f.id]}"><span class="pocket"><img src="${img(f.tints[0], true)}" alt=""></span>
+      <span class="slot-label">${f.name}</span></button>`).join('');
+  const chosen = {}; // family → colour last picked
+  let current = null;
+
+  // An image fully decoded, so swapping it in shows the new one at once (never the old one for a frame).
+  const ready = url => { const i = new Image(); i.src = url; return i.decode().catch(() => {}); };
+  let showing = 0; // the latest request wins when clicks come fast
+
+  async function show(f, m) {
+    const request = ++showing;
+    chosen[f.id] = m;
+    tints.innerHTML = f.tints.length < 2 ? '' : f.tints.map(t =>
+      `<button style="--c:${t.swatch}" aria-label="${t.colour}" aria-pressed="${t === m}" data-id="${t.id}"></button>`).join('');
+    stage.querySelector('.tint-name').textContent = m.colour;
+    stage.querySelector('h3').textContent = f.name;
+    stage.querySelector('.year').textContent = f.year;
+    // The one in hand unplugs and leaves while the new one loads; then it comes up and plugs in.
+    const first = !current, leaving = first ? null : new Promise(r => setTimeout(r, 220));
+    if (!first) stageImg.classList.add('leaving');
+    current = f;
+    await Promise.all([ready(img(m)), ready(img(m, true)), leaving]);
+    if (request !== showing) return;
+    foam.querySelector(`[data-family="${f.id}"] img`).src = img(m, true);
+    stageImg.style.setProperty('--mm', heights[f.id]);
+    stageImg.src = img(m);
+    stageImg.alt = `iPod ${f.name}, ${m.colour}`;
+    stageImg.classList.remove('leaving');
+    if (!first) { // page load: just there, no entrance
+      stageImg.classList.add('arriving');
+      requestAnimationFrame(() => requestAnimationFrame(() => stageImg.classList.remove('arriving')));
+    }
+    for (const t of f.tints) ready(img(t)); // its other colours, ready before they're picked
+  }
+  function take(f) {
+    for (const b of foam.children) b.setAttribute('aria-pressed', b.dataset.family === f.id);
+    show(f, chosen[f.id] ?? f.tints[0]);
+  }
+  for (const b of foam.children) b.addEventListener('click', () => { tick(); take(families.find(f => f.id === b.dataset.family)); });
+  tints.addEventListener('click', e => {
+    const id = e.target.dataset?.id;
+    if (id) { tick(); show(current, current.tints.find(t => t.id === id)); }
+  });
+  take(families.find(f => f.id === 'classic'));
+
+  // Highlight the visitor's system in the downloads.
+  const ua = navigator.userAgent;
+  const os = /Mac/.test(ua) ? 'mac' : /Win/.test(ua) ? 'windows' : /Linux/.test(ua) && !/Android/.test(ua) ? 'linux' : null;
+  const card = os && document.querySelector(`.dl[data-os="${os}"]`);
+  if (card) card.classList.add('mine');
+
+  // Earbud cables: each one hangs straight down from its nano's jack (where the render's stub
+  // ends), with a slight sway, and fades out. Drawn in the 916 × 326 units of .lineup-wrap.
+  (() => {
+    const H = 326, STEP = 100, IMG_W = 116, IMG_H = IMG_W * 2880 / 1328;
+    const JACK_X = 0.7368 * IMG_W, CABLE_W = IMG_W * 40 / 1328; // measured on the 1328 px renders
+    const sway = [3, -4, 2, -2, 4, -3, 2, -4, 3]; // fixed, so cables never look ruled
+    const paths = sway.map((dx, i) => {
+      const x = i * STEP + JACK_X, y = IMG_H - 1;
+      return `M${x},${y} C${x},${y + 25} ${x + dx},${y + 40} ${x + dx},${H + 4}`;
+    });
+    // The fade is in the stroke colour itself (no SVG mask: Firefox drops masked strokes when the page is zoomed out).
+    const y0 = IMG_H, fade = (id, colour) => `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="0" y1="${y0}" x2="0" y2="${H}">
+        <stop offset=".45" stop-color="${colour}"/><stop offset="1" stop-color="${colour}" stop-opacity="0"/></linearGradient>`;
+    document.querySelector('.cables').innerHTML = `<defs>${fade('cable', '#17181a')}${fade('cable-shine', '#4a4b50')}</defs>
+      <g fill="none" stroke-linecap="round">${paths.map(d =>
+        `<path d="${d}" stroke="url(#cable)" stroke-width="${CABLE_W}"/>` +
+        `<path d="${d}" stroke="url(#cable-shine)" stroke-width="${CABLE_W * 0.28}" transform="translate(${-CABLE_W * 0.18} 0)"/>`).join('')}</g>`;
+  })();
+
+  // The click: the app's own sound (lib/ipod/click.dart, WheelClick._synthesize at normal pitch), same recipe:
+  // 18 ms of a soft breath (the contact) plus two short resonances (3100 and 1250 Hz, the case), built once.
+  let audio, clickBuf;
+  function clickSamples(rate) {
+    const n = Math.floor(rate * 0.018), d = new Float32Array(n);
+    let seed = 7, lp = 0;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < n; i++) {
+      const t = i / rate;
+      lp += (rnd() * 2 - 1 - lp) * 0.55; // softens the breath a little
+      const contact = lp * Math.exp(-t / 0.0006);
+      const ring = Math.sin(2 * Math.PI * 3100 * t) * Math.exp(-t / 0.0016);
+      const body = Math.sin(2 * Math.PI * 1250 * t) * Math.exp(-t / 0.0030);
+      const attack = Math.min(1, i / (6 * rate / 44100)); // no pop at the very start
+      d[i] = Math.max(-1, Math.min(1, attack * (0.75 * contact + 0.45 * ring + 0.22 * body)));
+    }
+    return d;
+  }
+  function tick() {
+    try {
+      audio ??= new AudioContext({ latencyHint: 'interactive' });
+      if (!clickBuf) {
+        clickBuf = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.018), audio.sampleRate);
+        clickBuf.copyToChannel(clickSamples(audio.sampleRate), 0);
+      }
+      const src = audio.createBufferSource(), gain = audio.createGain();
+      gain.gain.value = 0.55; // the app's click volume
+      src.buffer = clickBuf; src.connect(gain).connect(audio.destination); src.start();
+    } catch { /* no audio: silent wheel */ }
+  }
+
+  // The wheel in the features: turning it clicks every 15°, the buttons click. Nothing else.
+  const wheel = document.querySelector('.wheel');
+  const angleOf = e => { const r = wheel.getBoundingClientRect(); return Math.atan2(e.clientY - r.top - r.height / 2, e.clientX - r.left - r.width / 2); };
+  let last = null, acc = 0;
+  wheel.addEventListener('pointerdown', e => {
+    if (e.target.closest('button')) return;
+    last = angleOf(e); acc = 0; wheel.setPointerCapture(e.pointerId);
+  });
+  wheel.addEventListener('pointermove', e => {
+    if (last === null) return;
+    const a = angleOf(e);
+    let d = a - last; if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI;
+    last = a; acc += d;
+    while (Math.abs(acc) >= Math.PI / 12) { acc -= Math.sign(acc) * Math.PI / 12; tick(); }
+  });
+  const stop = () => { last = null; };
+  wheel.addEventListener('pointerup', stop);
+  wheel.addEventListener('pointercancel', stop);
+  for (const b of wheel.querySelectorAll('button')) b.onclick = tick;
+</script>
+</body>
+</html>

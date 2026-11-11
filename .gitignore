@@ -49,3 +49,11 @@ app.*.map.json
 
 # Images de comparaison laissées par les tests de captures en échec
 test/failures/
+
+# Site : images produites par tool/studio (à refaire avec ces outils) et pochettes
+# d'albums (droits d'auteur : elles ne vont pas dans un dépôt public).
+/site/img/*
+!/site/img/icon.svg
+
+# Cache de wrangler (Cloudflare) : identifiant de compte, à ne pas publier.
+.wrangler/
