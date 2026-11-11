@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
@@ -17,14 +18,9 @@ import '../../core/strings.dart';
 import 'api.dart';
 import 'auth.dart';
 import 'connect_engine.dart';
+import 'key_guide.dart';
 import 'librespot.dart';
 import 'official_app.dart';
-
-/// L'appli déclarée chez Spotify pour TinyPod (tableau de bord développeur).
-/// Ce n'est pas un secret : avec PKCE, l'identifiant seul ne permet rien.
-/// Réglable (« spotify.clientId » dans settings.json) pour utiliser sa
-/// propre appli.
-const defaultSpotifyClientId = 'REMOVED-OLD-SHARED-CLIENT-ID';
 
 /// Un morceau Spotify ([json] : objet « track » de l'API ; [album] : son
 /// album, quand l'objet n'en porte pas, dans la liste des morceaux d'un
@@ -65,13 +61,73 @@ typedef SpotifyDevice = ({String id, String name, String type, bool active});
 /// et son moteur.
 class SpotifyAccount extends RemoteAccount {
   SpotifyAccount({String? clientId, http.Client? client, this.installedLibrespot, this.app})
-      : auth = SpotifyAuth(clientId: clientId ?? Settings.getString('spotify.clientId') ?? defaultSpotifyClientId, client: client) {
-    api = SpotifyApi(auth, client: client);
+      : _client = client // ignore: prefer_initializing_formals
+  {
+    _useKey(clientId ?? Settings.getString(_keySetting));
     _userName = Settings.getString('spotify.user');
   }
 
-  final SpotifyAuth auth;
-  late final SpotifyApi api;
+  static const _keySetting = 'spotify.clientId';
+
+  final http.Client? _client;
+
+  /// La clé d'appli Spotify de l'utilisateur (« Client ID »), s'il l'a
+  /// donnée. Spotify limite chaque appli non validée à cinq comptes : une
+  /// clé commune ne servirait qu'à cinq personnes, chacun crée donc la
+  /// sienne (Réglages › Bibliothèque › Spotify).
+  String? _key;
+
+  late SpotifyAuth auth;
+  late SpotifyApi api;
+
+  void _useKey(String? key) {
+    _key = key == null || key.isEmpty ? null : key;
+    auth = SpotifyAuth(clientId: _key ?? '', client: _client);
+    api = SpotifyApi(auth, client: _client);
+  }
+
+  @override
+  bool get needsKey => _key == null;
+
+  @override
+  String? get keyHint {
+    final k = _key;
+    return k == null ? null : (k.length > 8 ? '${k.substring(0, 4)}…${k.substring(k.length - 4)}' : k);
+  }
+
+  /// Une clé d'appli Spotify dans [text] (32 chiffres hexadécimaux), ou
+  /// null.
+  static String? keyIn(String text) => RegExp(r'(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])').firstMatch(text)?.group(0)?.toLowerCase();
+
+  @override
+  Future<void> openKeyGuide() async {
+    // L'adresse de retour, prête à être collée dans le formulaire de Spotify.
+    await Clipboard.setData(const ClipboardData(text: SpotifyAuth.redirectUri));
+    final file = File(joinPath(cacheDir(), joinPath('lecteur', 'spotify-guide.html')));
+    await file.parent.create(recursive: true);
+    await file.writeAsString(spotifyKeyGuide());
+    if (!await launchUrl(Uri.file(file.path), mode: LaunchMode.externalApplication)) {
+      throw NoticeException(tr('Navigateur introuvable'));
+    }
+  }
+
+  @override
+  Future<void> pasteKey() async {
+    final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text ?? '';
+    final key = keyIn(text);
+    if (key == null) throw NoticeException(tr('Pas de clé copiée'));
+    Settings.setString(_keySetting, key);
+    _useKey(key);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> forgetKey() async {
+    await disconnect();
+    Settings.setString(_keySetting, '');
+    _useKey(null);
+    notifyListeners();
+  }
 
   /// Le lecteur intégré (librespot), s'il est installé.
   final Librespot? installedLibrespot;
@@ -110,6 +166,7 @@ class SpotifyAccount extends RemoteAccount {
 
   @override
   Future<void> connect() async {
+    if (needsKey) throw NoticeException(tr('Clé Spotify requise'));
     _connecting = true;
     notifyListeners();
     try {

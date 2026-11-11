@@ -64,6 +64,23 @@ abstract class RemoteAccount extends ChangeNotifier {
 
   Future<void> disconnect();
 
+  /// Le service demande à chacun sa propre clé d'appli, et elle n'est pas
+  /// encore donnée : on ne peut pas se connecter sans elle.
+  bool get needsKey => false;
+
+  /// La clé en service, abrégée (pour la montrer), ou null.
+  String? get keyHint => null;
+
+  /// Ouvre, dans le navigateur, le guide pour créer sa clé.
+  Future<void> openKeyGuide() async {}
+
+  /// Prend la clé qu'on vient de copier (presse-papiers). Lève une
+  /// [Exception] au message à montrer si ce n'en est pas une.
+  Future<void> pasteKey() async {}
+
+  /// Oublie la clé (et le compte qui allait avec).
+  Future<void> forgetKey() async {}
+
   /// L'appli se ferme : arrêter ce qui tourne en arrière-plan.
   void shutdown() {}
 }

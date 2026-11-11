@@ -760,6 +760,25 @@ class IpodNav extends ChangeNotifier {
   /// Un service en ligne : se connecter, l'utiliser.
   MenuPage _account(RemoteAccount a) => MenuPage(a.label, live: true, () {
         if (a.connecting) return [MenuEntry(tr('Connexion…'), value: () => tr('navigateur'))];
+        if (a.needsKey) {
+          // Chacun sa clé (Spotify n'en accepte que cinq comptes par appli) :
+          // un guide dans le navigateur pour la créer, puis on la colle ici.
+          return [
+            MenuEntry(tr('Créer ma clé'), value: () => tr('guide'), action: () {
+              a.openKeyGuide().catchError((Object e) {
+                _keyMessage = '$e';
+                notifyListeners();
+              });
+            }),
+            MenuEntry(tr('Coller la clé'), value: () => _keyMessage ?? '', action: () {
+              a.pasteKey().then((_) {
+                _keyMessage = null;
+              }, onError: (Object e) {
+                _keyMessage = '$e';
+              }).whenComplete(notifyListeners);
+            }),
+          ];
+        }
         if (!a.connected) {
           return [
             MenuEntry(tr('Se connecter'), action: () {
@@ -770,6 +789,7 @@ class IpodNav extends ChangeNotifier {
               }).whenComplete(notifyListeners);
               notifyListeners();
             }),
+            if (a.keyHint case final key?) MenuEntry(tr('Changer de clé'), value: () => key, action: () => a.forgetKey()),
           ];
         }
         final inUse = player.source.id == a.sourceId;
@@ -785,6 +805,7 @@ class IpodNav extends ChangeNotifier {
               _backToSettings();
             }),
           MenuEntry(tr('Compte'), value: () => a.userName ?? ''),
+          if (a.keyHint case final key?) MenuEntry(tr('Clé'), value: () => key),
           MenuEntry(tr('Se déconnecter'), action: () {
             a.disconnect();
             if (inUse) player.useSource('local');
@@ -792,6 +813,9 @@ class IpodNav extends ChangeNotifier {
           }),
         ];
       });
+
+  /// Ce qu'a donné « Coller la clé » (rien dans le presse-papiers…).
+  String? _keyMessage;
 
   /// Un dossier : « Utiliser ce dossier », puis ses sous-dossiers.
   MenuPage _folder(String path) => MenuPage(_folderName(path), () {

@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:lecteur/core/player.dart';
 import 'package:lecteur/sources/spotify/api.dart';
 import 'package:lecteur/sources/spotify/connect_engine.dart';
+import 'package:lecteur/sources/spotify/key_guide.dart';
 import 'package:lecteur/sources/spotify/spotify_source.dart';
 
 Map<String, Object?> _track(String id, String name, int n, {Map<String, Object?>? album}) => {
@@ -363,5 +364,36 @@ void cacheTests() {
     await player.playTracks(player.tracks, 0);
     await player.playTracks(player.tracks, 1);
     expect(fake.calls.where((c) => c == 'GET /me/player/devices'), hasLength(1));
+  });
+
+  group('clé personnelle', () {
+    test('sans clé : il en faut une avant de se connecter', () async {
+      final account = SpotifyAccount(client: _FakeSpotify().client);
+      expect(account.needsKey, isTrue);
+      expect(account.keyHint, isNull);
+      await expectLater(account.connect(), throwsA(isA<NoticeException>()));
+    });
+
+    test('la clé se reconnaît dans ce qu\'on a copié, même entourée de texte', () {
+      const key = '0123456789abcdef0123456789ABCDEF';
+      expect(SpotifyAccount.keyIn(key), key.toLowerCase());
+      expect(SpotifyAccount.keyIn('  Client ID: $key\n'), key.toLowerCase());
+      expect(SpotifyAccount.keyIn('http://127.0.0.1:43819/callback'), isNull);
+      expect(SpotifyAccount.keyIn('${key}0'), isNull, reason: 'trop longue : ce n\'est pas une clé');
+      expect(SpotifyAccount.keyIn(''), isNull);
+    });
+
+    test('avec une clé : on la montre abrégée', () {
+      final account = SpotifyAccount(clientId: '0123456789abcdef0123456789abcdef', client: _FakeSpotify().client);
+      expect(account.needsKey, isFalse);
+      expect(account.keyHint, '0123…cdef');
+    });
+
+    test('le guide donne le lien du tableau de bord et l\'adresse de retour', () {
+      final page = spotifyKeyGuide();
+      expect(page, contains('https://developer.spotify.com/dashboard/create'));
+      expect(page, contains('http://127.0.0.1:43819/callback'));
+      expect(page, contains('Client ID'));
+    });
   });
 }
