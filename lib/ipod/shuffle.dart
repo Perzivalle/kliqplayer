@@ -118,8 +118,9 @@ const shuffle2Colors = [
 ];
 
 /// Le shuffle de 2e génération (2006) : une pince en aluminium anodisé
-/// (41 × 27 mm), l'anneau de commandes au milieu ; prise casque et voyant
-/// en haut, interrupteurs en bas.
+/// (41 × 27 mm), l'anneau de commandes décalé vers la droite (mesuré sur la
+/// photo d'Apple : centre à +12 % de la largeur, 57 % de la largeur de
+/// diamètre) ; prise casque et voyant en haut, interrupteurs en bas.
 class Shuffle2Model extends IpodModel {
   const Shuffle2Model(this.color);
 
@@ -166,10 +167,10 @@ class Shuffle2Model extends IpodModel {
   HoldSwitch? get hold => const HoldSwitch(110, onTop: false);
 
   @override
-  Offset get wheelCenter => const Offset(137.5, 91);
+  Offset get wheelCenter => const Offset(170.5, 91);
 
   @override
-  WheelStyle get wheel => _pad(66, 40, tint: color, recess: Color.lerp(color.dark, Colors.black, 0.25)!);
+  WheelStyle get wheel => _pad(78, 47, tint: color, recess: Color.lerp(color.dark, Colors.black, 0.25)!);
 
   @override
   ScreenLook get look => _noScreen;

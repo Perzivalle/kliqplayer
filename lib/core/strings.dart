@@ -139,4 +139,7 @@ const _strings = <String, List<String>>{
   'Jaune': ['Yellow', 'Amarillo', 'Gelb'],
   'Orange': ['Orange', 'Naranja', 'Orange'],
   'Or': ['Gold', 'Oro', 'Gold'],
+  'Gris sidéral': ['Space Gray', 'Gris espacial', 'Space Grau'],
+  'Bleu (2015)': ['Blue (2015)', 'Azul (2015)', 'Blau (2015)'],
+  'Rose (2015)': ['Pink (2015)', 'Rosa (2015)', 'Pink (2015)'],
 };
