@@ -35,7 +35,7 @@
   html { zoom: var(--z, 1); }
 
   /* 2010 glossy grey bar */
-  .bar { padding-top: 18px; }
+  .bar { padding: 18px 16px 0; } /* the whole window wide, a small gap at each edge */
   .bar ul {
     display: flex; list-style: none; margin: 0; padding: 0; height: 38px; border-radius: 5px; overflow: hidden;
     background: linear-gradient(#8a8a8a, #6a6a6a 49%, #5a5a5a 51%, #6c6c6c);
@@ -212,7 +212,7 @@
 </head>
 <body>
 
-<header class="wrap bar">
+<header class="bar">
   <nav aria-label="Main">
     <ul>
       <li><a href="#top" aria-label="KliqPlayer home"><img src="img/icon.svg" alt=""></a></li>
