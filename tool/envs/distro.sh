@@ -66,7 +66,7 @@ check() {
   echo "== $1 : bibliothèques"
   # Celles qui manquent, et libmpv (chargée au lancement, absente des NEEDED).
   distrobox enter "lecteur-$1" -- sh -c '
-    # Sans appli montée, il n'y aurait rien à vérifier : le dire, pas « ok ».
+    # Sans appli montée, rien à vérifier : le dire, pas « ok ».
     [ -x /opt/kliqplayer/kliqplayer ] || { echo "ERREUR : appli absente de /opt/kliqplayer (conteneur trop ancien : --rm puis recréer)"; exit 1; }
     missing=$(for f in /opt/kliqplayer/kliqplayer /opt/kliqplayer/lib/*.so*; do
       LD_LIBRARY_PATH=/opt/kliqplayer/lib ldd "$f" 2>/dev/null | grep "not found"

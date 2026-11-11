@@ -53,7 +53,7 @@ inside() { distrobox enter $box -- bash -c "$1"; }
 
 case ${1:-} in
   --rm) distrobox rm --force $box || true; rm -rf "${home:?}"; exit ;;
-  --create) need distrobox; need podman; create; exit ;;
+  --create) need distrobox; need podman; create; inside true; exit ;; # première entrée : installe les paquets
   --shell) need distrobox; need podman; create; distrobox enter $box; exit ;;
   --with-kde) need distrobox; need podman; create; inside "sudo pacman -S --needed --noconfirm kwin"; exit ;;
   "" | -h | --help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit ;;
