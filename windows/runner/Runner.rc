@@ -92,9 +92,9 @@ BEGIN
             VALUE "CompanyName", "dev.paulux" "\0"
             VALUE "FileDescription", "KliqPlayer" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "lecteur" "\0"
+            VALUE "InternalName", "kliqplayer" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 Perzivalle" "\0"
-            VALUE "OriginalFilename", "lecteur.exe" "\0"
+            VALUE "OriginalFilename", "kliqplayer.exe" "\0"
             VALUE "ProductName", "KliqPlayer" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

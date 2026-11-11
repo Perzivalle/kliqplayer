@@ -36,7 +36,7 @@ flutter build linux --release # binaire dans build/linux/x64/release/bundle/
 flutter test                  # dont les captures de référence (test/goldens/)
 ```
 
-Fluidité : `LECTEUR_FPS=1 LECTEUR_BENCH=1 build/linux/x64/profile/bundle/lecteur` (après
+Fluidité : `LECTEUR_FPS=1 LECTEUR_BENCH=1 build/linux/x64/profile/bundle/kliqplayer` (après
 `flutter build linux --profile`) ouvre et referme le tiroir, affiche les temps d'image puis quitte.
 
 ## Code

@@ -34,6 +34,9 @@ jobs:
       - name: Archive
         run: |
           mv build/linux/x64/release/bundle KliqPlayer
+          # ./install.sh : raccourci dans le menu, icône, et vérifie libmpv.
+          cp linux/packaging/install.sh assets/icon/kliqplayer.svg KliqPlayer/
+          chmod +x KliqPlayer/install.sh
           tar -czf KliqPlayer-linux-x64.tar.gz KliqPlayer
       - uses: actions/upload-artifact@v4
         with:
