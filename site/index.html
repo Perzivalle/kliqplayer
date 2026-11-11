@@ -167,6 +167,9 @@
   .dl.mine { border-color: #7ab8f5; box-shadow: 0 0 0 3px rgba(122,184,245,.35); }
   .dl h3 { font-size: 22px; font-weight: 600; margin: 0 0 4px; }
   .dl p { color: var(--grey); font-size: 14px; margin: 0 0 18px; }
+  .dl code { font-size: 12px; background: #eceef0; border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
+  .dl { display: flex; flex-direction: column; align-items: center; }
+  .dl .btn { margin-top: auto; } /* the three buttons on one line, whatever the text above */
 
   footer { background: var(--floor); border-top: 1px solid var(--hair); padding-block: 22px 40px; font-size: 12px; color: var(--grey); }
 
@@ -291,7 +294,7 @@
     <div class="downloads">
       <div class="dl" data-os="mac"><h3>Mac</h3><p>macOS 12 or later</p><a class="btn" href="https://github.com/Perzivalle/kliqplayer/releases/latest/download/KliqPlayer-macos.zip">Download</a></div>
       <div class="dl" data-os="windows"><h3>Windows</h3><p>Windows 10 or 11, 64-bit</p><a class="btn" href="https://github.com/Perzivalle/kliqplayer/releases/latest/download/KliqPlayer-windows-x64.zip">Download</a></div>
-      <div class="dl" data-os="linux"><h3>Linux</h3><p>x86-64, X11 or Wayland</p><a class="btn" href="https://github.com/Perzivalle/kliqplayer/releases/latest/download/KliqPlayer-linux-x64.tar.gz">Download</a></div>
+      <div class="dl" data-os="linux"><h3>Linux</h3><p>x86-64, X11 or Wayland<br>Needs libmpv:<br><code>sudo apt install libmpv2</code><br>(Fedora: <code>mpv-libs</code>, Arch: <code>mpv</code>)</p><a class="btn" href="https://github.com/Perzivalle/kliqplayer/releases/latest/download/KliqPlayer-linux-x64.tar.gz">Download</a></div>
     </div>
   </section>
 </main>
