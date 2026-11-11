@@ -1,14 +1,11 @@
-# Les trois versions, compilées chacune sur son système chez GitHub :
-# - release publiée : les archives sont ajoutées à la release, sous des noms
-#   fixes (le site pointe sur .../releases/latest/download/<nom>) ;
-# - push sur la branche windows ou lancement à la main : les archives sont
-#   téléchargeables dans l'onglet Actions (artefacts).
+# Les trois versions, compilées chacune sur son système chez GitHub, seulement
+# quand une release est publiée : les archives y sont ajoutées sous des noms
+# fixes (le site pointe sur .../releases/latest/download/<nom>). Lancement à la
+# main possible (onglet Actions) : les archives sont alors des artefacts.
 # « latest » ignore les pré-releases : publier les versions comme releases normales.
 name: Release
 
 on:
-  push:
-    branches: [windows]
   workflow_dispatch:
   release:
     types: [published]
