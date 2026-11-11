@@ -37,11 +37,35 @@ Future<void> main() async {
       window.hasShadow = false;
       fillWorkArea(window);
     } else {
-      window.setSize(IpodStage.savedModel.windowSize.toNative(), false);
+      final work = primaryWorkArea();
+      final size = fitWindowSize(IpodStage.savedModel.windowSize, work);
+      if (Platform.isLinux && work != null) {
+        // Taille et place d'un coup, au milieu de la zone de travail : centrer
+        // après coup se ferait avec l'ancienne taille, et le bas de l'iPod
+        // sortirait d'un petit écran. (Sous Wayland, le compositeur place.)
+        window.contentBounds = Rect.fromCenter(center: work.center, width: size.width, height: size.height).toNative();
+      } else {
+        window.setSize(size.toNative(), false);
+      }
     }
     window
       ..show()
       ..focus();
+    // Linux : le gestionnaire place (X11) et parfois agrandit (sway) la
+    // fenêtre à sa guise, une fois qu'elle s'affiche (à la première image).
+    // Si elle dépasse alors de l'écran, on la ramène dedans, au milieu.
+    final work = Platform.isLinux ? primaryWorkArea() : null;
+    if (work != null) {
+      Future<void>.delayed(const Duration(milliseconds: 1500), () {
+        try {
+          final now = window.contentBounds.toRect();
+          if (now.bottom > work.bottom || now.top < work.top || now.height > work.height || now.width > work.width) {
+            final size = fitWindowSize(now.size, work);
+            window.contentBounds = Rect.fromCenter(center: work.center, width: size.width, height: size.height).toNative();
+          }
+        } catch (_) {}
+      });
+    }
   }
 
   if (Platform.environment['LECTEUR_FPS'] != null) _logFrameTimings();

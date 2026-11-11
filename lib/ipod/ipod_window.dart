@@ -32,6 +32,24 @@ Rect? fillWorkArea(Window window) {
   }
 }
 
+/// La fenêtre [wanted], réduite (mêmes proportions) pour tenir dans la zone
+/// de travail [work] avec [margin] de jeu (barre de titre, placement) : sur
+/// un petit écran (1366 × 768, 1280 × 800), l'iPod entier, pas coupé en bas.
+Size fitWindowSize(Size wanted, Rect? work, {double margin = 48}) {
+  if (work == null || work.isEmpty) return wanted;
+  final k = math.min((work.width - margin) / wanted.width, (work.height - margin) / wanted.height);
+  return k >= 1 ? wanted : wanted * k;
+}
+
+/// Zone de travail de l'écran principal (null si le système ne la donne pas).
+Rect? primaryWorkArea() {
+  try {
+    return DisplayManager.instance.getPrimary()?.workArea.toRect();
+  } catch (_) {
+    return null;
+  }
+}
+
 Rect? _workAreaOf(Rect window) => workAreaFor(window, [
       for (final d in DisplayManager.instance.getAll())
         (bounds: d.position.toOffset() & d.size.toSize(), work: d.workArea.toRect()),
