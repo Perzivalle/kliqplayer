@@ -10,6 +10,9 @@ class MainFlutterWindow: NSWindow {
     flutterViewController.backgroundColor = .clear
     self.isOpaque = false
     self.backgroundColor = .clear
+    // macOS calcule l'ombre une fois sur les pixels opaques d'une image
+    // ancienne : elle laissait un contour sombre décalé autour de l'iPod.
+    self.hasShadow = false
     self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
 
