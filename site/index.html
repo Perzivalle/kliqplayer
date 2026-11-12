@@ -74,6 +74,11 @@
   }
   .hero h1 { font-size: 72px; font-weight: 300; line-height: 1.02; margin: 0 0 12px; }
   .hero p.lead { font-size: 21px; color: var(--grey); margin: 0 auto 34px; max-width: 40ch; }
+  /* Phones (the page is zoomed out there, see --z): the title a size down, in keeping with the small nanos under it. */
+  @media (max-width: 699px) {
+    .hero h1 { font-size: 50px; margin-bottom: 8px; }
+    .hero p.lead { font-size: 17px; margin-bottom: 26px; }
+  }
   /* Every nano 5th gen side by side, nearly as wide as the window, earbud cables hanging below.
      Laid out in units of a 916 × 326 drawing (nine 116-wide renders, 100 apart) so it all scales together. */
   .lineup-scroll { margin-inline: calc(50% - 50vw / var(--z, 1)); }
