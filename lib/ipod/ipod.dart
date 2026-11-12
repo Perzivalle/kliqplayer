@@ -188,7 +188,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   /// Sous ce débattement, la fenêtre est trop étroite pour qu'on déplace
   /// l'iPod (ou c'est l'appli qui règle la fenêtre autour de lui).
-  bool get _canPlace => _placeReach >= 40 && !_wantOpen && _phase == _Swap.none && ipodLanded.value;
+  bool get _canPlace =>
+      _placeReach >= 40 && !_wantOpen && _phase == _Swap.none && ipodLanded.value && !(ipodFree.value && _dragsInside);
 
   /// Il reste de la place de ce côté (à gauche, on ne va pas plus à gauche).
   bool _canMove(int side) => _canPlace && (_placeTarget + side).abs() <= 1;
@@ -229,6 +230,32 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   /// Tenu à la main, ou emporté par Windows : le décalage ne se résorbe pas.
   bool _backHeld = false;
+
+  // Position libre (Réglages › Position, Windows) : lâché, l'iPod reste où
+  // on l'a posé. Ce décalage par rapport à sa place, gardé d'un lancement à
+  // l'autre.
+  static const _freeKey = 'ipod.freeAt';
+  late Offset _freeAt = () {
+    final xy = (_remember ? Settings.getString(_freeKey) ?? '' : '').split(',').map(double.tryParse).toList();
+    return xy.length == 2 && xy[0] != null && xy[1] != null ? Offset(xy[0]!, xy[1]!) : Offset.zero;
+  }();
+
+  /// Là où le décalage va se poser : en position libre, là où on a lâché
+  /// l'iPod ; tiroir sorti ou échange en cours, il revient à sa place (au
+  /// milieu, là où le tiroir a la place de sortir).
+  Offset get _backRest =>
+      ipodFree.value && _dragsInside && !_wantOpen && _phase == _Swap.none ? _freeAt : Offset.zero;
+
+  void _freeChanged() {
+    if (mounted) setState(_kick);
+  }
+
+  /// [at] ramené là où l'appareil ([dev], à sa place) reste entier dans la
+  /// fenêtre ([w] × [h]).
+  static Offset _keepInside(Offset at, Rect dev, double w, double h) {
+    double fit(double v, double lo, double hi) => lo > hi ? 0 : v.clamp(lo, hi);
+    return Offset(fit(at.dx, 8 - dev.left, w - 8 - dev.right), fit(at.dy, 8 - dev.top, h - 8 - dev.bottom));
+  }
 
   /// Tenu : où doit être son centre (à l'écran), l'écart entre ce centre et
   /// le pointeur, le pointeur (à l'écran), et la zone quittée pour l'occasion.
@@ -396,6 +423,10 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     widget.player.setForcedShuffle(_shuffles(_model));
     if (_win != null) WidgetsBinding.instance.addPostFrameCallback((_) => _takeWindow());
     _takeFullWindow();
+    ipodFree.addListener(_freeChanged);
+    // (En position libre, il arrive tout de suite là où on l'avait laissé.)
+    _backX.value = _backRest.dx;
+    _backY.value = _backRest.dy;
     if (_remember) {
       // Au lancement, la prise vient se brancher, une fois l'iPod arrivé
       // (voir main.dart) ; l'écran s'allume au branchement.
@@ -427,6 +458,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   @override
   void dispose() {
     ipodLanded.removeListener(_landed);
+    ipodFree.removeListener(_freeChanged);
     _liveTimer?.cancel();
     _dragSettle?.cancel();
     _refit?.cancel();
@@ -465,9 +497,10 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     _place.step(_placeTarget.toDouble(), dt);
     if (_place.isSettled) _place.value = _placeTarget.toDouble();
     if (!_backHeld) {
-      for (final back in [_backX, _backY]) {
-        back.step(0, dt);
-        if (back.isSettled) back.value = 0;
+      final rest = _backRest;
+      for (final (back, to) in [(_backX, rest.dx), (_backY, rest.dy)]) {
+        back.step(to, dt);
+        if (back.isSettled) back.value = to;
       }
     }
     for (final (peek, side) in [(_peekL, -1), (_peekR, 1)]) {
@@ -1310,6 +1343,11 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             gap = held - (_origin + dev.center);
           } else if (dropped != null && window != null && (w - window.width).abs() < 2 && (h - window.height).abs() < 2) {
             gap = dropped - (window.topLeft + dev.center);
+            if (ipodFree.value && _dragsInside) {
+              // Position libre : il reste là (ramené dans la fenêtre s'il en dépassait).
+              _freeAt = _keepInside(gap, dev, w, h);
+              if (_remember) Settings.setString(_freeKey, '${_freeAt.dx.round()},${_freeAt.dy.round()}');
+            }
             _backFrom = null;
             _backGiveUp?.cancel();
             _backHeld = false;
@@ -1323,6 +1361,8 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
               ..value = gap.dy
               ..velocity = 0;
           }
+          // (La fenêtre a pu rétrécir depuis : rangée dans une zone, autre écran.)
+          if (held == null) _freeAt = _keepInside(_freeAt, dev, w, h);
           final back = Offset(_backX.value, _backY.value);
           _deviceShown = dev.shift(back);
           // L'appareil, lui, est déjà mis en page à sa nouvelle place.
@@ -1353,7 +1393,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
             h,
             // (Tenu ou en train de revenir : là où on le voit.)
             dev.shift(back),
-            moving: back != Offset.zero || _backHeld,
+            moving: _backHeld || !_backX.isSettled || !_backY.isSettled,
             whole: _wantOpen ||
                 open != 0 ||
                 _dragging ||

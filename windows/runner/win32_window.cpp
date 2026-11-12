@@ -146,6 +146,14 @@ bool Win32Window::Create(const std::wstring& title,
 
   UpdateTheme(window);
 
+  // The app resizes this window itself (a snap zone <-> the whole screen when
+  // the iPod is grabbed or dropped). Windows animates such changes with a
+  // cross-fade of the old and new contents: the iPod showed twice, pale, for
+  // a fifth of a second. No transitions for this window.
+  BOOL no_transitions = TRUE;
+  DwmSetWindowAttribute(window, DWMWA_TRANSITIONS_FORCEDISABLED,
+                        &no_transitions, sizeof(no_transitions));
+
   return OnCreate();
 }
 

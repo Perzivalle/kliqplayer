@@ -345,7 +345,7 @@ void cacheTests() {
     final file = File('${dir.path}/spotify-library.json');
     final fake = _FakeSpotify();
     await SpotifySource(_account(fake), cache: file).load();
-    await pumpEventQueue();
+    await until(file.existsSync); // (elle s'écrit en arrière-plan : sur une machine lente, pas encore là)
 
     // Relancé dans l'heure : celle qu'on a suffit, aucune demande.
     fake.calls.clear();

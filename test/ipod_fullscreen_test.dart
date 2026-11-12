@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/core/player.dart';
 import 'package:lecteur/ipod/classic.dart';
 import 'package:lecteur/ipod/ipod.dart';
+import 'package:lecteur/ipod/nav.dart';
 
 void main() {
   group('découpe de la fenêtre', () {
@@ -124,6 +125,57 @@ void main() {
       expect(midway.center.dx, lessThan(start.center.dx));
       expect(midway.center.dx, greaterThan(home.center.dx));
 
+      await settle(tester);
+      final end = tester.getRect(find.byType(IpodDevice));
+      expect(end.center.dx, closeTo(home.center.dx, 0.5));
+      expect(end.center.dy, closeTo(home.center.dy, 0.5));
+    });
+
+    testWidgets('position libre : lâché, il reste là, entier dans la fenêtre ; position fixe, il revient à sa place', (tester) async {
+      tester.view
+        ..physicalSize = window
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      IpodStage.debugDragInside = true;
+      ipodFree.value = true;
+      addTearDown(() {
+        IpodStage.debugDragInside = false;
+        ipodFree.value = false;
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            type: MaterialType.transparency,
+            child: IpodStage(player: PlayerController.preview(), initial: const ClassicModel()),
+          ),
+        ),
+      );
+      await settle(tester);
+      final home = tester.getRect(find.byType(IpodDevice));
+
+      // (Peu de jeu en hauteur : l'iPod prend presque toute la fenêtre.)
+      final gesture = await tester.startGesture(Offset(home.left + 12, home.center.dy));
+      await gesture.moveBy(const Offset(30, 5));
+      await gesture.moveBy(const Offset(220, 10));
+      await tester.pump();
+      final held = tester.getRect(find.byType(IpodDevice));
+      await gesture.up();
+      await settle(tester);
+      expect(tester.getRect(find.byType(IpodDevice)).center, held.center, reason: 'il reste où on l\'a lâché');
+
+      // Lâché à moitié hors de la fenêtre : ramené en entier dedans.
+      final out = await tester.startGesture(held.center - const Offset(60, 0));
+      await out.moveBy(const Offset(30, 10));
+      await out.moveBy(const Offset(4000, 0));
+      await tester.pump();
+      await out.up();
+      await settle(tester);
+      final kept = tester.getRect(find.byType(IpodDevice));
+      expect(kept.right, lessThanOrEqualTo(window.width));
+      expect(kept.center.dx, greaterThan(held.center.dx));
+
+      // Position fixe : il retourne à sa place.
+      ipodFree.value = false;
       await settle(tester);
       final end = tester.getRect(find.byType(IpodDevice));
       expect(end.center.dx, closeTo(home.center.dx, 0.5));

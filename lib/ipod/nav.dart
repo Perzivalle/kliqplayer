@@ -26,6 +26,10 @@ sealed class IpodPage {
 /// Windows) ; la scène l'applique.
 final windowOnTop = ValueNotifier(Settings.getString('window.top') == 'on');
 
+/// L'iPod reste là où on le lâche à l'écran, au lieu de revenir à sa place
+/// à gauche, au milieu ou à droite (Réglages › Position, sous Windows).
+final ipodFree = ValueNotifier(Settings.getString('window.free') == 'on');
+
 enum MenuPreview { covers, settings, nowPlaying }
 
 /// Mise en page d'un menu : lignes simples ; scindé (le menu d'un côté,
@@ -728,6 +732,16 @@ class IpodNav extends ChangeNotifier {
             action: () {
               windowOnTop.value = !windowOnTop.value;
               Settings.setString('window.top', windowOnTop.value ? 'on' : 'off');
+            },
+          ),
+        // Et le poser où l'on veut, plutôt qu'à l'une de ses trois places.
+        if (Platform.isWindows)
+          MenuEntry(
+            tr('Position'),
+            value: () => ipodFree.value ? tr('Libre') : tr('Fixe'),
+            action: () {
+              ipodFree.value = !ipodFree.value;
+              Settings.setString('window.free', ipodFree.value ? 'on' : 'off');
             },
           ),
         MenuEntry(tr('Langue'), value: () => Lang.current.nativeName, open: _languageMenu),
