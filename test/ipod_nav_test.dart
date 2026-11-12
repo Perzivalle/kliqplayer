@@ -33,6 +33,18 @@ void _open(IpodNav nav, String label) {
 }
 
 void main() {
+  test('une ligne disparaît d\'un menu : la sélection y reste', () {
+    final player = _player()..notice = 'Erreur';
+    final nav = IpodNav(player, look: const ClassicLook());
+    final root = nav.page as MenuPage;
+    nav.scroll(10); // la dernière ligne
+    player.notice = null; // (une commande a réussi : le message s'efface)
+    final count = root.entries.length;
+    expect(root.selected, count - 1);
+    nav.select(); // En lecture, sans erreur
+    expect(nav.page, isA<NowPlayingPage>());
+  });
+
   test('Cover Flow : part de l\'album en cours, la molette fait défiler, bute aux bouts', () {
     final nav = IpodNav(_player(), look: const ClassicLook());
     _open(nav, 'Musique');

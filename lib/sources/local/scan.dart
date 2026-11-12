@@ -28,9 +28,7 @@ Library _scan(String rootPath, String unknownArtist) {
   final root = Directory(rootPath);
   if (!root.existsSync()) return const Library([], []);
 
-  // (Liens suivis : une bibliothèque rangée ailleurs et liée ici compte.)
-  for (final entity in root.listSync(recursive: true)) {
-    if (entity is! File) continue;
+  for (final entity in _files(root, {})) {
     final lower = entity.path.toLowerCase();
     final dot = lower.lastIndexOf('.');
     if (dot < 0) continue;
@@ -73,6 +71,28 @@ Library _scan(String rootPath, String unknownArtist) {
   // Regroupement par album (tag), dans l'ordre « bibliothèque ».
   final (tracks: ordered, :albums) = groupByAlbum(tracks, albumKey: (t) => albumOf[t.id] ?? t.album.toLowerCase());
   return Library(ordered, albums, _readPlaylists(m3u, ordered));
+}
+
+/// Tous les fichiers sous [dir]. Un dossier illisible (droits, accès refusé
+/// par le système) est sauté : listSync(recursive: true) abandonnait tout au
+/// premier, et la bibliothèque restait vide. Liens suivis (une bibliothèque
+/// rangée ailleurs et liée ici compte) ; [seen] : les dossiers déjà lus, pour
+/// ne pas tourner en rond dans un lien qui remonte.
+Iterable<File> _files(Directory dir, Set<String> seen) sync* {
+  final List<FileSystemEntity> entries;
+  try {
+    if (!seen.add(dir.resolveSymbolicLinksSync())) return;
+    entries = dir.listSync();
+  } catch (_) {
+    return;
+  }
+  for (final e in entries) {
+    if (e is File) {
+      yield e;
+    } else if (e is Directory) {
+      yield* _files(e, seen);
+    }
+  }
 }
 
 /// Listes .m3u : une ligne par fichier, chemin absolu ou relatif à la liste.

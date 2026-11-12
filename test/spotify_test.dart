@@ -147,6 +147,12 @@ SpotifyAccount _account(_FakeSpotify fake) =>
     SpotifyAccount(clientId: 'test', client: fake.client)..auth.debugUseTokens(access: 'a', refresh: 'r');
 
 void main() {
+  test('l\'appareil de ce PC est reconnu malgré le nom réseau de macOS', () {
+    expect(SpotifyAccount.sameDevice("Paul's MacBook Pro", 'Pauls-MacBook-Pro.local'), isTrue);
+    expect(SpotifyAccount.sameDevice('DESKTOP-AB12', 'desktop-ab12'), isTrue);
+    expect(SpotifyAccount.sameDevice('iPhone de Paul', 'Pauls-MacBook-Pro.local'), isFalse);
+  });
+
   setUp(() => SpotifyConnectEngine.settle = const Duration(milliseconds: 5));
 
   test('bibliothèque : albums enregistrés et titres likés, rangés par album', () async {

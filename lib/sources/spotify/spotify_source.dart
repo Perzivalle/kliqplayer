@@ -233,9 +233,20 @@ class SpotifyAccount extends RemoteAccount {
   SpotifyDevice? _thisPc(List<SpotifyDevice> list) {
     final name = librespot != null ? Librespot.deviceName : Platform.localHostname;
     for (final d in list) {
-      if (d.name.toLowerCase() == name.toLowerCase()) return d;
+      if (sameDevice(d.name, name)) return d;
     }
     return null;
+  }
+
+  /// [device] (le nom que montre Spotify) est l'ordinateur [host] (son nom
+  /// sur le réseau). Sous macOS ils diffèrent : « Paul's MacBook Pro » et
+  /// « Pauls-MacBook-Pro.local ». On compare lettres et chiffres seulement.
+  // shortcut: un nom accentué (« Zoé ») perd son accent sur le réseau et n'est pas reconnu ; à traiter si le cas se présente.
+  @visibleForTesting
+  static bool sameDevice(String device, String host) {
+    String plain(String s) =>
+        s.toLowerCase().replaceFirst(RegExp(r'\.local$'), '').replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), '');
+    return plain(device) == plain(host);
   }
 
   /// Le lecteur intégré, lancé s'il le faut, une fois apparu parmi les

@@ -82,7 +82,15 @@ class MenuPage extends IpodPage {
   final bool music;
   List<MenuEntry>? _cache;
 
-  List<MenuEntry> get entries => live ? _builder() : (_cache ??= _builder());
+  List<MenuEntry> get entries {
+    if (!live) return _cache ??= _builder();
+    final list = _builder();
+    // Une ligne a disparu (message effacé, compte déconnecté) : la sélection
+    // reste dans le menu.
+    if (selected >= list.length) selected = math.max(0, list.length - 1);
+    if (top > selected) top = selected;
+    return list;
+  }
 
   int selected = 0;
   int top = 0;
