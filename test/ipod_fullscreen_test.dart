@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lecteur/core/player.dart';
 import 'package:lecteur/ipod/classic.dart';
@@ -155,13 +156,22 @@ void main() {
 
       // (Peu de jeu en hauteur : l'iPod prend presque toute la fenêtre.)
       final gesture = await tester.startGesture(Offset(home.left + 12, home.center.dy));
-      await gesture.moveBy(const Offset(30, 5));
-      await gesture.moveBy(const Offset(220, 10));
+      await gesture.moveBy(const Offset(-30, 5));
+      await gesture.moveBy(const Offset(-220, 10));
       await tester.pump();
       final held = tester.getRect(find.byType(IpodDevice));
       await gesture.up();
       await settle(tester);
       expect(tester.getRect(find.byType(IpodDevice)).center, held.center, reason: 'il reste où on l\'a lâché');
+
+      // Tiroir sorti : il ne retourne pas au milieu.
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+      await settle(tester);
+      final open = tester.getRect(find.byType(IpodDevice));
+      expect(open.center.dx, closeTo(held.center.dx, 1), reason: 'la place ne manque pas à droite : il ne bouge pas');
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+      await settle(tester);
+      expect(tester.getRect(find.byType(IpodDevice)).center, held.center, reason: 'tiroir rentré : de retour où on l\'a lâché');
 
       // Lâché à moitié hors de la fenêtre : ramené en entier dedans.
       final out = await tester.startGesture(held.center - const Offset(60, 0));
@@ -173,6 +183,15 @@ void main() {
       final kept = tester.getRect(find.byType(IpodDevice));
       expect(kept.right, lessThanOrEqualTo(window.width));
       expect(kept.center.dx, greaterThan(held.center.dx));
+
+      // Là, contre le bord droit, le tiroir n'a pas la place : l'iPod s'écarte juste assez, puis y retourne.
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+      await settle(tester);
+      final pushed = tester.getRect(find.byType(IpodDevice));
+      expect(pushed.center.dx, lessThan(kept.center.dx));
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+      await settle(tester);
+      expect(tester.getRect(find.byType(IpodDevice)).center.dx, closeTo(kept.center.dx, 1));
 
       // Position fixe : il retourne à sa place.
       ipodFree.value = false;

@@ -36,6 +36,7 @@ class JackPainter extends CustomPainter {
     required this.anchorX,
     required this.sway,
     this.fromBelow = false,
+    this.shiftY = 0,
   });
 
   /// Entrée de la prise sur la tranche de l'appareil, ou null (rien à dessiner).
@@ -55,6 +56,10 @@ class JackPainter extends CustomPainter {
 
   /// Prise sur la tranche du bas : câble qui part vers le bas de la fenêtre.
   final bool fromBelow;
+
+  /// De combien la scène est décalée vers le bas dans la fenêtre (iPod tenu
+  /// ou posé ailleurs qu'à sa place) : le câble va quand même jusqu'au bord.
+  final double shiftY;
 
   // Nickel : un peu plus chaud et plus doux que le chrome.
   static const _nickel = [
@@ -90,7 +95,7 @@ class JackPainter extends CustomPainter {
         ..translate(0, 2 * socket.dy)
         ..scale(1, -1);
     }
-    final exitY = fromBelow ? 2 * socket.dy - (size.height + 40) : -40.0;
+    final exitY = fromBelow ? 2 * socket.dy - (size.height + 40 - shiftY) : -40.0 - shiftY;
     _paintUpward(canvas, size, socket, exitY);
     canvas.restore();
   }

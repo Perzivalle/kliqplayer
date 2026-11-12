@@ -241,10 +241,13 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   }();
 
   /// Là où le décalage va se poser : en position libre, là où on a lâché
-  /// l'iPod ; tiroir sorti ou échange en cours, il revient à sa place (au
-  /// milieu, là où le tiroir a la place de sortir).
-  Offset get _backRest =>
-      ipodFree.value && _dragsInside && !_wantOpen && _phase == _Swap.none ? _freeAt : Offset.zero;
+  /// l'iPod, tiroir sorti ou non.
+  Offset get _backRest => ipodFree.value && _dragsInside ? _freeAt + Offset(_drawerNudge, 0) : Offset.zero;
+
+  /// Position libre, tiroir sorti près d'un bord de l'écran : de combien
+  /// l'iPod s'écarte du bord pour que le tiroir tienne à l'écran (il y
+  /// retourne, tiroir rentré).
+  double _drawerNudge = 0;
 
   void _freeChanged() {
     if (mounted) setState(_kick);
@@ -812,6 +815,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       anchorX: socket.dx - _deviceShift * 0.7,
       sway: _sway.value,
       fromBelow: !_model.jackOnTop,
+      shiftY: _backY.value,
     );
   }
 
@@ -1362,8 +1366,11 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
               ..velocity = 0;
           }
           // (La fenêtre a pu rétrécir depuis : rangée dans une zone, autre écran.)
-          if (held == null) _freeAt = _keepInside(_freeAt, dev, w, h);
-          final back = Offset(_backX.value, _backY.value);
+          // (Tiroir rentré seulement : sorti, l'appareil n'est pas mis en page à sa place.)
+          if (held == null && !_wantOpen && open == 0) _freeAt = _keepInside(_freeAt, dev, w, h);
+          // (Position libre : il ne s'écarte pas non plus pour le tiroir, qui sort d'à côté de lui.)
+          final stay = ipodFree.value && _dragsInside ? Offset(-_deviceShift, 0) : Offset.zero;
+          final back = Offset(_backX.value, _backY.value) + stay;
           _deviceShown = dev.shift(back);
           // L'appareil, lui, est déjà mis en page à sa nouvelle place.
           final devActual = Rect.fromPoints(place(target.device.topLeft), place(target.device.bottomRight));
@@ -1371,13 +1378,26 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
           // Le tiroir sort de derrière l'appareil : son bord extérieur part
           // d'un peu en retrait de son flanc et va jusqu'à [_travel] plus loin.
           final outer = right ? dev.right - _hideBack + open * _travel : dev.left + _hideBack - open * _travel;
-          final drawerRect = Rect.fromLTWH(
+          final drawerAt = Rect.fromLTWH(
             right ? outer - drawerW : outer,
             // Centré sur l'appareil, sans sortir de la fenêtre.
             (dev.center.dy - g.drawerHeight / 2).clamp(14.0, math.max(14.0, h - 14 - g.drawerHeight)) + _lift.value,
             drawerW,
             g.drawerHeight,
-          ).shift(
+          );
+          if (!_wantOpen) {
+            _drawerNudge = 0;
+          } else if (open > 0) {
+            // (Mesuré là où l'iPod va se poser, pas là où il est en chemin : sinon on corrigerait deux fois.)
+            final rest = _backRest.dx + stay.dx;
+            final over = drawerAt.right + rest - (w - 8), under = 8 - (drawerAt.left + rest);
+            if (over > 0) {
+              _drawerNudge -= over;
+            } else if (under > 0) {
+              _drawerNudge += under;
+            }
+          }
+          final drawerRect = drawerAt.shift(
             // Rangé, il attend hors de la fenêtre, sa photo prête : rien de
             // lui (pas même son ombre) ne dépasse de derrière l'iPod.
             open == 0 ? Offset(right ? w + 2 * _shadowPad - (outer - drawerW) : -(outer + 2 * _shadowPad + drawerW), 0) : Offset.zero,
