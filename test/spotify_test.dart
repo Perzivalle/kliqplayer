@@ -165,17 +165,18 @@ void main() {
     ]);
     expect(lib.tracks.first.artworkUrl, 'https://i/300', reason: 'l\'image la plus proche de 300 px');
     expect(lib.tracks.first.added, DateTime.utc(2026, 3, 2), reason: 'la date la plus récente');
-    expect(lib.playlists.map((l) => l.name), ['Ma liste', 'Suivie']);
-    expect(lib.playlists.first.tracks, isNull, reason: 'chargée à l\'ouverture');
+    expect(lib.playlists.map((l) => l.name), ['Titres likés', 'Ma liste', 'Suivie']);
+    expect(lib.playlists[0].tracks?.map((t) => t.title), ['Liké', 'Un'], reason: 'dans l\'ordre de Spotify');
+    expect(lib.playlists[1].tracks, isNull, reason: 'chargée à l\'ouverture');
   });
 
   test('listes : les siennes se parcourent, les autres se jouent entières', () async {
     final fake = _FakeSpotify();
     final lib = await SpotifySource(_account(fake)).load();
-    final mine = await lib.playlists[0].load();
+    final mine = await lib.playlists[1].load();
     expect(mine.map((t) => t.title), ['Liké'], reason: 'sans les fichiers locaux');
-    await expectLater(lib.playlists[1].load(), throwsA(isA<Object>()));
-    expect(lib.playlists[1].error, isNotNull);
+    await expectLater(lib.playlists[2].load(), throwsA(isA<Object>()));
+    expect(lib.playlists[2].error, isNotNull);
   });
 
   test('lancer un album : son contexte, depuis le morceau choisi, sur ce PC', () async {
@@ -292,7 +293,7 @@ void cacheTests() {
     expect(fake.calls.where((c) => c.startsWith('GET /me/albums')), isEmpty, reason: 'servie avant toute réponse de Spotify');
     expect(kept.tracks.map((t) => t.id), first.tracks.map((t) => t.id));
     expect(kept.albums.map((a) => a.uri), first.albums.map((a) => a.uri));
-    expect(kept.playlists.map((l) => l.name), ['Ma liste', 'Suivie']);
+    expect(kept.playlists.map((l) => l.name), ['Titres likés', 'Ma liste', 'Suivie']);
     // (Le temps que la vraie soit arrivée et comparée.)
     await until(() => fake.calls.any((c) => c.startsWith('GET /me/playlists')));
     await Future<void>.delayed(const Duration(milliseconds: 200));

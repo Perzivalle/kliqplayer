@@ -58,6 +58,36 @@ void main() {
     expect(nav.scroll(1), isFalse);
   });
 
+  test('Listes de lecture en Cover Flow : la liste se charge en se retournant, son morceau se joue', () async {
+    final tracks = [const Track(id: '/x/a.flac', title: 'A', artist: 'Artiste', album: 'Album')];
+    final player = PlayerController.preview(playlists: [
+      SongList('Prête', tracks),
+      SongList.lazy('À charger', () async => tracks, uri: 'spotify:playlist:x'),
+    ]);
+    final nav = IpodNav(player, look: const ClassicLook());
+    _open(nav, 'Musique');
+    _open(nav, 'Listes de lecture');
+    final cf = nav.page as CoverFlowPage;
+    expect(cf.count(player), 4, reason: 'Ajouts récents, Les plus écoutés et les deux listes');
+    nav.scroll(10);
+    expect(cf.label(player, cf.selected), ('À charger', ''));
+    nav.select(); // se retourne et charge
+    expect(cf.flipped, isTrue);
+    expect(nav.scroll(1), isFalse, reason: 'pas encore de morceaux');
+    await Future<void>.delayed(Duration.zero);
+    expect(cf.label(player, cf.selected), ('À charger', '1 morceau'));
+    nav.select();
+    expect(player.current?.id, '/x/a.flac');
+    nav.menu();
+    expect(cf.flipped, isFalse);
+
+    // Sans Cover Flow (écran monochrome) : le menu d'avant.
+    final mini = IpodNav(player, look: const MiniLook());
+    _open(mini, 'Musique');
+    _open(mini, 'Listes de lecture');
+    expect(mini.page, isA<MenuPage>());
+  });
+
   test('Cover Flow : valider retourne la pochette, la molette parcourt ses morceaux, MENU la remet', () async {
     final player = _player();
     final nav = IpodNav(player, look: const ClassicLook());

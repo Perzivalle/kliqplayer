@@ -101,14 +101,41 @@ class MenuPage extends IpodPage {
 }
 
 /// Les pochettes des albums en enfilade : celle du milieu de face, les
-/// autres de biais de chaque côté (Classic, nano 3G et 4G).
+/// autres de biais de chaque côté (Classic, nano 3G et 4G). Ou, avec
+/// [lists], celles des listes de lecture (Musique › Listes de lecture).
 class CoverFlowPage extends IpodPage {
-  CoverFlowPage(this.selected) : pos = Spring(selected.toDouble(), stiffness: 210, damping: 0.92);
+  CoverFlowPage(this.selected, {this.lists}) : pos = Spring(selected.toDouble(), stiffness: 210, damping: 0.92);
+
+  /// Les listes de lecture montrées à la place des albums.
+  final List<SongList>? lists;
 
   @override
-  String get title => 'Cover Flow';
+  String get title => lists == null ? 'Cover Flow' : tr('Listes de lecture');
 
-  /// Album au centre (index dans la liste des albums).
+  int count(PlayerController player) => lists?.length ?? player.albums.length;
+
+  /// Les deux lignes sous la pochette [i] : album et artiste, ou liste et
+  /// nombre de morceaux (une fois chargée).
+  (String, String) label(PlayerController player, int i) {
+    if (lists case final lists?) {
+      final n = lists[i].tracks?.length;
+      return (lists[i].name, n == null ? '' : '$n ${tr(n == 1 ? 'morceau' : 'morceaux')}');
+    }
+    return (player.albums[i].title, player.albums[i].artist);
+  }
+
+  /// Les morceaux au dos de la pochette [i] ; null tant qu'une liste n'est
+  /// pas chargée (ou ne peut pas l'être).
+  List<Track>? tracks(PlayerController player, int i) {
+    if (lists case final lists?) return lists[i].tracks;
+    final a = player.albums[i];
+    return player.tracks.sublist(a.firstIndex, a.firstIndex + a.trackCount);
+  }
+
+  List<Uint8List> covers(PlayerController player, int i) =>
+      lists == null ? [?player.albumCover(i)] : player.listCovers(lists![i]);
+
+  /// Album (ou liste) au centre.
   int selected;
 
   /// Position animée, en albums.
@@ -343,14 +370,15 @@ class IpodNav extends ChangeNotifier {
   bool scroll(int delta) {
     switch (page) {
       case final CoverFlowPage p when p.flipped:
-        final count = player.albums[p.selected].trackCount;
+        final count = p.tracks(player, p.selected)?.length ?? 0;
+        if (count == 0) return false;
         final t = (p.track + delta).clamp(0, count - 1);
         if (t == p.track) return false;
         p.track = t;
         if (t < p.trackTop) p.trackTop = t;
         if (t >= p.trackTop + CoverFlowPage.backRows) p.trackTop = t - CoverFlowPage.backRows + 1;
       case final CoverFlowPage p:
-        final sel = (p.selected + delta).clamp(0, math.max(0, player.albums.length - 1)).toInt();
+        final sel = (p.selected + delta).clamp(0, math.max(0, p.count(player) - 1)).toInt();
         if (sel == p.selected) return false;
         p.selected = sel;
       case final MenuPage p:
@@ -408,17 +436,25 @@ class IpodNav extends ChangeNotifier {
         }
       case final CoverFlowPage p when p.flipped:
         // On joue le morceau sans quitter le dos de la pochette.
-        player.playAlbum(p.selected, p.track);
+        final list = p.lists?[p.selected];
+        if (list == null) {
+          player.playAlbum(p.selected, p.track);
+        } else if (list.tracks case final tracks?) {
+          player.playTracks(tracks, p.track, uri: list.uri);
+        } else if (list.uri case final uri? when list.error != null) {
+          player.playUri(uri); // pas parcourable (liste suivie) : on la joue entière
+        }
         notifyListeners();
       case final CoverFlowPage p:
-        if (player.albums.isEmpty) return;
-        // La pochette se retourne, sur le morceau en cours s'il est de cet
-        // album.
-        final album = player.albums[p.selected];
-        final playing = player.currentIndex - album.firstIndex;
+        if (p.count(player) == 0) return;
+        // Une liste charge ses morceaux à la première ouverture (Spotify).
+        final list = p.lists?[p.selected];
+        if (list != null && list.tracks == null && list.error == null) list.load(onDone: notifyListeners).ignore();
+        // La pochette se retourne, sur le morceau en cours s'il en est.
+        final playing = p.tracks(player, p.selected)?.indexWhere((t) => t.id == player.current?.id) ?? -1;
         p
           ..flipped = true
-          ..track = playing >= 0 && playing < album.trackCount ? playing : 0
+          ..track = math.max(0, playing)
           ..trackTop = math.max(0, p.track - CoverFlowPage.backRows + 1);
         p.trackSpring
           ..value = p.track.toDouble()
@@ -520,7 +556,8 @@ class IpodNav extends ChangeNotifier {
   MenuPage _music() => MenuPage(tr('Musique'), live: true, kind: MenuKind.split, () => [
         if (coverFlow && player.albums.isNotEmpty)
           MenuEntry('Cover Flow', open: () => CoverFlowPage(math.max(0, player.currentAlbum))),
-        MenuEntry(tr('Listes de lecture'), open: _playlists),
+        // En pochettes sur les écrans qui ont Cover Flow.
+        MenuEntry(tr('Listes de lecture'), open: coverFlow ? _playlistFlow : _playlists),
         MenuEntry(tr('Artistes'), open: _artists),
         MenuEntry(tr('Albums'), open: () => _albumList(tr('Albums'), _sortedAlbums(null))),
         MenuEntry(tr('Morceaux'), open: _songs),
@@ -545,6 +582,13 @@ class IpodNav extends ChangeNotifier {
         MenuEntry(tr('Ajouts récents'), open: () => _tracks(tr('Ajouts récents'), player.recentlyAdded(25))),
         MenuEntry(tr('Les plus écoutés'), open: () => _tracks(tr('Les plus écoutés'), player.mostPlayed(25))),
         for (final l in player.playlists) MenuEntry(l.name, open: () => _songList(l)),
+      ]);
+
+  /// Les mêmes listes, en Cover Flow.
+  CoverFlowPage _playlistFlow() => CoverFlowPage(0, lists: [
+        SongList(tr('Ajouts récents'), player.recentlyAdded(25)),
+        SongList(tr('Les plus écoutés'), player.mostPlayed(25)),
+        ...player.playlists,
       ]);
 
   /// Une liste de lecture : ses morceaux, chargés à la première ouverture

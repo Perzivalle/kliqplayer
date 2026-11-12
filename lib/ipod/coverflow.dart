@@ -25,12 +25,12 @@ class CoverFlowView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final albums = player.albums;
+    final count = page.count(player);
     return ColoredBox(
       color: Colors.black,
       child: LayoutBuilder(builder: (context, box) {
         final w = box.maxWidth, h = box.maxHeight;
-        if (albums.isEmpty) {
+        if (count == 0) {
           return Center(child: Text(tr('Aucun album'), style: TextStyle(color: Colors.white70)));
         }
         // Pochette du milieu : la plus grande qui laisse la place au reflet
@@ -45,12 +45,12 @@ class CoverFlowView extends StatelessWidget {
         // du milieu, les suivantes tous les 0,3 s.
         final reach = (1 + (w / 2 + s / 2 - 0.95 * s) / (0.3 * s)).ceil().clamp(1, 9) + 1;
         final first = math.max(0, (pos - reach).floor());
-        final last = math.min(albums.length - 1, (pos + reach).ceil());
+        final last = math.min(count - 1, (pos + reach).ceil());
         final order = [for (var i = first; i <= last; i++) i]
           ..sort((a, b) => (b - pos).abs().compareTo((a - pos).abs()));
 
-        final selected = page.selected.clamp(0, albums.length - 1);
-        final album = albums[selected];
+        final selected = page.selected.clamp(0, count - 1);
+        final (title, subtitle) = page.label(player, selected);
         // Retournement de l'album du milieu (0 de face, 1 de dos).
         final f = page.flip.value.clamp(0.0, 1.0);
         final flipping = f > 0.001;
@@ -74,14 +74,14 @@ class CoverFlowView extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      album.title,
+                      title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      album.artist,
+                      subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: Color(0xFFA9AEB4), fontSize: 12, fontWeight: FontWeight.w500),
@@ -114,8 +114,7 @@ class CoverFlowView extends StatelessWidget {
       ..translateByDouble(0, 0, depth, 1)
       ..rotateY(angle);
 
-    final bytes = player.albumCover(i);
-    final face = _Face(bytes: bytes, size: s);
+    final face = _Face(covers: page.covers(player, i), size: s);
     return Positioned(
       left: x - s / 2,
       top: cy - s / 2,
@@ -196,7 +195,7 @@ class CoverFlowView extends StatelessWidget {
       ..scaleByDouble(k, k, 1, 1);
 
     final back = f > 0.5;
-    final face = _Face(bytes: player.albumCover(i), size: big);
+    final face = _Face(covers: page.covers(player, i), size: big);
     // Pendant qu'elle tourne, la pochette (et surtout son dos, plein de
     // texte) n'est qu'une photo qu'on fait pivoter : redessiner le texte en
     // perspective à chaque image coûte trop cher. Posée, elle redevient
@@ -233,8 +232,9 @@ class CoverFlowView extends StatelessWidget {
   }
 }
 
-/// Le dos d'une pochette : titre et artiste, puis les morceaux de l'album,
-/// celui sélectionné surligné, celui en cours marqué d'un haut-parleur.
+/// Le dos d'une pochette : titre et artiste, puis les morceaux de l'album
+/// (ou de la liste), celui sélectionné surligné, celui en cours marqué
+/// d'un haut-parleur.
 class _Back extends StatelessWidget {
   const _Back({required this.album, required this.page, required this.player, required this.size});
 
@@ -250,14 +250,17 @@ class _Back extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final a = player.albums[album];
+    final (title, subtitle) = page.label(player, album);
+    final list = page.lists?[album];
+    final tracks = page.tracks(player, album);
+    final count = tracks?.length ?? 0;
     final header = size * 0.2;
     final rowH = (size - header) / CoverFlowPage.backRows;
     final fs = rowH * 0.42;
     final top = page.trackTopSpring.value;
-    final first = top.floor().clamp(0, a.trackCount);
-    final last = (first + CoverFlowPage.backRows + 1).clamp(0, a.trackCount);
-    final current = player.currentIndex - a.firstIndex;
+    final first = top.floor().clamp(0, count);
+    final last = (first + CoverFlowPage.backRows + 1).clamp(0, count);
+    final current = tracks?.indexWhere((t) => t.id == player.current?.id) ?? -1;
 
     return Container(
       width: size,
@@ -289,13 +292,13 @@ class _Back extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  a.title,
+                  title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: Colors.black, fontSize: fs * 1.05, fontWeight: FontWeight.w700, height: 1.2),
                 ),
                 Text(
-                  a.artist,
+                  subtitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: const Color(0xFF555B62), fontSize: fs * 0.9, height: 1.2),
@@ -329,7 +332,18 @@ class _Back extends StatelessWidget {
                       left: 0,
                       right: 0,
                       height: rowH,
-                      child: _row(t, a, rowH, fs, selected: t == page.track, playing: t == current),
+                      child: _row(t, tracks![t], rowH, fs, selected: t == page.track, playing: t == current),
+                    ),
+                  // Liste pas (encore) chargée : une seule ligne, ce que fera le bouton central.
+                  if (tracks == null)
+                    Container(
+                      height: rowH,
+                      alignment: Alignment.centerLeft,
+                      padding: EdgeInsets.symmetric(horizontal: size * 0.04),
+                      child: Text(
+                        tr(list?.error == null ? 'Chargement…' : list?.uri == null ? 'Aucun élément' : 'Lire la liste'),
+                        style: TextStyle(color: Colors.white, fontSize: fs, fontWeight: FontWeight.w600),
+                      ),
                     ),
                 ],
               ),
@@ -340,8 +354,7 @@ class _Back extends StatelessWidget {
     );
   }
 
-  Widget _row(int t, Album a, double rowH, double fs, {required bool selected, required bool playing}) {
-    final track = player.tracks[a.firstIndex + t];
+  Widget _row(int t, Track track, double rowH, double fs, {required bool selected, required bool playing}) {
     final ink = selected ? Colors.white : Colors.black;
     final dim = selected ? Colors.white : const Color(0xFF6B7178);
     final d = track.duration;
@@ -376,16 +389,24 @@ class _Back extends StatelessWidget {
   }
 }
 
-/// Une pochette carrée ; sans image, un carré gris avec une note.
+/// Une pochette carrée ; sans image, un carré gris avec une note ; avec
+/// quatre (liste de lecture), une mosaïque.
 class _Face extends StatelessWidget {
-  const _Face({required this.bytes, required this.size});
+  const _Face({required this.covers, required this.size});
 
-  final Uint8List? bytes;
+  final List<Uint8List> covers;
   final double size;
 
   @override
   Widget build(BuildContext context) {
-    final b = bytes;
+    if (covers.length == 4) {
+      return SizedBox(
+        width: size,
+        height: size,
+        child: Wrap(children: [for (final c in covers) _Face(covers: [c], size: size / 2)]),
+      );
+    }
+    final b = covers.firstOrNull;
     return SizedBox(
       width: size,
       height: size,

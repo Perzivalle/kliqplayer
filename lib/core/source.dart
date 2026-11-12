@@ -17,6 +17,9 @@ abstract class MusicSource {
   /// Pochette du morceau (son album), ou null.
   Future<Uint8List?> artwork(Track track);
 
+  /// Image propre à la liste de lecture, si la source en a une (Spotify).
+  Future<Uint8List?> listArtwork(SongList list) async => null;
+
   PlaybackEngine createEngine();
 
   /// Appelé par la source quand sa bibliothèque a changé sans qu'on le lui

@@ -346,13 +346,16 @@ class SpotifyAccount extends RemoteAccount {
 
 /// La bibliothèque telle qu'on la garde d'un lancement à l'autre.
 class _Snapshot {
-  _Snapshot(this.tracks, this.albums, this.lists);
+  _Snapshot(this.tracks, this.albums, this.lists, this.liked);
 
   final List<Track> tracks;
   final List<Album> albums;
 
   /// Les listes de lecture (leurs morceaux sont chargés à l'ouverture).
-  final List<({String id, String name, String? uri})> lists;
+  final List<({String id, String name, String? uri, String? art})> lists;
+
+  /// Les titres likés (leurs identifiants), le dernier liké en premier.
+  final List<String> liked;
 
   Map<String, Object?> toJson(String? user) => {
         'user': user,
@@ -375,8 +378,9 @@ class _Snapshot {
             {'title': a.title, 'artist': a.artist, 'first': a.firstIndex, 'count': a.trackCount, 'uri': a.uri},
         ],
         'lists': [
-          for (final l in lists) {'id': l.id, 'name': l.name, 'uri': l.uri},
+          for (final l in lists) {'id': l.id, 'name': l.name, 'uri': l.uri, 'art': l.art},
         ],
+        'liked': liked,
       };
 
   /// Null si [json] n'est pas la bibliothèque de [user] (autre compte,
@@ -413,9 +417,10 @@ class _Snapshot {
       if (albums.any((a) => a.firstIndex < 0 || a.firstIndex + a.trackCount > tracks.length)) return null;
       final lists = [
         for (final l in (map['lists'] as List).cast<Map<String, Object?>>())
-          (id: l['id'] as String, name: l['name'] as String, uri: l['uri'] as String?),
+          (id: l['id'] as String, name: l['name'] as String, uri: l['uri'] as String?, art: l['art'] as String?),
       ];
-      return _Snapshot(tracks, albums, lists);
+      // (Absents d'une bibliothèque gardée par une version d'avant.)
+      return _Snapshot(tracks, albums, lists, [...?(map['liked'] as List?)?.cast<String>()]);
     } catch (_) {
       return null;
     }
@@ -540,9 +545,14 @@ class SpotifySource extends MusicSource {
     }
   }
 
-  Library _library(_Snapshot s) => Library(s.tracks, s.albums, [
-        for (final l in s.lists) SongList.lazy(l.name, () => _playlistTracks(l.id), uri: l.uri),
+  Library _library(_Snapshot s) {
+    final byId = {for (final t in s.tracks) t.id: t};
+    final liked = [for (final id in s.liked) ?byId[id]];
+    return Library(s.tracks, s.albums, [
+        if (liked.isNotEmpty) SongList(tr('Titres likés'), liked),
+        for (final l in s.lists) SongList.lazy(l.name, () => _playlistTracks(l.id), uri: l.uri, artworkUrl: l.art),
       ]);
+  }
 
   @override
   void dispose() {
@@ -586,9 +596,11 @@ class SpotifySource extends MusicSource {
         add(spotifyTrack(t, album: album, added: added), id);
       }
     }
+    final likedIds = <String>[];
     for (final item in liked) {
       final t = item['track'] as Map<String, Object?>?;
       if (t == null) continue;
+      if (t['uri'] case final String uri) likedIds.add(uri); // l'identifiant de nos morceaux
       add(spotifyTrack(t, added: DateTime.tryParse(item['added_at'] as String? ?? '')), _albumId(t, null));
     }
 
@@ -602,8 +614,9 @@ class SpotifySource extends MusicSource {
 
     return _Snapshot(tracks, grouped, [
       for (final p in lists)
-        if (p['id'] case final String id) (id: id, name: p['name'] as String? ?? '', uri: p['uri'] as String?),
-    ]);
+        if (p['id'] case final String id)
+          (id: id, name: p['name'] as String? ?? '', uri: p['uri'] as String?, art: _image(p['images'])),
+    ], likedIds);
   }
 
   /// Les morceaux d'une liste (seulement les siennes ou celles où l'on
@@ -624,6 +637,13 @@ class SpotifySource extends MusicSource {
   @override
   Future<Uint8List?> artwork(Track track) {
     final url = track.artworkUrl;
+    if (url == null) return Future.value();
+    return _covers[url] ??= _download(url);
+  }
+
+  @override
+  Future<Uint8List?> listArtwork(SongList list) {
+    final url = list.artworkUrl;
     if (url == null) return Future.value();
     return _covers[url] ??= _download(url);
   }

@@ -126,7 +126,17 @@ Future<PlayerController> _coverPlayer(WidgetTester tester) async {
       return data!.buffer.asUint8List();
     });
   }
-  return PlayerController.preview(tracks: tracks, albums: albums, index: 4, albumCovers: covers);
+  // Deux listes de lecture : une mosaïque (quatre albums), une seule pochette.
+  final mix = SongList('Mélange', [for (final i in [0, 2, 4, 6]) tracks[albums[i].firstIndex]]);
+  final one = SongList('Un seul album', tracks.sublist(albums[4].firstIndex, albums[4].firstIndex + 8));
+  return PlayerController.preview(
+    tracks: tracks,
+    albums: albums,
+    index: 4,
+    albumCovers: covers,
+    playlists: [mix, one],
+    listCovers: {mix: [for (final i in [0, 2, 4, 6]) covers[i]!], one: [covers[4]!]},
+  );
 }
 
 /// Laisse les images se décoder (en vrai temps), puis les affiche.
@@ -322,6 +332,20 @@ void main() {
       await _key(tester, LogicalKeyboardKey.arrowDown, 2);
       await _frames(tester, 3); // en plein glissement
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_coverflow_moving.png'));
+    });
+
+    testWidgets('Listes de lecture en Cover Flow (Classic)', (tester) async {
+      final player = await _coverPlayer(tester);
+      await _show(tester, IpodStage(player: player, initial: const ClassicModel()));
+      await _key(tester, LogicalKeyboardKey.enter); // Musique
+      await _key(tester, LogicalKeyboardKey.arrowDown);
+      await _key(tester, LogicalKeyboardKey.enter); // Listes de lecture
+      await _key(tester, LogicalKeyboardKey.arrowDown, 2); // la mosaïque au milieu
+      await _decode(tester);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_playlist_flow.png'));
+      await _key(tester, LogicalKeyboardKey.enter); // retourne
+      await _frames(tester);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_playlist_flow_flipped.png'));
     });
 
     testWidgets('Cover Flow retourné (Classic)', (tester) async {

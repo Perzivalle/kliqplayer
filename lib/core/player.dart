@@ -39,6 +39,7 @@ class PlayerController extends ChangeNotifier {
     this.playlists = const [],
     Duration position = Duration.zero,
     Map<int, Uint8List?> albumCovers = const {},
+    Map<SongList, List<Uint8List>> listCovers = const {},
     this.accounts = const [],
   }) : _preview = true,
        sourceFor = null {
@@ -61,6 +62,7 @@ class PlayerController extends ChangeNotifier {
     }
     _anchor = position;
     _albumCovers.addAll(albumCovers);
+    _listCovers.addAll(listCovers);
   }
 
   bool _preview = false;
@@ -196,6 +198,7 @@ class PlayerController extends ChangeNotifier {
     _indexTracks();
     // Les pochettes d'avant ne correspondent plus aux albums.
     _albumCovers.clear();
+    _listCovers.clear();
     _coverLoads.clear();
     _coverGeneration++;
     loading = false;
@@ -413,6 +416,41 @@ class PlayerController extends ChangeNotifier {
       });
     }
     return null;
+  }
+
+  final Map<SongList, List<Uint8List>> _listCovers = {};
+
+  /// Pochettes de la liste [l] (Cover Flow des listes) : son image chez la
+  /// source ; sinon celles de ses quatre premiers albums, en mosaïque (une
+  /// seule s'il y en a moins). Vide tant qu'elles ne sont pas lues, ou
+  /// quand il n'y en a pas.
+  List<Uint8List> listCovers(SongList l) {
+    if (_listCovers[l] case final covers?) return covers;
+    _listCovers[l] = const [];
+    if (_preview) return const [];
+    final generation = _coverGeneration;
+    () async {
+      var covers = [?await _source.listArtwork(l)];
+      if (covers.isEmpty) {
+        // shortcut: une liste Spotify sans image, pas encore chargée, reste sans pochette ; à relire après son chargement si ça se voit.
+        final firsts = <String, Track>{};
+        for (final t in l.tracks ?? const <Track>[]) {
+          firsts.putIfAbsent(t.album, () => t);
+        }
+        for (final t in firsts.values.take(4)) {
+          if (await _source.artwork(t) case final bytes?) covers.add(bytes);
+        }
+        if (covers.length < 4) covers = covers.take(1).toList();
+      }
+      if (generation != _coverGeneration || covers.isEmpty) return;
+      _listCovers[l] = covers;
+      // (Les listes « Ajouts récents »… sont refaites à chaque ouverture : on ne garde pas les anciennes.)
+      while (_listCovers.length > _coversKept) {
+        _listCovers.remove(_listCovers.keys.first);
+      }
+      notifyListeners();
+    }().catchError((_) {});
+    return const [];
   }
 
   // --- Nombre d'écoutes (liste « Les plus écoutés ») -------------------------

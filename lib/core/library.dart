@@ -66,16 +66,19 @@ class Album {
 /// Liste de lecture. Ses morceaux sont là tout de suite (fichier .m3u), ou
 /// chargés à la première ouverture (Spotify).
 class SongList {
-  SongList(this.name, List<Track> tracks, {this.uri})
+  SongList(this.name, List<Track> tracks, {this.uri, this.artworkUrl})
       : _tracks = tracks,
         _loader = null;
 
-  SongList.lazy(this.name, Future<List<Track>> Function() loader, {this.uri}) : _loader = loader;
+  SongList.lazy(this.name, Future<List<Track>> Function() loader, {this.uri, this.artworkUrl}) : _loader = loader;
 
   final String name;
 
   /// La liste entière pour la source (« spotify:playlist:… »).
   final String? uri;
+
+  /// Son image chez la source (Spotify), pour Cover Flow.
+  final String? artworkUrl;
 
   final Future<List<Track>> Function()? _loader;
   List<Track>? _tracks;
