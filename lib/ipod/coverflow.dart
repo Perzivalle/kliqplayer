@@ -59,6 +59,53 @@ class CoverFlowView extends StatelessWidget {
           children: [
             for (final i in order)
               if (!flipping || i != selected) _cover(i, i - pos, s, w / 2, cy),
+            // Défilement rapide : l'initiale de l'artiste en grand, sur les pochettes.
+            if (page.lists == null && page.letterSpring.value > 0.01)
+              // (Comme sur l'iPod : un carré noir translucide aux coins ronds, un
+              // reflet de verre sur sa moitié haute, la lettre blanche en gras.)
+              Positioned(
+                left: w / 2 - s * 0.34,
+                top: cy - s * 0.34,
+                width: s * 0.68,
+                height: s * 0.68,
+                child: Opacity(
+                  opacity: page.letterSpring.value.clamp(0.0, 1.0),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(s * 0.13),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        const ColoredBox(color: Color(0x99000000)),
+                        const FractionallySizedBox(
+                          alignment: Alignment.topCenter,
+                          heightFactor: 0.5,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [Color(0x3DFFFFFF), Color(0x0FFFFFFF)],
+                              ),
+                            ),
+                          ),
+                        ),
+                        Center(
+                          child: Text(
+                            page.letter(player, selected),
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: s * 0.5,
+                              fontWeight: FontWeight.w700,
+                              height: 1,
+                              shadows: const [Shadow(color: Color(0x99000000), offset: Offset(0, 1), blurRadius: 2)],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             if (flipping) ...[
               // Les autres s'assombrissent derrière la pochette retournée.
               Positioned.fill(child: ColoredBox(color: Colors.black.withValues(alpha: 0.6 * f))),

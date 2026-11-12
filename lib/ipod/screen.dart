@@ -133,6 +133,9 @@ class _IpodScreenState extends State<IpodScreen> with SingleTickerProviderStateM
         p.flip.step(p.flipped ? 1 : 0, dt);
         p.trackSpring.step(p.track.toDouble(), dt);
         p.trackTopSpring.step(p.trackTop.toDouble(), dt);
+        p.letterSpring.step(p.letters ? 1 : 0, dt);
+        // (Tant que la lettre est affichée, on guette le moment de l'effacer.)
+        busy |= p.letters || !p.letterSpring.isSettled;
         busy |= !p.pos.isSettled || !p.flip.isSettled || !p.trackSpring.isSettled || !p.trackTopSpring.isSettled;
       }
     }

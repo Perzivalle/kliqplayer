@@ -138,6 +138,65 @@ class CoverFlowPage extends IpodPage {
   /// Album (ou liste) au centre.
   int selected;
 
+  // --- Défilement rapide : par lettre -----------------------------------------
+  // À force de tourner la molette sans s'arrêter dans les albums (rangés
+  // par artiste), chaque cran saute à la lettre suivante, affichée en
+  // grand ; un instant sans tourner et on revient au défilement normal.
+
+  /// Crans d'affilée (même sens, sans pause) avant de passer aux lettres.
+  static const lettersAfter = 30;
+  static const _pause = Duration(milliseconds: 350);
+  static const _lettersHold = Duration(milliseconds: 1200);
+
+  int _run = 0, _runSign = 0;
+  DateTime _lastScroll = DateTime(0), _lettersUntil = DateTime(0);
+
+  /// La molette saute de lettre en lettre.
+  bool get letters => clock.now().isBefore(_lettersUntil);
+
+  /// Apparition de la lettre : 0 cachée, 1 affichée.
+  final letterSpring = Spring(0, stiffness: 600, damping: 1);
+
+  /// Initiale de l'artiste de l'album [i] ; « # » pour un chiffre ou un signe.
+  String letter(PlayerController player, int i) {
+    final name = player.albums[i].artist.trim();
+    final c = name.isEmpty ? '#' : name[0].toUpperCase();
+    return c == c.toLowerCase() ? '#' : c;
+  }
+
+  /// Un cran de molette de plus dans le sens [sign] : dit s'il se compte en
+  /// lettres. (Pas pour les listes de lecture : elles ne sont pas rangées.)
+  bool _byLetter(int sign) {
+    final now = clock.now();
+    _run = sign == _runSign && now.difference(_lastScroll) < _pause ? _run + 1 : 1;
+    _runSign = sign;
+    _lastScroll = now;
+    if (lists != null || !(letters || _run > lettersAfter)) return false;
+    _lettersUntil = now.add(_lettersHold);
+    return true;
+  }
+
+  /// L'album où mène un saut de lettre depuis [selected] : le premier de la
+  /// lettre suivante, ou (en arrière) le premier de la lettre d'avant, ou de
+  /// la sienne si on était au milieu.
+  int _letterJump(PlayerController player, int sign) {
+    final count = player.albums.length;
+    var i = selected;
+    if (sign > 0) {
+      final from = letter(player, i);
+      while (i < count - 1 && letter(player, i) == from) {
+        i++;
+      }
+      return letter(player, i) == from ? selected : i; // (dernière lettre : on ne bouge pas)
+    }
+    if (i == 0) return 0;
+    final to = letter(player, i - 1);
+    while (i > 0 && letter(player, i - 1) == to) {
+      i--;
+    }
+    return i;
+  }
+
   /// Position animée, en albums.
   final Spring pos;
 
@@ -378,7 +437,9 @@ class IpodNav extends ChangeNotifier {
         if (t < p.trackTop) p.trackTop = t;
         if (t >= p.trackTop + CoverFlowPage.backRows) p.trackTop = t - CoverFlowPage.backRows + 1;
       case final CoverFlowPage p:
-        final sel = (p.selected + delta).clamp(0, math.max(0, p.count(player) - 1)).toInt();
+        final sel = p.count(player) > 0 && p._byLetter(delta.sign)
+            ? p._letterJump(player, delta.sign)
+            : (p.selected + delta).clamp(0, math.max(0, p.count(player) - 1)).toInt();
         if (sel == p.selected) return false;
         p.selected = sel;
       case final MenuPage p:

@@ -419,8 +419,8 @@ class _Snapshot {
         for (final l in (map['lists'] as List).cast<Map<String, Object?>>())
           (id: l['id'] as String, name: l['name'] as String, uri: l['uri'] as String?, art: l['art'] as String?),
       ];
-      // (Absents d'une bibliothèque gardée par une version d'avant.)
-      return _Snapshot(tracks, albums, lists, [...?(map['liked'] as List?)?.cast<String>()]);
+      // (Absents d'une bibliothèque gardée par une version d'avant : ancien format, on la redemande.)
+      return _Snapshot(tracks, albums, lists, (map['liked'] as List).cast<String>());
     } catch (_) {
       return null;
     }

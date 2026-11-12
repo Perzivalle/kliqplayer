@@ -88,6 +88,48 @@ void main() {
     expect(mini.page, isA<MenuPage>());
   });
 
+  test('Cover Flow : à force de tourner, la molette saute de lettre en lettre, puis redevient normale', () {
+    // Des albums rangés par artiste : trente en A, trente en B, trente en C.
+    final tracks = <Track>[], albums = <Album>[];
+    for (var i = 0; i < 90; i++) {
+      final artist = '${'ABC'[i ~/ 30]} artiste $i';
+      albums.add(Album(title: 'Album $i', artist: artist, firstIndex: i, trackCount: 1));
+      tracks.add(Track(id: '/x/$i.flac', title: 'Titre $i', artist: artist, album: 'Album $i'));
+    }
+    final player = PlayerController.preview(tracks: tracks, albums: albums);
+    var now = DateTime(2026);
+    withClock(Clock(() => now), () {
+      final nav = IpodNav(player, look: const ClassicLook());
+      _open(nav, 'Musique');
+      _open(nav, 'Cover Flow');
+      final cf = nav.page as CoverFlowPage;
+      void turn(int sign, int times) {
+        for (var i = 0; i < times; i++) {
+          now = now.add(const Duration(milliseconds: 50));
+          nav.scroll(sign);
+        }
+      }
+
+      turn(1, CoverFlowPage.lettersAfter);
+      expect(cf.selected, CoverFlowPage.lettersAfter, reason: 'un album par cran');
+      expect(cf.letters, isFalse);
+      turn(1, 1);
+      expect(cf.letters, isTrue);
+      expect(cf.selected, 60, reason: 'le premier en C');
+      expect(cf.letter(player, cf.selected), 'C');
+      expect(nav.scroll(1), isFalse, reason: 'dernière lettre');
+      turn(-1, 1);
+      expect(cf.selected, 30, reason: 'en arrière : le premier en B');
+      turn(-1, 1);
+      expect(cf.selected, 0);
+
+      now = now.add(const Duration(seconds: 2)); // la main s'arrête
+      expect(cf.letters, isFalse);
+      turn(1, 1);
+      expect(cf.selected, 1, reason: 'de nouveau un album par cran');
+    });
+  });
+
   test('Cover Flow : valider retourne la pochette, la molette parcourt ses morceaux, MENU la remet', () async {
     final player = _player();
     final nav = IpodNav(player, look: const ClassicLook());
