@@ -31,6 +31,20 @@ void main() {
     await capture(tester, 'site/img/features/drawer.png');
   });
 
+  // L'image du README (docs/screenshot.webp, convertie à la main : ffmpeg -i docs/screenshot.png …).
+  testWidgets('README : nano vert, tiroir ouvert', (tester) async {
+    final cover = File('site/img/covers/green.jpg').readAsBytesSync();
+    final model = Nano5Model(nano5Colors.firstWhere((c) => c.name == 'vert'));
+    await showStage(tester, playing('Close to the Edge', 'Yes', 'Close to the Edge', const Duration(seconds: 1123), cover), model,
+        size: const Size(620, 760));
+    await key(tester, LogicalKeyboardKey.arrowDown, 3); // Menu › Now Playing
+    await key(tester, LogicalKeyboardKey.enter);
+    await decode(tester);
+    await key(tester, LogicalKeyboardKey.keyT);
+    await frames(tester, 120);
+    await capture(tester, 'docs/screenshot.png');
+  });
+
   testWidgets('en lecture', (tester) async {
     const length = Duration(seconds: 234);
     final cover = File('site/img/covers/orange.jpg').readAsBytesSync();
