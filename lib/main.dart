@@ -11,6 +11,7 @@ import 'package:window_manager/window_manager.dart';
 import 'core/player.dart';
 import 'core/settings.dart';
 import 'core/source.dart';
+import 'core/version.dart';
 import 'sources/local/local_source.dart';
 import 'sources/spotify/librespot.dart';
 import 'sources/spotify/official_app.dart';
@@ -21,6 +22,7 @@ import 'ipod/screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
+  checkForUpdate(); // sans attendre : la ligne apparaît dans Réglages
   // Fenêtre sans décor ni fond : l'iPod flotte seul sur le bureau.
   final window = _window;
   if (window != null) {

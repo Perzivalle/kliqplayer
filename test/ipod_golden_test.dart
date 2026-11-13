@@ -348,6 +348,14 @@ void main() {
       await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_playlist_flow_flipped.png'));
     });
 
+    testWidgets('Fenêtre sans le clavier : le voyant de la prise est éteint (Classic)', (tester) async {
+      await _show(tester, IpodStage(player: _player(index: 0), initial: const ClassicModel()));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      addTearDown(() => tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+      await _frames(tester);
+      await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/classic_unfocused.png'));
+    });
+
     testWidgets('Cover Flow retourné (Classic)', (tester) async {
       final player = await _coverPlayer(tester);
       await _show(tester, IpodStage(player: player, initial: const ClassicModel()));

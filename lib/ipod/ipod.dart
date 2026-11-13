@@ -410,6 +410,14 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   Rect? _flyTo;
   bool _hideDevice = false;
 
+  /// La fenêtre a le clavier (voyant de la prise). Tant que le système ne
+  /// dit rien, on la tient pour active.
+  bool _focused = (WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed) == AppLifecycleState.resumed;
+  late final _focusWatch = AppLifecycleListener(onStateChange: (state) {
+    final focused = state == AppLifecycleState.resumed;
+    if (focused != _focused && mounted) setState(() => _focused = focused);
+  });
+
   /// Ballant du câble, relancé quand l'appareil bouge.
   final _sway = Spring(0, stiffness: 55, damping: 0.28);
   double? _lastSocketX;
@@ -427,6 +435,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     if (_win != null) WidgetsBinding.instance.addPostFrameCallback((_) => _takeWindow());
     _takeFullWindow();
     ipodFree.addListener(_freeChanged);
+    _focusWatch; // (créé maintenant : il n'écoute qu'une fois construit)
     // (En position libre, il arrive tout de suite là où on l'avait laissé.)
     _backX.value = _backRest.dx;
     _backY.value = _backRest.dy;
@@ -462,6 +471,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   void dispose() {
     ipodLanded.removeListener(_landed);
     ipodFree.removeListener(_freeChanged);
+    _focusWatch.dispose();
     _liveTimer?.cancel();
     _dragSettle?.cancel();
     _refit?.cancel();
@@ -816,6 +826,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       sway: _sway.value,
       fromBelow: !_model.jackOnTop,
       shiftY: _backY.value,
+      focused: _focused,
     );
   }
 
@@ -1080,7 +1091,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     // tenir (jamais agrandi).
     final m = _model;
     final pad = _devicePadding(w, h);
-    final f = math.min(1.0, math.min((w - pad.horizontal) / m.size.width, (h - pad.vertical) / m.size.height));
+    final f = math.min(_homeFit, math.min((w - pad.horizontal) / m.size.width, (h - pad.vertical) / m.size.height));
     final size = m.size * f;
     final left = (w - size.width - pad.horizontal) / 2 + pad.left;
     final top = (h - size.height - pad.vertical) / 2 + pad.top;
@@ -1128,6 +1139,19 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       (_model.jackOnTop
           ? _model.margin.copyWith(top: math.max(_model.margin.top, _cableRoom(h)))
           : _model.margin.copyWith(bottom: math.max(_model.margin.bottom, _cableRoom(h))));
+
+  /// Taille maximale de l'appareil, en part de sa taille dessinée. En plein
+  /// écran (Windows) rien ne le borne : il prend celle qu'il a dans sa propre
+  /// fenêtre (Linux), où les grands modèles sont réduits pour tenir. Les
+  /// modèles gardent ainsi entre eux les mêmes proportions partout.
+  double get _homeFit {
+    if (!_dragsInside) return 1;
+    final m = _model, win = m.windowSize, cable = win.height * 0.2;
+    final pad = m.jackOnTop
+        ? m.margin.copyWith(top: math.max(m.margin.top, cable))
+        : m.margin.copyWith(bottom: math.max(m.margin.bottom, cable));
+    return math.min(1.0, math.min((win.width - pad.horizontal) / m.size.width, (win.height - pad.vertical) / m.size.height));
+  }
 
   /// Hauteur gardée pour le câble. En plein écran (Windows) elle est
   /// plafonnée : sur un portable (écran mis à l'échelle, peu de hauteur),
@@ -1289,7 +1313,9 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                 // Couche à part : pendant que le tiroir bouge, l'appareil
                 // n'est pas repeint, seulement déplacé.
                 child: RepaintBoundary(
-                  child: FittedBox(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints.loose(_model.size * _homeFit),
+                    child: FittedBox(
                     child: IpodDevice(
                         key: _deviceKey(_model),
                         model: _model,
@@ -1300,6 +1326,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
                         onHoldUpdate: _holdUpdate,
                         onHoldEnd: _holdEnd,
                       ),
+                    ),
                   ),
                 ),
               ),

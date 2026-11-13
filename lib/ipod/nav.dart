@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/library.dart';
 import '../core/player.dart';
@@ -687,6 +688,8 @@ class IpodNav extends ChangeNotifier {
   MenuPage? _settingsPage;
 
   MenuPage _settings() => _settingsPage = MenuPage(tr('Réglages'), live: true, kind: MenuKind.split, () => [
+        if (newVersion case final version?)
+          MenuEntry(tr('Mise à jour'), value: () => version, action: () => launchUrl(Uri.parse(releasesUrl))),
         MenuEntry(tr('À propos'), open: _about),
         MenuEntry(
           tr('Bibliothèque'),

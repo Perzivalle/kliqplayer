@@ -37,6 +37,7 @@ class JackPainter extends CustomPainter {
     required this.sway,
     this.fromBelow = false,
     this.shiftY = 0,
+    this.focused = true,
   });
 
   /// Entrée de la prise sur la tranche de l'appareil, ou null (rien à dessiner).
@@ -60,6 +61,10 @@ class JackPainter extends CustomPainter {
   /// De combien la scène est décalée vers le bas dans la fenêtre (iPod tenu
   /// ou posé ailleurs qu'à sa place) : le câble va quand même jusqu'au bord.
   final double shiftY;
+
+  /// La fenêtre a le clavier (H J K L pilotent l'iPod) : le voyant de la
+  /// prise est vert ; éteint, il faut d'abord cliquer sur l'iPod.
+  final bool focused;
 
   // Nickel : un peu plus chaud et plus doux que le chrome.
   static const _nickel = [
@@ -154,9 +159,11 @@ class JackPainter extends CustomPainter {
     _printing(canvas, cable, w);
   }
 
-  /// « AUDIO CABLE » imprimé en blanc le long du câble, lettre par lettre.
+  /// Le marquage imprimé en blanc le long du câble, lettre par lettre : ce
+  /// qu'on lit sur une vraie gaine (type de fil homologué, température et
+  /// tension maximales, tenue au feu, section des conducteurs, RoHS).
   void _printing(Canvas canvas, Path cable, double w) {
-    const text = 'AUDIO CABLE';
+    const text = 'AWM 2725 80°C 30V VW-1 28AWG/2C RoHS';
     final fontSize = w * 0.55;
     if (fontSize < 3) return;
     final style = TextStyle(
@@ -176,8 +183,9 @@ class JackPainter extends CustomPainter {
     final spacing = fontSize * 0.28;
     final word = glyphs.fold(0.0, (sum, g) => sum + g.width + spacing);
     for (final metric in cable.computeMetrics()) {
-      // Premier mot un peu après la gaine, puis un tous les 3,5 mots.
-      for (var start = w * 3; start + word < metric.length; start += word * 3.5) {
+      // Le marquage commence un peu après la gaine et se répète plus loin ;
+      // la sortie de la fenêtre le coupe où elle veut, comme un vrai câble.
+      for (var start = w * 3; start < metric.length; start += word * 1.6) {
         var d = start;
         for (final g in glyphs) {
           final t = metric.getTangentForOffset(d + g.width / 2);
@@ -308,6 +316,36 @@ class JackPainter extends CustomPainter {
       ..strokeWidth = math.max(0.5, 0.8 * s);
     canvas.drawLine(knurl.topLeft, knurl.topRight, edge);
     canvas.drawLine(knurl.bottomLeft, knurl.bottomRight, edge);
+
+    // Voyant : un anneau translucide qui fait le tour du fût, juste avant la
+    // collerette. Vert quand la fenêtre a le clavier, éteint sinon.
+    final ring = Rect.fromLTRB(barrel.left, barrel.bottom - 8 * s, barrel.right, barrel.bottom - 3.5 * s);
+    if (focused) {
+      canvas.drawRect(
+        ring.inflate(2.5 * s),
+        Paint()
+          ..color = const Color(0xFF4CE06A).withValues(alpha: 0.55)
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, math.max(1, 3 * s)),
+      );
+    }
+    // Plus clair là où le cylindre fait face, sombre sur ses bords.
+    canvas.drawRect(
+      ring,
+      Paint()
+        ..shader = ui.Gradient.linear(
+          ring.centerLeft,
+          ring.centerRight,
+          focused
+              ? const [Color(0xFF1FA53F), Color(0xFFD8FFD9), Color(0xFF4CE06A), Color(0xFF128A2E)]
+              : const [Color(0xFF3A3D40), Color(0xFF8C9093), Color(0xFF606467), Color(0xFF2E3033)],
+          const [0, 0.32, 0.6, 1],
+        ),
+    );
+    final rim = Paint()
+      ..color = Colors.black.withValues(alpha: 0.3)
+      ..strokeWidth = math.max(0.5, 0.7 * s);
+    canvas.drawLine(ring.topLeft, ring.topRight, rim);
+    canvas.drawLine(ring.bottomLeft, ring.bottomRight, rim);
 
     // Collerette côté pointe, un peu plus large, striée en biais.
     final cw = JackGeometry.collarWidth * s;

@@ -5,6 +5,7 @@ import 'package:lecteur/core/player.dart';
 import 'package:lecteur/ipod/classic.dart';
 import 'package:lecteur/ipod/ipod.dart';
 import 'package:lecteur/ipod/nav.dart';
+import 'package:lecteur/ipod/vintage.dart';
 
 void main() {
   group('découpe de la fenêtre', () {
@@ -236,6 +237,27 @@ void main() {
       final end = tester.getRect(find.byType(IpodDevice));
       expect(end.center.dx, closeTo(home.center.dx, 0.5));
       expect(end.center.dy, closeTo(home.center.dy, 0.5));
+    });
+
+    testWidgets('grande fenêtre : chaque modèle garde la taille qu\'il a dans sa propre fenêtre', (tester) async {
+      tester.view
+        ..physicalSize = window
+        ..devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      IpodStage.debugDragInside = true;
+      addTearDown(() => IpodStage.debugDragInside = false);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            type: MaterialType.transparency,
+            child: IpodStage(player: PlayerController.preview(), initial: const FirstGenModel()),
+          ),
+        ),
+      );
+      await settle(tester);
+      // 680 de haut dessiné ; dans sa fenêtre de 740 (148 pour le câble, 40
+      // de marge), il en fait 552. Pareil ici, malgré toute la place.
+      expect(tester.getRect(find.byType(IpodDevice)).height, closeTo(552, 0.5));
     });
   });
 }

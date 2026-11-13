@@ -65,6 +65,7 @@ const _strings = <String, List<String>>{
   'Non': ['Off', 'No', 'Aus'],
   'Oui': ['On', 'Sí', 'Ein'],
   'Premier plan': ['Always on Top', 'Siempre visible', 'Im Vordergrund'],
+  'Mise à jour': ['Update', 'Actualización', 'Update'],
   'Position': ['Position', 'Posición', 'Position'],
   'Libre': ['Free', 'Libre', 'Frei'],
   'Fixe': ['Fixed', 'Fija', 'Fest'],
