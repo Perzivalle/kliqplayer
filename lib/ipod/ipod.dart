@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:developer' show Timeline;
 import 'dart:ffi' as ffi;
 import 'dart:io';
@@ -35,6 +36,7 @@ import 'wheel.dart';
 export 'wheel.dart' show IpodWheel, WheelStyle, WheelZone;
 
 part 'ipod_bench.dart';
+part 'ipod_demo.dart';
 part 'ipod_device.dart';
 part 'ipod_painters.dart';
 part 'ipod_window.dart';
@@ -468,6 +470,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       }
     }
     if (Platform.environment['LECTEUR_BENCH'] != null) _bench();
+    if (Platform.environment['LECTEUR_DEMO'] != null) _demo();
   }
 
   void _landed() {
