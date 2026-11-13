@@ -9,7 +9,7 @@ const appVersion = '0.7.0';
 /// Page où télécharger la dernière version.
 const releasesUrl = 'https://github.com/Perzivalle/kliqplayer/releases/latest';
 
-/// Version publiée plus récente que celle-ci, une fois connue : Réglages
+/// Version publiée plus récente que celle-ci, une fois connue : le menu principal
 /// affiche alors une ligne « Mise à jour ».
 String? newVersion;
 

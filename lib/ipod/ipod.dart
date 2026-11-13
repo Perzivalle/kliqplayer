@@ -415,8 +415,23 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
   bool _focused = (WidgetsBinding.instance.lifecycleState ?? AppLifecycleState.resumed) == AppLifecycleState.resumed;
   late final _focusWatch = AppLifecycleListener(onStateChange: (state) {
     final focused = state == AppLifecycleState.resumed;
-    if (focused != _focused && mounted) setState(() => _focused = focused);
+    if (focused != _focused && mounted) {
+      _focused = focused;
+      _kick(); // le voyant s'allume ou s'éteint en fondu (voir _stepGlow)
+    }
   });
+
+  /// Éclat du voyant, de 0 (éteint) à 1 (allumé), qui suit [_focused].
+  late double _glow = _focused ? 1 : 0;
+
+  /// Durée du fondu du voyant.
+  static const _glowTime = 0.2;
+
+  void _stepGlow(double dt) {
+    final target = _focused ? 1.0 : 0.0;
+    if (_glow < target) _glow = math.min(target, _glow + dt / _glowTime);
+    if (_glow > target) _glow = math.max(target, _glow - dt / _glowTime);
+  }
 
   /// Ballant du câble, relancé quand l'appareil bouge.
   final _sway = Spring(0, stiffness: 55, damping: 0.28);
@@ -543,6 +558,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       screenPower.value = true;
     }
     _stepSway(dt);
+    _stepGlow(dt);
     _updateDrawerSnap();
     setState(() {});
     if (!_dragging &&
@@ -556,6 +572,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
         _movePeekL.isSettled &&
         _movePeekR.isSettled &&
         _swaySettled &&
+        _glow == (_focused ? 1 : 0) &&
         _geoFrom == null &&
         _plug.isSettled) {
       _ticker.stop();
@@ -826,7 +843,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
       sway: _sway.value,
       fromBelow: !_model.jackOnTop,
       shiftY: _backY.value,
-      focused: _focused,
+      glow: Curves.easeInOut.transform(_glow),
     );
   }
 

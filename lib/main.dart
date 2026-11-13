@@ -22,7 +22,7 @@ import 'ipod/screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   MediaKit.ensureInitialized();
-  checkForUpdate(); // sans attendre : la ligne apparaît dans Réglages
+  checkForUpdate(); // sans attendre : la ligne apparaît dans le menu principal
   // Fenêtre sans décor ni fond : l'iPod flotte seul sur le bureau.
   final window = _window;
   if (window != null) {

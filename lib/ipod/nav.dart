@@ -651,6 +651,9 @@ class IpodNav extends ChangeNotifier {
         // Ce qui n'a pas marché (pas d'appareil Spotify…) ; valider l'efface.
         if (player.notice case final notice?)
           MenuEntry(notice, action: player.dismissNotice),
+        // Une version plus récente est publiée : valider ouvre sa page.
+        if (newVersion case final version?)
+          MenuEntry(tr('Mise à jour'), value: () => version, action: () => launchUrl(Uri.parse(releasesUrl))),
         MenuEntry(tr('Musique'), open: _music),
         MenuEntry(tr('Réglages'), open: _settings, preview: MenuPreview.settings),
         MenuEntry(tr('Morceau au hasard'), action: () {
@@ -733,8 +736,6 @@ class IpodNav extends ChangeNotifier {
   MenuPage? _settingsPage;
 
   MenuPage _settings() => _settingsPage = MenuPage(tr('Réglages'), live: true, kind: MenuKind.split, () => [
-        if (newVersion case final version?)
-          MenuEntry(tr('Mise à jour'), value: () => version, action: () => launchUrl(Uri.parse(releasesUrl))),
         MenuEntry(tr('À propos'), open: _about),
         MenuEntry(
           tr('Bibliothèque'),

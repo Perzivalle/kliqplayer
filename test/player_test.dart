@@ -236,16 +236,12 @@ void main() {
     expect(isNewer('v0.6.4', '0.6.5'), isFalse);
   });
 
-  test('Réglages propose la mise à jour quand il y en a une', () {
+  test('le menu principal propose la mise à jour quand il y en a une', () {
     final nav = IpodNav(PlayerController.preview(), look: const ClassicModel().look);
     addTearDown(() => newVersion = null);
-    List<String> settings() {
-      final root = nav.stack.first as MenuPage;
-      final page = root.entries.firstWhere((e) => e.label == 'Réglages').open!() as MenuPage;
-      return [for (final e in page.entries) e.label];
-    }
-    expect(settings(), isNot(contains('Mise à jour')));
+    List<String> root() => [for (final e in (nav.stack.first as MenuPage).entries) e.label];
+    expect(root(), isNot(contains('Mise à jour')));
     newVersion = '9.0.0';
-    expect(settings().first, 'Mise à jour');
+    expect(root().first, 'Mise à jour');
   });
 }

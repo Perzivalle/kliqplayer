@@ -37,7 +37,7 @@ class JackPainter extends CustomPainter {
     required this.sway,
     this.fromBelow = false,
     this.shiftY = 0,
-    this.focused = true,
+    this.glow = 1,
   });
 
   /// Entrée de la prise sur la tranche de l'appareil, ou null (rien à dessiner).
@@ -62,9 +62,10 @@ class JackPainter extends CustomPainter {
   /// ou posé ailleurs qu'à sa place) : le câble va quand même jusqu'au bord.
   final double shiftY;
 
-  /// La fenêtre a le clavier (H J K L pilotent l'iPod) : le voyant de la
-  /// prise est vert ; éteint, il faut d'abord cliquer sur l'iPod.
-  final bool focused;
+  /// Voyant de la prise, de 0 à 1 : vert quand la fenêtre a le clavier
+  /// (H J K L pilotent l'iPod) ; éteint, il faut d'abord cliquer sur l'iPod.
+  /// Les valeurs entre les deux font le fondu.
+  final double glow;
 
   // Nickel : un peu plus chaud et plus doux que le chrome.
   static const _nickel = [
@@ -320,11 +321,11 @@ class JackPainter extends CustomPainter {
     // Voyant : un anneau translucide qui fait le tour du fût, juste avant la
     // collerette. Vert quand la fenêtre a le clavier, éteint sinon.
     final ring = Rect.fromLTRB(barrel.left, barrel.bottom - 8 * s, barrel.right, barrel.bottom - 3.5 * s);
-    if (focused) {
+    if (glow > 0) {
       canvas.drawRect(
         ring.inflate(2.5 * s),
         Paint()
-          ..color = const Color(0xFF4CE06A).withValues(alpha: 0.55)
+          ..color = const Color(0xFF4CE06A).withValues(alpha: 0.55 * glow)
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, math.max(1, 3 * s)),
       );
     }
@@ -335,9 +336,15 @@ class JackPainter extends CustomPainter {
         ..shader = ui.Gradient.linear(
           ring.centerLeft,
           ring.centerRight,
-          focused
-              ? const [Color(0xFF1FA53F), Color(0xFFD8FFD9), Color(0xFF4CE06A), Color(0xFF128A2E)]
-              : const [Color(0xFF3A3D40), Color(0xFF8C9093), Color(0xFF606467), Color(0xFF2E3033)],
+          [
+            for (final (off, on) in const [
+              (Color(0xFF3A3D40), Color(0xFF1FA53F)),
+              (Color(0xFF8C9093), Color(0xFFD8FFD9)),
+              (Color(0xFF606467), Color(0xFF4CE06A)),
+              (Color(0xFF2E3033), Color(0xFF128A2E)),
+            ])
+              Color.lerp(off, on, glow)!,
+          ],
           const [0, 0.32, 0.6, 1],
         ),
     );
