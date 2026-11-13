@@ -89,6 +89,31 @@ class MediaKitEngine extends PlaybackEngine {
   }
 
   @override
+  Future<bool> replaceUpcoming(List<Track> upcoming) async {
+    final playlist = _player.state.playlist;
+    final at = playlist.index;
+    // (En aléatoire, mpv tient son propre ordre : on n'y touche pas.)
+    if (_shuffle || at < 0 || at >= playlist.medias.length) return false;
+    final medias = [for (final t in upcoming) Media(t.id)];
+    // Les rangs d'abord : mpv annonce son rang à chaque retouche de la liste.
+    _rank = {playlist.medias[at].uri: 0};
+    for (var i = 0; i < medias.length; i++) {
+      _rank.putIfAbsent(medias[i].uri, () => i + 1);
+    }
+    _index = 0;
+    for (var i = playlist.medias.length - 1; i > at; i--) {
+      await _player.remove(i);
+    }
+    for (var i = 0; i < at; i++) {
+      await _player.remove(0);
+    }
+    for (final m in medias) {
+      await _player.add(m);
+    }
+    return true;
+  }
+
+  @override
   Future<void> play() => _player.play();
   @override
   Future<void> pause() => _player.pause();

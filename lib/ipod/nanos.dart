@@ -222,6 +222,9 @@ class Nano4Model extends IpodModel {
   Color get swatch => color.base;
 
   @override
+  Color get coverColor => color.base;
+
+  @override
   Size get size => _size;
 
   @override
@@ -311,6 +314,9 @@ class Nano5Model extends IpodModel {
 
   @override
   Color get swatch => color.base;
+
+  @override
+  Color get coverColor => color.base;
 
   @override
   Size get size => _size;

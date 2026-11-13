@@ -41,6 +41,10 @@ abstract class IpodModel {
   double get jackX;
   bool get jackOnTop => true;
 
+  /// Teinte à laquelle assortir les pochettes (Couleur au hasard, nano 4G
+  /// et 5G) ; null : pas de Couleur au hasard sur ce modèle.
+  Color? get coverColor => null;
+
   /// Verrou (Hold) sur la tranche, purement décoratif : on le voit, il ne
   /// fait rien.
   HoldSwitch? get hold => null;

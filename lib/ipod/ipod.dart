@@ -142,7 +142,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
 
   /// Navigation dans les menus : elle appartient à la scène, pas à
   /// l'appareil, si bien qu'en changeant d'iPod on reste sur le même écran.
-  late final IpodNav _nav = IpodNav(widget.player, look: _model.look);
+  late final IpodNav _nav = IpodNav(widget.player, look: _model.look)..coverColor = _model.coverColor;
   @override
   bool get _remember => widget.initial == null;
 
@@ -943,6 +943,7 @@ class _IpodStageState extends State<IpodStage> with SingleTickerProviderStateMix
     final anchor = _anchor;
     if (anchor != null) _anchor = Rect.fromCenter(center: anchor.center, width: m.size.width, height: m.size.height);
     _nav.fitLook(m.look);
+    _nav.coverColor = m.coverColor;
     widget.player.setForcedShuffle(_shuffles(m));
     if (m.size != _model.size && _geoShown != null) {
       _geoFrom = _geoShown;

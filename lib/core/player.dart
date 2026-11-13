@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show Color;
 
+import 'cover_color.dart';
 import 'engine.dart';
 import 'library.dart';
 import 'paths.dart';
@@ -200,6 +202,7 @@ class PlayerController extends ChangeNotifier {
     _albumCovers.clear();
     _listCovers.clear();
     _coverLoads.clear();
+    _coverPixels.clear();
     _coverGeneration++;
     loading = false;
     notifyListeners();
@@ -418,6 +421,37 @@ class PlayerController extends ChangeNotifier {
     return null;
   }
 
+  /// Pochette de chaque album réduite à 16 × 16 (Couleur au hasard), lue
+  /// une fois par bibliothèque.
+  final Map<int, Uint8List?> _coverPixels = {};
+
+  /// Les albums (leurs morceaux) dont la pochette est assortie à [color] (la
+  /// teinte de l'iPod). La première fois, toutes les pochettes sont lues :
+  /// quelques secondes sur une grande bibliothèque (téléchargées, sur Spotify).
+  Future<List<List<Track>>> albumsMatching(Color color) async {
+    final generation = _coverGeneration;
+    final todo = [for (var i = 0; i < albums.length; i++) if (!_coverPixels.containsKey(i)) i];
+    // Huit à la fois : chacune est lue dans un isolate, ou téléchargée.
+    for (var k = 0; k < todo.length; k += 8) {
+      await Future.wait([
+        for (final i in todo.skip(k).take(8))
+          _source.artwork(tracks[albums[i].firstIndex]).then(
+                (bytes) async => _coverPixels[i] = bytes == null ? null : await shrinkCover(bytes),
+                onError: (_) => _coverPixels[i] = null,
+              ),
+      ]);
+      if (generation != _coverGeneration) return const []; // autre bibliothèque entre-temps
+    }
+    final shares = [
+      for (var i = 0; i < albums.length; i++)
+        if (_coverPixels[i] case final px?) (i, coverShare(px, color)),
+    ]..sort((a, b) => b.$2.compareTo(a.$2));
+    final picked = shares.take(coverMatchCount([for (final s in shares) s.$2]));
+    return [
+      for (final (i, _) in picked) tracks.sublist(albums[i].firstIndex, albums[i].firstIndex + albums[i].trackCount),
+    ];
+  }
+
   final Map<SongList, List<Uint8List>> _listCovers = {};
 
   /// Pochettes de la liste [l] (Cover Flow des listes) : son image chez la
@@ -552,6 +586,23 @@ class PlayerController extends ChangeNotifier {
     _countPlay(list[start]);
     notifyListeners();
     await _run((e) => e.open(list, start, uri: uri));
+  }
+
+  /// Garde le morceau en cours et remplace la suite de la file par
+  /// [upcoming] (Couleur au hasard, quand la teinte de l'iPod change). Faux
+  /// si le moteur ne sait pas le faire (aléatoire de mpv) : rien ne change.
+  Future<bool> replaceUpcoming(List<Track> upcoming) async {
+    final now = current;
+    if (now == null || queueIndex < 0) return false;
+    try {
+      if (!await _engine.replaceUpcoming(upcoming)) return false;
+    } catch (_) {
+      return false; // (la file du moteur reste ce qu'elle était, ou presque)
+    }
+    nowPlaying = [now, ...upcoming];
+    queueIndex = 0;
+    notifyListeners();
+    return true;
   }
 
   /// Joue une liste dont on ne connaît que l'identifiant chez la source

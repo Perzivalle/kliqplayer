@@ -528,7 +528,8 @@ void main() {
           IpodStage(player: _player(index: 5, position: const Duration(minutes: 1, seconds: 23)), initial: model),
         );
         // (Les écrans monochromes ont « Rétroéclairage » avant « En lecture ».)
-        await _key(tester, LogicalKeyboardKey.arrowDown, model.look.mono ? 4 : 3);
+        // (Une ligne de plus avant « En lecture » : Rétroéclairage, ou Couleur au hasard.)
+        await _key(tester, LogicalKeyboardKey.arrowDown, model.look.mono || model.coverColor != null ? 4 : 3);
         await _key(tester, LogicalKeyboardKey.enter);
         await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/${name}_now_playing.png'));
       });

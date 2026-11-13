@@ -208,6 +208,20 @@ void main() {
     expect(p.tracks.single.id, 'c');
   });
 
+  test('remplacer la suite de la file : le morceau en cours continue, puis la nouvelle suite', () async {
+    final source = _Source(_library([_t('a', n: 1), _t('b', n: 2), _t('c', n: 3), _t('x', album: 'X'), _t('y', album: 'X')]));
+    final p = PlayerController(source);
+    addTearDown(p.dispose);
+    await p.loadLibrary();
+    await p.playTracks(p.tracks.sublist(0, 3), 1); // b en cours
+    final x = p.tracks.firstWhere((t) => t.id == 'x'), y = p.tracks.firstWhere((t) => t.id == 'y');
+    expect(await p.replaceUpcoming([y, x]), isTrue);
+    expect(p.nowPlaying.map((t) => t.id), ['b', 'y', 'x']);
+    expect(p.current?.id, 'b', reason: 'rien ne change pour le morceau en cours');
+    await p.next();
+    expect(p.current?.id, 'y', reason: 'le suivant vient de la nouvelle suite');
+  });
+
   test('la version d\'À propos est celle du pubspec', () {
     final pubspec = File('pubspec.yaml').readAsStringSync();
     final version = RegExp(r'^version: ([0-9.]+)', multiLine: true).firstMatch(pubspec)!.group(1);

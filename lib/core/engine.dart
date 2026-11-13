@@ -47,6 +47,11 @@ abstract class PlaybackEngine {
   /// la source (album, liste), quand elle en a une.
   Future<void> open(List<Track> queue, int start, {String? uri});
 
+  /// Garde le morceau en cours et met [upcoming] à sa suite, à la place du
+  /// reste de la file : la file devient le morceau en cours (rang 0), puis
+  /// [upcoming]. Faux si le moteur ne sait pas le faire maintenant.
+  Future<bool> replaceUpcoming(List<Track> upcoming) async => false;
+
   Future<void> play();
   Future<void> pause();
   Future<void> next();
@@ -90,6 +95,14 @@ class SilentEngine extends PlaybackEngine {
     _queue = queue;
     _index = start;
     _emit(EngineUpdate(index: start, playing: true, position: Duration.zero, duration: queue[start].duration));
+  }
+
+  @override
+  Future<bool> replaceUpcoming(List<Track> upcoming) async {
+    if (_index < 0) return false;
+    _queue = [_queue[_index], ...upcoming];
+    _index = 0;
+    return true;
   }
 
   @override

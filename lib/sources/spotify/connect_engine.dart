@@ -341,6 +341,20 @@ class SpotifyConnectEngine extends PlaybackEngine {
     _emit(const EngineUpdate(playing: true, position: Duration.zero));
   }
 
+  /// Ce que Spotify a déjà reçu ne se retire pas : on passe à la main
+  /// ([_manual]). La suite lui est donnée morceau par morceau, juste avant
+  /// la fin de celui en cours (voir [_extend]), ou lancée par ⏭.
+  @override
+  Future<bool> replaceUpcoming(List<Track> upcoming) async {
+    if (_current < 0 || _current >= _queue.length) return false;
+    _queue = [_queue[_current], ...upcoming];
+    _order = [for (var i = 0; i < _queue.length; i++) i];
+    _given = 1;
+    _manual = true;
+    _current = 0;
+    return true;
+  }
+
   /// À la main : la suite de la file, mélangée ou dans l'ordre, après ce
   /// que Spotify a déjà reçu.
   void _reorder(bool shuffled) {

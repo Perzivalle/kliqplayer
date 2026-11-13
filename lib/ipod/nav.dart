@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/cover_color.dart';
 import '../core/library.dart';
 import '../core/player.dart';
 import '../core/settings.dart';
@@ -595,6 +596,49 @@ class IpodNav extends ChangeNotifier {
 
   void transitionDone() => leaving = null;
 
+  /// Teinte de l'iPod en main, s'il a Couleur au hasard (nano 4G et 5G).
+  Color? get coverColor => _coverColor;
+  Color? _coverColor;
+
+  /// En pleine Couleur au hasard, une autre teinte : la suite de la file
+  /// prend ses pochettes à elle, dès le morceau suivant.
+  set coverColor(Color? color) {
+    final was = _coverColor;
+    _coverColor = color;
+    if (color != null && color != was && _colorQueue != null && identical(player.nowPlaying, _colorQueue)) {
+      _recolor(color);
+    }
+  }
+
+  /// La file lancée par Couleur au hasard, tant que c'est elle qui joue.
+  List<Track>? _colorQueue;
+  int _recolors = 0;
+
+  Future<void> _recolor(Color color) async {
+    final ticket = ++_recolors;
+    final albums = await player.albumsMatching(color);
+    // Une autre teinte entre-temps, ou une autre musique lancée.
+    if (ticket != _recolors || !identical(player.nowPlaying, _colorQueue)) return;
+    final playing = player.current;
+    final upcoming = [for (final t in spreadAlbums(albums)) if (t.id != playing?.id) t];
+    if (upcoming.isEmpty) return;
+    if (await player.replaceUpcoming(upcoming)) _colorQueue = player.nowPlaying;
+  }
+
+  /// Couleur au hasard : les morceaux des albums dont la pochette est
+  /// assortie à l'iPod, les pochettes variant d'un morceau à l'autre. Le temps de lire les pochettes, une
+  /// page « Chargement… ».
+  Future<void> _colorShuffle(Color color) async {
+    final wait = MenuPage(tr('Couleur au hasard'), () => [MenuEntry(tr('Chargement…'))]);
+    _push(wait);
+    final list = spreadAlbums(await player.albumsMatching(color));
+    if (!identical(page, wait)) return; // on est reparti entre-temps
+    stack.removeLast();
+    if (list.isEmpty) return _push(MenuPage(tr('Couleur au hasard'), () => [MenuEntry(tr('Aucun élément'))]));
+    _play(list, 0);
+    _colorQueue = list;
+  }
+
   /// Joue [list] depuis le morceau [index] et passe à En lecture.
   void _play(List<Track> list, int index, {String? uri}) {
     player.playTracks(list, index, uri: uri);
@@ -613,6 +657,7 @@ class IpodNav extends ChangeNotifier {
           if (player.tracks.isEmpty) return;
           _play(player.tracks, math.Random().nextInt(player.tracks.length));
         }),
+        if (coverColor case final color?) MenuEntry(tr('Couleur au hasard'), action: () => _colorShuffle(color)),
         // Sur les écrans monochromes, le rétroéclairage s'éteint d'ici.
         if (look.mono) MenuEntry(tr('Rétroéclairage'), action: darken),
         if (player.current != null)
