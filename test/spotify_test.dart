@@ -208,6 +208,20 @@ void main() {
     });
   });
 
+  test('Couleur au hasard, autre teinte : Spotify reçoit toute la nouvelle suite, le morceau en cours d\'abord', () async {
+    final fake = _FakeSpotify()..deviceActive = true;
+    final player = PlayerController(SpotifySource(_account(fake)));
+    addTearDown(player.dispose);
+    await player.loadLibrary();
+    await player.playTracks(player.tracks.sublist(0, 2), 0); // a1 en cours, puis a2
+    expect(await player.replaceUpcoming([player.tracks[2]]), isTrue);
+    final play = fake.plays.last;
+    expect(play['uris'], ['spotify:track:a1', 'spotify:track:b1'], reason: 'plus rien de l\'ancienne suite chez Spotify');
+    expect(play['offset'], {'position': 0});
+    expect(play['position_ms'], isA<int>(), reason: 'le morceau en cours reprend là où il en est');
+    expect(player.nowPlaying.map((t) => t.id), ['spotify:track:a1', 'spotify:track:b1']);
+  });
+
   test('une suite de morceaux acceptée mais pas jouée : chaque morceau lancé dans son album', () async {
     final fake = _FakeSpotify()
       ..deviceActive = true

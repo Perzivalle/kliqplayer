@@ -52,6 +52,7 @@ class SpotifyConnectEngine extends PlaybackEngine {
   /// en était le morceau à la dernière réponse.
   int _current = -1;
   Duration _progress = Duration.zero;
+  DateTime _progressAt = DateTime(0);
 
   /// Ce qu'on sait de l'état, d'après la dernière réponse ou commande.
   bool _playing = false;
@@ -74,7 +75,10 @@ class SpotifyConnectEngine extends PlaybackEngine {
     if (_disposed) return;
     if (u.playing != null) _playing = u.playing!;
     if (u.index != null) _current = u.index!;
-    if (u.position != null) _progress = u.position!;
+    if (u.position != null) {
+      _progress = u.position!;
+      _progressAt = DateTime.now();
+    }
     onUpdate?.call(u);
   }
 
@@ -341,17 +345,40 @@ class SpotifyConnectEngine extends PlaybackEngine {
     _emit(const EngineUpdate(playing: true, position: Duration.zero));
   }
 
-  /// Ce que Spotify a déjà reçu ne se retire pas : on passe à la main
-  /// ([_manual]). La suite lui est donnée morceau par morceau, juste avant
-  /// la fin de celui en cours (voir [_extend]), ou lancée par ⏭.
+  /// Ce que Spotify a déjà reçu ne se retire pas de sa file : on lui donne
+  /// la nouvelle suite d'un coup, en reprenant le morceau en cours là où il
+  /// en est (un très court blanc). Sinon il reprendrait l'ancienne suite dès
+  /// qu'un morceau lui échappe.
   @override
   Future<bool> replaceUpcoming(List<Track> upcoming) async {
     if (_current < 0 || _current >= _queue.length) return false;
-    _queue = [_queue[_current], ...upcoming];
-    _order = [for (var i = 0; i < _queue.length; i++) i];
-    _given = 1;
-    _manual = true;
+    final queue = [_queue[_current], ...upcoming];
+    if (_listsRefused) {
+      // À la main : la suite lui est donnée morceau par morceau, juste avant
+      // la fin de celui en cours (voir [_extend]), ou lancée par ⏭.
+      _queue = queue;
+      _order = [for (var i = 0; i < queue.length; i++) i];
+      _given = 1;
+      _manual = true;
+      _current = 0;
+      return true;
+    }
+    // Où en est le morceau : la dernière réponse, plus le temps écoulé depuis.
+    var at = _playing ? _progress + DateTime.now().difference(_progressAt) : _progress;
+    if (_length case final length? when at > length) at = length;
+    final given = math.min(_window, queue.length);
+    await _onThisPc((q) => _api.put('/me/player/play', query: q, body: {
+          'uris': [for (final t in queue.take(given)) t.id],
+          'offset': {'position': 0},
+          'position_ms': at.inMilliseconds,
+        }));
+    // (Seulement une fois accepté : refusé, l'ancienne file reste la bonne.)
+    _queue = queue;
+    _order = [for (var i = 0; i < queue.length; i++) i];
+    _given = given;
+    _manual = false;
     _current = 0;
+    _soon();
     return true;
   }
 
